@@ -73,6 +73,12 @@ type ScanRecord = {
 
 type CardsPerPage = 4 | 6 | 8
 
+const QR_SCAN_INTERVAL_MS = 100
+const QR_FAST_SCAN_MAX_DIMENSION = 360
+const QR_FULL_SCAN_MAX_DIMENSION = 480
+const QR_FULL_FRAME_EVERY = 5
+const QR_CENTER_REGION_RATIO = 0.78
+
 const aliases = {
   id: ['رقم الطالب', 'الهوية', 'رقم الهوية', 'student id', 'id', 'الرقم'],
   name: ['اسم الطالب', 'الاسم', 'اسم', 'student name', 'name'],
@@ -196,6 +202,7 @@ function App() {
   const streamRef = useRef<MediaStream | null>(null)
   const animFrameRef = useRef<number>(0)
   const lastScanAtRef = useRef(0)
+  const scanFrameRef = useRef(0)
   const scanContextRef = useRef<CanvasRenderingContext2D | null>(null)
   const cameraWrapperRef = useRef<HTMLDivElement>(null)
   const overlayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -665,6 +672,7 @@ function App() {
     }
     scanContextRef.current = null
     lastScanAtRef.current = 0
+    scanFrameRef.current = 0
     setIsCameraActive(false)
     setTorchOn(false)
     setNotice('تم إيقاف الكاميرا وإنهاء الحصر.')
@@ -706,15 +714,22 @@ function App() {
     const canvas = canvasRef.current
     const now = performance.now()
 
-    // QR analysis is deliberately throttled and downscaled to avoid freezing the browser.
-    if (now - lastScanAtRef.current >= 180 && video.readyState >= video.HAVE_ENOUGH_DATA && canvas) {
+    if (now - lastScanAtRef.current >= QR_SCAN_INTERVAL_MS && video.readyState >= video.HAVE_ENOUGH_DATA && canvas) {
       lastScanAtRef.current = now
       const sourceWidth = video.videoWidth
       const sourceHeight = video.videoHeight
-      const scanWidth = Math.min(sourceWidth, 480)
-      const scanHeight = sourceWidth > 0
-        ? Math.round(sourceHeight * (scanWidth / sourceWidth))
-        : 0
+      const isFullFrameScan = ++scanFrameRef.current % QR_FULL_FRAME_EVERY === 0
+      const regionRatio = isFullFrameScan ? 1 : QR_CENTER_REGION_RATIO
+      const regionX = Math.round(sourceWidth * (1 - regionRatio) / 2)
+      const regionY = Math.round(sourceHeight * (1 - regionRatio) / 2)
+      const regionWidth = Math.max(1, Math.round(sourceWidth * regionRatio))
+      const regionHeight = Math.max(1, Math.round(sourceHeight * regionRatio))
+      const maxDimension = isFullFrameScan
+        ? QR_FULL_SCAN_MAX_DIMENSION
+        : QR_FAST_SCAN_MAX_DIMENSION
+      const scale = Math.min(1, maxDimension / Math.max(regionWidth, regionHeight))
+      const scanWidth = Math.max(1, Math.round(regionWidth * scale))
+      const scanHeight = Math.max(1, Math.round(regionHeight * scale))
 
       if (scanWidth > 0 && scanHeight > 0 && (canvas.width !== scanWidth || canvas.height !== scanHeight)) {
         canvas.width = scanWidth
@@ -724,7 +739,17 @@ function App() {
 
       const ctx = scanContextRef.current
       if (ctx) {
-        ctx.drawImage(video, 0, 0, scanWidth, scanHeight)
+        ctx.drawImage(
+          video,
+          regionX,
+          regionY,
+          regionWidth,
+          regionHeight,
+          0,
+          0,
+          scanWidth,
+          scanHeight,
+        )
         const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
         const code = jsQR(imageData.data, imageData.width, imageData.height, {
           inversionAttempts: 'dontInvert',
