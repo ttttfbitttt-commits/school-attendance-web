@@ -883,42 +883,70 @@ function App() {
     }
   }
 
-  // تصدير سجل الحضور كـ CSV (Excel)
-  const exportScanLogCsv = () => {
-    if (!scanLog.length) {
-      setNotice('لا يوجد طلاب مسجلين في سجل اليوم لتصديره')
+  // Export the same default daily report as the desktop report dialog.
+  const exportAttendanceXlsx = () => {
+    if (!students.length && !scanLog.length) {
+      setNotice('لا توجد بيانات طلاب لتصديرها')
       return
     }
-    const headers = ['م', 'اليوم', 'التاريخ', 'الوقت', 'رقم الطالب', 'اسم الطالب', 'الصف', 'الفصل', 'رقم الجوال', 'الحالة']
-    const rows = scanLog.map((r, index) => [
-      index + 1,
-      r.day,
-      r.date,
-      r.time,
-      r.studentId,
-      r.name,
-      r.grade,
-      r.classroom,
-      r.phone,
-      r.status === 'present' ? 'حاضر' : 'متأخر',
-    ])
+    const reportDate = getTodayDateStr()
+    const reportDay = new Intl.DateTimeFormat('en-US', { weekday: 'long' }).format(new Date(`${reportDate}T12:00:00`))
+    const attendanceByStudent = new Map<string, ScanRecord>()
 
-    const csvContent =
-      '\uFEFF' +
-      [headers, ...rows]
-        .map((row) => row.map((val) => `"${String(val ?? '').replace(/"/g, '""')}"`).join(','))
-        .join('\n')
+    // The desktop app records one attendance row per student for the selected day.
+    for (const record of scanLog) {
+      if (record.date === reportDate && !attendanceByStudent.has(record.studentId)) {
+        attendanceByStudent.set(record.studentId, record)
+      }
+    }
 
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = `سجل_حضور_${getTodayDateStr()}.csv`
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-    URL.revokeObjectURL(url)
-    setNotice('تم تصدير سجل الحضور بصيغة CSV بنجاح.')
+    const compareText = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
+    const attendanceRows = [...attendanceByStudent.values()].sort(
+      (a, b) =>
+        compareText(a.grade, b.grade) ||
+        compareText(a.classroom, b.classroom) ||
+        compareText(a.name, b.name) ||
+        compareText(a.time, b.time),
+    )
+    const attendedStudentIds = new Set(attendanceByStudent.keys())
+    const absentRows = students
+      .filter((student) => !attendedStudentIds.has(student.id))
+      .sort(
+        (a, b) =>
+          compareText(gradeLabel(a.grade), gradeLabel(b.grade)) ||
+          compareText(a.classroom, b.classroom) ||
+          compareText(a.name, b.name),
+      )
+
+    const headers = ['اليوم', 'التاريخ', 'الوقت', 'اسم الطالب', 'الصف', 'الفصل', 'رقم الهاتف', 'الحالة']
+    const rows = [
+      ...attendanceRows.map((record) => [
+        reportDay,
+        reportDate,
+        record.time,
+        record.name,
+        record.grade,
+        record.classroom,
+        record.phone,
+        record.status === 'late' ? 'متأخر' : 'حاضر',
+      ]),
+      ...absentRows.map((student) => [
+        reportDay,
+        reportDate,
+        '-',
+        student.name,
+        gradeLabel(student.grade),
+        student.classroom,
+        student.phone,
+        'غائب',
+      ]),
+    ]
+
+    const worksheet = XLSX.utils.aoa_to_sheet([headers, ...rows])
+    const workbook = XLSX.utils.book_new()
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'Sheet1')
+    XLSX.writeFile(workbook, `تقرير_الحضور_${reportDate}.xlsx`)
+    setNotice('تم تصدير تقرير الحضور بصيغة Excel بنجاح.')
   }
 
   // تصدير سجل الحضور كـ PDF قابل للطباعة
@@ -1923,9 +1951,9 @@ function App() {
                   <button
                     type="button"
                     className="export-btn csv"
-                    onClick={exportScanLogCsv}
-                    disabled={!scanLog.length}
-                    title="تصدير السجل كملف Excel / CSV"
+                    onClick={exportAttendanceXlsx}
+                    disabled={!students.length && !scanLog.length}
+                    title="تصدير تقرير الحضور بصيغة Excel"
                   >
                     <Download size={16} />
                     <span>تصدير Excel</span>
