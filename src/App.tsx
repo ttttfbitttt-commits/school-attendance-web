@@ -74,10 +74,7 @@ type ScanRecord = {
 type CardsPerPage = 4 | 6 | 8
 
 const QR_SCAN_INTERVAL_MS = 100
-const QR_FAST_SCAN_MAX_DIMENSION = 360
-const QR_FULL_SCAN_MAX_DIMENSION = 480
-const QR_FULL_FRAME_EVERY = 5
-const QR_CENTER_REGION_RATIO = 0.78
+const QR_SCAN_MAX_DIMENSION = 360
 
 const aliases = {
   id: ['رقم الطالب', 'الهوية', 'رقم الهوية', 'student id', 'id', 'الرقم'],
@@ -199,10 +196,10 @@ function App() {
   // المراجع (Refs) للكاميرا والمسح
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const scannerBoxRef = useRef<HTMLDivElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const animFrameRef = useRef<number>(0)
   const lastScanAtRef = useRef(0)
-  const scanFrameRef = useRef(0)
   const scanContextRef = useRef<CanvasRenderingContext2D | null>(null)
   const cameraWrapperRef = useRef<HTMLDivElement>(null)
   const overlayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -672,7 +669,6 @@ function App() {
     }
     scanContextRef.current = null
     lastScanAtRef.current = 0
-    scanFrameRef.current = 0
     setIsCameraActive(false)
     setTorchOn(false)
     setNotice('تم إيقاف الكاميرا وإنهاء الحصر.')
@@ -712,26 +708,53 @@ function App() {
 
     const video = videoRef.current
     const canvas = canvasRef.current
+    const scannerBox = scannerBoxRef.current
     const now = performance.now()
 
-    if (now - lastScanAtRef.current >= QR_SCAN_INTERVAL_MS && video.readyState >= video.HAVE_ENOUGH_DATA && canvas) {
+    if (
+      now - lastScanAtRef.current >= QR_SCAN_INTERVAL_MS &&
+      video.readyState >= video.HAVE_ENOUGH_DATA &&
+      video.videoWidth > 0 &&
+      video.videoHeight > 0 &&
+      canvas &&
+      scannerBox
+    ) {
       lastScanAtRef.current = now
       const sourceWidth = video.videoWidth
       const sourceHeight = video.videoHeight
-      const isFullFrameScan = ++scanFrameRef.current % QR_FULL_FRAME_EVERY === 0
-      const regionRatio = isFullFrameScan ? 1 : QR_CENTER_REGION_RATIO
-      const regionX = Math.round(sourceWidth * (1 - regionRatio) / 2)
-      const regionY = Math.round(sourceHeight * (1 - regionRatio) / 2)
-      const regionWidth = Math.max(1, Math.round(sourceWidth * regionRatio))
-      const regionHeight = Math.max(1, Math.round(sourceHeight * regionRatio))
-      const maxDimension = isFullFrameScan
-        ? QR_FULL_SCAN_MAX_DIMENSION
-        : QR_FAST_SCAN_MAX_DIMENSION
-      const scale = Math.min(1, maxDimension / Math.max(regionWidth, regionHeight))
+      const videoRect = video.getBoundingClientRect()
+      const scannerRect = scannerBox.getBoundingClientRect()
+      // Convert the visible scan box to camera pixels after accounting for object-fit: cover.
+      const coverScale = Math.max(
+        videoRect.width / sourceWidth,
+        videoRect.height / sourceHeight,
+      )
+      const renderedWidth = sourceWidth * coverScale
+      const renderedHeight = sourceHeight * coverScale
+      const renderedOffsetX = (videoRect.width - renderedWidth) / 2
+      const renderedOffsetY = (videoRect.height - renderedHeight) / 2
+      const sourceLeft = (scannerRect.left - videoRect.left - renderedOffsetX) / coverScale
+      const sourceTop = (scannerRect.top - videoRect.top - renderedOffsetY) / coverScale
+      const sourceRight = sourceLeft + scannerRect.width / coverScale
+      const sourceBottom = sourceTop + scannerRect.height / coverScale
+      const regionX = Math.max(0, Math.floor(sourceLeft))
+      const regionY = Math.max(0, Math.floor(sourceTop))
+      const regionWidth = Math.min(sourceWidth, Math.ceil(sourceRight)) - regionX
+      const regionHeight = Math.min(sourceHeight, Math.ceil(sourceBottom)) - regionY
+      const scale = Math.min(
+        1,
+        QR_SCAN_MAX_DIMENSION / Math.max(regionWidth, regionHeight),
+      )
       const scanWidth = Math.max(1, Math.round(regionWidth * scale))
       const scanHeight = Math.max(1, Math.round(regionHeight * scale))
 
-      if (scanWidth > 0 && scanHeight > 0 && (canvas.width !== scanWidth || canvas.height !== scanHeight)) {
+      if (
+        sourceWidth > 0 &&
+        sourceHeight > 0 &&
+        regionWidth > 0 &&
+        regionHeight > 0 &&
+        (canvas.width !== scanWidth || canvas.height !== scanHeight)
+      ) {
         canvas.width = scanWidth
         canvas.height = scanHeight
         scanContextRef.current = canvas.getContext('2d', { willReadFrequently: true })
@@ -1805,7 +1828,7 @@ function App() {
 
                   {/* إطار المسح والخط الليزري */}
                   <div className="camera-scanner-hud">
-                    <div className="scanner-bracket-box">
+                    <div ref={scannerBoxRef} className="scanner-bracket-box">
                       <span className="bracket bracket-tr" />
                       <span className="bracket bracket-tl" />
                       <span className="bracket bracket-br" />
