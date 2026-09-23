@@ -2041,6 +2041,14 @@ tbody td {
     padding: 12px 10px 24px;
   }
 
+  .main-content,
+  .attendance-panel,
+  .camera-actions-bar,
+  .camera-main-trigger,
+  .camera-aux-tools {
+    min-width: 0;
+  }
+
   .topbar-title-section h1 {
     font-size: 17px;
   }
@@ -2049,6 +2057,102 @@ tbody td {
   .attendance-summary {
     grid-template-columns: 1fr;
     gap: 10px;
+  }
+
+  .camera-actions-bar {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 10px;
+  }
+
+  .camera-main-trigger {
+    width: 100%;
+  }
+
+  .camera-launch-btn {
+    width: 100%;
+    justify-content: center;
+    padding: 12px 16px;
+  }
+
+  .camera-aux-tools {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .aux-tool-btn {
+    min-width: 0;
+    width: 100%;
+    justify-content: center;
+    padding: 10px 8px;
+    font-size: 12px;
+  }
+
+  .camera-viewport-card {
+    width: 100%;
+    min-width: 0;
+    min-height: 320px;
+    height: min(62vh, 520px);
+    max-height: 520px;
+    border-radius: 16px;
+  }
+
+  .camera-live-wrapper {
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+  }
+
+  .camera-stream-feed {
+    display: block;
+    width: 100%;
+    height: 100%;
+    min-width: 0;
+    min-height: 0;
+    max-width: 100%;
+    object-fit: cover;
+  }
+
+  .scanner-bracket-box {
+    width: min(280px, 72vw);
+    height: min(280px, 38vh);
+  }
+
+  .scanner-live-badge {
+    max-width: calc(100% - 24px);
+    padding: 7px 12px;
+    text-align: center;
+    white-space: normal;
+    line-height: 1.4;
+  }
+
+  .scanned-student-overlay-card {
+    width: calc(100% - 24px);
+    padding: 14px 16px;
+    bottom: 12px;
+  }
+
+  .overlay-student-name {
+    font-size: 22px;
+  }
+
+  .live-attendance-counters {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .counter-box {
+    min-width: 0;
+    padding: 12px 8px;
+  }
+
+  .counter-box span {
+    font-size: 11px;
+    line-height: 1.4;
   }
 
   .panel-actions,
