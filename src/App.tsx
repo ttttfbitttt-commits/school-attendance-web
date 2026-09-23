@@ -73,6 +73,34 @@ type ScanRecord = {
 
 type CardsPerPage = 4 | 6 | 8
 
+type SchoolSettings = {
+  schoolName: string
+  principalName: string
+  academicYear: string
+  semester: string
+}
+
+const DEFAULT_SCHOOL_SETTINGS: SchoolSettings = {
+  schoolName: 'مدرسة الفزاري الثانوية',
+  principalName: 'مدير المدرسة',
+  academicYear: '1448 / 1449',
+  semester: 'الفصل الأول',
+}
+
+const readSchoolSettings = (): SchoolSettings => {
+  try {
+    const saved = JSON.parse(localStorage.getItem('school_settings') || '{}') as Partial<SchoolSettings>
+    return {
+      schoolName: typeof saved.schoolName === 'string' ? saved.schoolName : DEFAULT_SCHOOL_SETTINGS.schoolName,
+      principalName: typeof saved.principalName === 'string' ? saved.principalName : DEFAULT_SCHOOL_SETTINGS.principalName,
+      academicYear: typeof saved.academicYear === 'string' ? saved.academicYear : DEFAULT_SCHOOL_SETTINGS.academicYear,
+      semester: typeof saved.semester === 'string' ? saved.semester : DEFAULT_SCHOOL_SETTINGS.semester,
+    }
+  } catch {
+    return DEFAULT_SCHOOL_SETTINGS
+  }
+}
+
 const QR_SCAN_INTERVAL_MS = 100
 const QR_SCAN_MAX_DIMENSION = 360
 
@@ -96,6 +124,13 @@ const getTodayDateStr = () => {
 
 const normalize = (value: unknown) => String(value ?? '').replace(/\s+/g, ' ').trim()
 const cleanKey = (value: unknown) => normalize(value).toLowerCase()
+const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (char) => ({
+  '&': '&amp;',
+  '<': '&lt;',
+  '>': '&gt;',
+  '"': '&quot;',
+  "'": '&#39;',
+}[char] ?? char))
 
 
 const findColumnIndex = (headers: unknown[], names: readonly string[]) => {
@@ -124,6 +159,9 @@ const findHeaderRow = (rows: unknown[][]) => {
 }
 
 function App() {
+  const [schoolSettings, setSchoolSettings] = useState<SchoolSettings>(() => readSchoolSettings())
+  const [schoolSettingsDraft, setSchoolSettingsDraft] = useState<SchoolSettings>(() => readSchoolSettings())
+  const [schoolSettingsNotice, setSchoolSettingsNotice] = useState('')
   const [students, setStudents] = useState<Student[]>(() => {
     try {
       const saved = localStorage.getItem('school_students')
@@ -500,6 +538,29 @@ function App() {
     setCutoffSavedNotice(true)
     setTimeout(() => setCutoffSavedNotice(false), 2200)
     setNotice(`تم حفظ وقت الحضور المبكر: ${cutoffDraft}`)
+  }
+
+  const saveSchoolSettings = () => {
+    const nextSettings = {
+      schoolName: schoolSettingsDraft.schoolName.trim(),
+      principalName: schoolSettingsDraft.principalName.trim(),
+      academicYear: schoolSettingsDraft.academicYear.trim(),
+      semester: schoolSettingsDraft.semester.trim(),
+    }
+
+    if (Object.values(nextSettings).some((value) => !value)) {
+      setSchoolSettingsNotice('يرجى تعبئة جميع الحقول قبل الحفظ.')
+      return
+    }
+
+    try {
+      localStorage.setItem('school_settings', JSON.stringify(nextSettings))
+      setSchoolSettings(nextSettings)
+      setSchoolSettingsDraft(nextSettings)
+      setSchoolSettingsNotice('تم حفظ بيانات المدرسة في هذا المتصفح.')
+    } catch {
+      setSchoolSettingsNotice('تعذر حفظ الإعدادات. تحقق من مساحة تخزين المتصفح.')
+    }
   }
 
   // مولد الأصوات الفوري (Web Audio API)
@@ -989,7 +1050,7 @@ function App() {
 <body>
   <div class="header">
     <h1>سجل حصر الحضور والتأخر المدرسي</h1>
-    <p>اليوم: ${dayName} | التاريخ: ${todayStr} | مدرسة الفزاري الثانوية | وقت الطباعة: ${new Intl.DateTimeFormat('ar-SA', { hour: '2-digit', minute: '2-digit' }).format(new Date())}</p>
+    <p>اليوم: ${dayName} | التاريخ: ${todayStr} | ${escapeHtml(schoolSettings.schoolName)} | العام الدراسي: ${escapeHtml(schoolSettings.academicYear)} | ${escapeHtml(schoolSettings.semester)} | مدير المدرسة: ${escapeHtml(schoolSettings.principalName)} | وقت الطباعة: ${new Intl.DateTimeFormat('ar-SA', { hour: '2-digit', minute: '2-digit' }).format(new Date())}</p>
   </div>
   <div class="summary-pills">
     <div class="pill total">إجمالي الطلاب المسجلين: ${scanLog.length}</div>
@@ -1063,7 +1124,7 @@ function App() {
         (student) => `
       <article class="print-card">
         <div class="print-card-header">
-          <span class="print-card-school">مدرسة الفزاري الثانوية</span>
+          <span class="print-card-school">${escapeHtml(schoolSettings.schoolName)}</span>
           <span class="print-card-id">${student.id}</span>
         </div>
         <div class="print-card-body">
@@ -1133,7 +1194,7 @@ function App() {
 <body>
   <div class="no-print-bar">
     <div>
-      <strong>مركز الطباعة – مدرسة الفزاري الثانوية</strong>
+      <strong>مركز الطباعة – ${escapeHtml(schoolSettings.schoolName)}</strong>
       <div style="font-size:12px;opacity:0.9;margin-top:2px;">عدد الطلاب: ${students.length} طالب | ${cols === 2 ? '4' : cols === 3 ? '6' : '8'} بطاقات بالورقة</div>
     </div>
     <button onclick="window.print()">إرسال لأمر الطباعة الآن 🖨️</button>
@@ -1234,9 +1295,9 @@ function App() {
         </div>
 
         <div className="school-chip">
-          <span className="school-avatar">ف</span>
+          <span className="school-avatar">{schoolSettings.schoolName.trim().charAt(0) || 'م'}</span>
           <div>
-            <strong>مدرسة الفزاري الثانوية</strong>
+            <strong>{schoolSettings.schoolName}</strong>
             <small>حساب مدير المدرسة</small>
           </div>
           <span className="online-dot" />
@@ -1290,7 +1351,13 @@ function App() {
         </nav>
 
         <div className="sidebar-bottom">
-          <button className="nav-item" onClick={() => setIsMobileMenuOpen(false)}>
+          <button
+            className={activeNav === 'dashboard' ? 'nav-item active' : 'nav-item'}
+            onClick={() => {
+              setActiveNav('dashboard')
+              setIsMobileMenuOpen(false)
+            }}
+          >
             <Settings size={18} />
             <span>إعدادات المدرسة</span>
           </button>
@@ -1313,24 +1380,95 @@ function App() {
               <Menu size={22} />
             </button>
             <div>
-              <span className="eyebrow">إدارة المدرسة / {activeNav === 'attendance' ? 'الحضور' : activeNav === 'reports' ? 'التقارير' : 'الطلاب'}</span>
-              <h1>{activeNav === 'attendance' ? 'سجل الحضور' : activeNav === 'reports' ? 'التقارير' : 'إدارة الطلاب'}</h1>
+              <span className="eyebrow">إدارة المدرسة / {activeNav === 'dashboard' ? 'الإعدادات' : activeNav === 'attendance' ? 'الحضور' : activeNav === 'reports' ? 'التقارير' : 'الطلاب'}</span>
+              <h1>{activeNav === 'dashboard' ? 'إعدادات المدرسة' : activeNav === 'attendance' ? 'سجل الحضور' : activeNav === 'reports' ? 'التقارير' : 'إدارة الطلاب'}</h1>
             </div>
           </div>
 
           <div className="top-actions">
             <span className="date-label">{new Intl.DateTimeFormat('ar-SA', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(new Date())}</span>
             <button className="profile-button">
-              <span className="profile-avatar">م</span>
+              <span className="profile-avatar">{schoolSettings.principalName.trim().charAt(0) || 'م'}</span>
               <span>
-                <strong>مدير المدرسة</strong>
-                <small>المدير العام</small>
+                <strong>{schoolSettings.principalName}</strong>
+                <small>{schoolSettings.semester} · {schoolSettings.academicYear}</small>
               </span>
             </button>
           </div>
         </header>
 
-        {activeNav === 'dashboard' || activeNav === 'students' ? (
+        {activeNav === 'dashboard' && (
+          <>
+            <section className="page-intro">
+              <div>
+                <h2>بيانات المدرسة</h2>
+                <p>حدّث بيانات المدرسة التي تظهر في واجهة الموقع وبطاقات الطلاب وتقارير الحضور.</p>
+              </div>
+              <div className="secure-label">
+                <CheckCircle2 size={16} />
+                تُحفظ الإعدادات في هذا المتصفح
+              </div>
+            </section>
+
+            <section className="panel school-settings-panel">
+              <div className="panel-header">
+                <div>
+                  <span className="panel-kicker">إعدادات العرض والتقارير</span>
+                  <h3>معلومات المدرسة</h3>
+                </div>
+                <button className="primary-button" type="button" onClick={saveSchoolSettings}>
+                  <Save size={18} />
+                  حفظ الإعدادات
+                </button>
+              </div>
+
+              <div className="school-settings-grid">
+                <label className="school-settings-field">
+                  <span>اسم المدرسة</span>
+                  <input
+                    type="text"
+                    value={schoolSettingsDraft.schoolName}
+                    onChange={(event) => setSchoolSettingsDraft((current) => ({ ...current, schoolName: event.target.value }))}
+                    placeholder="اكتب اسم المدرسة"
+                  />
+                </label>
+                <label className="school-settings-field">
+                  <span>اسم مدير المدرسة</span>
+                  <input
+                    type="text"
+                    value={schoolSettingsDraft.principalName}
+                    onChange={(event) => setSchoolSettingsDraft((current) => ({ ...current, principalName: event.target.value }))}
+                    placeholder="اكتب اسم المدير"
+                  />
+                </label>
+                <label className="school-settings-field">
+                  <span>العام الدراسي</span>
+                  <input
+                    type="text"
+                    value={schoolSettingsDraft.academicYear}
+                    onChange={(event) => setSchoolSettingsDraft((current) => ({ ...current, academicYear: event.target.value }))}
+                    placeholder="مثال: 1448 / 1449"
+                  />
+                </label>
+                <label className="school-settings-field">
+                  <span>الفصل الدراسي</span>
+                  <select
+                    value={schoolSettingsDraft.semester}
+                    onChange={(event) => setSchoolSettingsDraft((current) => ({ ...current, semester: event.target.value }))}
+                  >
+                    <option>الفصل الأول</option>
+                    <option>الفصل الثاني</option>
+                    <option>الفصل الثالث</option>
+                  </select>
+                </label>
+              </div>
+
+              {schoolSettingsNotice && <div className="notice-box settings-notice" role="status">{schoolSettingsNotice}</div>}
+            </section>
+          </>
+        )}
+
+        {activeNav === 'students' && (
           <>
             <section className="page-intro">
               <div>
@@ -1637,7 +1775,7 @@ function App() {
                           {samplePreviewStudents.map((student) => (
                             <article key={`preview-${student.id}`} className="print-card">
                               <div className="print-card-header">
-                                <span className="print-card-school">مدرسة الفزاري الثانوية</span>
+                                <span className="print-card-school">{schoolSettings.schoolName}</span>
                                 <span className="print-card-id">{student.id}</span>
                               </div>
 
@@ -1684,7 +1822,7 @@ function App() {
               </div>
             )}
           </>
-        ) : null}
+        )}
 
         {activeNav === 'attendance' && (
           <section className="attendance-panel">
@@ -2097,7 +2235,7 @@ function App() {
             {filteredPrintableStudents.map((student) => (
               <article key={`actual-print-${student.id}`} className="print-card">
                 <div className="print-card-header">
-                  <span className="print-card-school">مدرسة الفزاري الثانوية</span>
+                  <span className="print-card-school">{schoolSettings.schoolName}</span>
                   <span className="print-card-id">{student.id}</span>
                 </div>
 
