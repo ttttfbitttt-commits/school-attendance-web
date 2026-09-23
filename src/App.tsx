@@ -883,21 +883,20 @@ function App() {
     }
   }
 
-  // Export the same default daily report as the desktop report dialog.
+  // Export attended students only so separate teacher files can be merged safely.
   const exportAttendanceXlsx = () => {
-    if (!students.length && !scanLog.length) {
-      setNotice('لا توجد بيانات طلاب لتصديرها')
-      return
-    }
     const reportDate = getTodayDateStr()
-    const reportDay = new Intl.DateTimeFormat('en-US', { weekday: 'long' }).format(new Date(`${reportDate}T12:00:00`))
     const attendanceByStudent = new Map<string, ScanRecord>()
 
-    // The desktop app records one attendance row per student for the selected day.
     for (const record of scanLog) {
       if (record.date === reportDate && !attendanceByStudent.has(record.studentId)) {
         attendanceByStudent.set(record.studentId, record)
       }
+    }
+
+    if (!attendanceByStudent.size) {
+      setNotice('لا توجد بيانات طلاب لتصديرها')
+      return
     }
 
     const compareText = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
@@ -908,20 +907,9 @@ function App() {
         compareText(a.name, b.name) ||
         compareText(a.time, b.time),
     )
-    const attendedStudentIds = new Set(attendanceByStudent.keys())
-    const absentRows = students
-      .filter((student) => !attendedStudentIds.has(student.id))
-      .sort(
-        (a, b) =>
-          compareText(gradeLabel(a.grade), gradeLabel(b.grade)) ||
-          compareText(a.classroom, b.classroom) ||
-          compareText(a.name, b.name),
-      )
-
-    const headers = ['اليوم', 'التاريخ', 'الوقت', 'اسم الطالب', 'الصف', 'الفصل', 'رقم الهاتف', 'الحالة']
-    const rows = [
-      ...attendanceRows.map((record) => [
-        reportDay,
+    const headers = ['رقم الطالب', 'التاريخ', 'الوقت', 'اسم الطالب', 'الصف', 'الفصل', 'رقم الهاتف', 'الحالة']
+    const rows = attendanceRows.map((record) => [
+        record.studentId,
         reportDate,
         record.time,
         record.name,
@@ -929,24 +917,13 @@ function App() {
         record.classroom,
         record.phone,
         record.status === 'late' ? 'متأخر' : 'حاضر',
-      ]),
-      ...absentRows.map((student) => [
-        reportDay,
-        reportDate,
-        '-',
-        student.name,
-        gradeLabel(student.grade),
-        student.classroom,
-        student.phone,
-        'غائب',
-      ]),
-    ]
+      ])
 
     const worksheet = XLSX.utils.aoa_to_sheet([headers, ...rows])
     const workbook = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(workbook, worksheet, 'Sheet1')
     XLSX.writeFile(workbook, `تقرير_الحضور_${reportDate}.xlsx`)
-    setNotice('تم تصدير تقرير الحضور بصيغة Excel بنجاح.')
+    setNotice(`تم تصدير ${attendanceRows.length} سجل حضور بصيغة Excel بنجاح.`)
   }
 
   // تصدير سجل الحضور كـ PDF قابل للطباعة
