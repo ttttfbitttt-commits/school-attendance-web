@@ -13,7 +13,6 @@ import {
   Download,
   ExternalLink,
   Eye,
-  FileSpreadsheet,
   FileText,
   Filter,
   FolderOpen,
@@ -47,13 +46,6 @@ type Student = {
   sheet: string
   row: number
   qr?: string
-}
-
-type AttendanceStatus = 'present' | 'late' | 'absence'
-
-type AttendanceRecord = {
-  status: AttendanceStatus
-  time: string
 }
 
 type AttendanceMode = 'late' | 'present' | 'auto'
@@ -177,9 +169,8 @@ function App() {
   const [attendanceSearch, setAttendanceSearch] = useState('')
   const [attendanceStudentSearch, setAttendanceStudentSearch] = useState('')
   const [scanInput, setScanInput] = useState('')
-  const [activeNav, setActiveNav] = useState<'dashboard' | 'students' | 'attendance' | 'reports'>('attendance')
+  const [activeNav, setActiveNav] = useState<'dashboard' | 'students' | 'attendance'>('attendance')
   const [isImporting, setIsImporting] = useState(false)
-  const [attendanceRecords, setAttendanceRecords] = useState<Record<string, AttendanceRecord>>({})
   const [showPrintableCards, setShowPrintableCards] = useState(false)
   const [cardsPerPage, setCardsPerPage] = useState<CardsPerPage>(6)
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
@@ -449,18 +440,6 @@ function App() {
     }
   }, [students])
 
-  const attendanceSummary = useMemo(() => {
-    const summary = { present: 0, late: 0, absence: 0 }
-
-    students.forEach((student) => {
-      const record = attendanceRecords[student.id]
-      if (!record) return
-      summary[record.status] += 1
-    })
-
-    return summary
-  }, [attendanceRecords, students])
-
   const importWorkbook = async (file: File) => {
     setIsImporting(true)
     setFileName(file.name)
@@ -530,7 +509,6 @@ function App() {
 
       const duplicateCount = imported.length - uniqueStudents.length
       setStudents(uniqueStudents)
-      setAttendanceRecords({})
       setShowPrintableCards(false)
       setNotice(
         `تم استيراد ${uniqueStudents.length} طالبًا${duplicateCount ? `، وتم تجاهل ${duplicateCount} تكرارًا` : ''}${warnings.length ? `، مع ${warnings.length} تنبيهًا` : ''}`
@@ -973,12 +951,6 @@ function App() {
 
     setScanLog((prev) => [newRecord, ...prev])
 
-    // تحديث سجلات الحضور
-    setAttendanceRecords((prev) => ({
-      ...prev,
-      [student.id]: { status, time: timeStr },
-    }))
-
     return true
   }
 
@@ -1142,37 +1114,6 @@ function App() {
 
     openBlobUrl(html)
     setNotice('تم فتح تقرير PDF للطباعة في تبويب جديد.')
-  }
-
-  const exportAttendanceCsv = () => {
-    if (!students.length) {
-      setNotice('لا توجد بيانات حتى الآن لتصدير التقرير')
-      return
-    }
-
-    const rows = [
-      ['رقم الطالب', 'اسم الطالب', 'الصف', 'الفصل', 'الحالة', 'الوقت'],
-      ...students.map((student) => {
-        const record = attendanceRecords[student.id] ?? { status: 'present', time: '-' }
-        return [student.id, student.name, gradeLabel(student.grade), student.classroom, record.status, record.time]
-      }),
-    ]
-
-    const csv = rows
-      .map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(','))
-      .join('\n')
-
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
-    const url = URL.createObjectURL(blob)
-    const link = document.createElement('a')
-    link.href = url
-    link.download = 'تقرير_الحضور_اليومي.csv'
-    document.body.appendChild(link)
-    link.click()
-    document.body.removeChild(link)
-    URL.revokeObjectURL(url)
-
-    setNotice('تم تصدير تقرير الحضور بصيغة CSV بنجاح.')
   }
 
   const buildPrintHtml = (students: typeof filteredPrintableStudents, cols: number, autoprint = false) => {
@@ -1417,16 +1358,6 @@ function App() {
             <span>سجل الحضور</span>
           </button>
 
-          <button
-            className={activeNav === 'reports' ? 'nav-item active' : 'nav-item'}
-            onClick={() => {
-              setActiveNav('reports')
-              setIsMobileMenuOpen(false)
-            }}
-          >
-            <FileSpreadsheet size={18} />
-            <span>التقارير</span>
-          </button>
         </nav>
 
         <div className="sidebar-bottom">
@@ -1459,8 +1390,8 @@ function App() {
               <Menu size={22} />
             </button>
             <div>
-              <span className="eyebrow">إدارة المدرسة / {activeNav === 'dashboard' ? 'الإعدادات' : activeNav === 'attendance' ? 'الحضور' : activeNav === 'reports' ? 'التقارير' : 'الطلاب'}</span>
-              <h1>{activeNav === 'dashboard' ? 'إعدادات المدرسة' : activeNav === 'attendance' ? 'سجل الحضور' : activeNav === 'reports' ? 'التقارير' : 'إدارة الطلاب'}</h1>
+              <span className="eyebrow">إدارة المدرسة / {activeNav === 'dashboard' ? 'الإعدادات' : activeNav === 'attendance' ? 'الحضور' : 'الطلاب'}</span>
+              <h1>{activeNav === 'dashboard' ? 'إعدادات المدرسة' : activeNav === 'attendance' ? 'سجل الحضور' : 'إدارة الطلاب'}</h1>
             </div>
           </div>
 
@@ -1492,7 +1423,7 @@ function App() {
             <section className="panel school-settings-panel">
               <div className="panel-header">
                 <div>
-                  <span className="panel-kicker">إعدادات العرض والتقارير</span>
+                  <span className="panel-kicker">إعدادات العرض</span>
                   <h3>معلومات المدرسة</h3>
                 </div>
                 <button className="primary-button" type="button" onClick={saveSchoolSettings}>
@@ -2347,38 +2278,6 @@ function App() {
           </section>
         )}
 
-        {activeNav === 'reports' && (
-          <section className="panel report-panel">
-            <div className="panel-header">
-              <div>
-                <span className="panel-kicker">تقارير</span>
-                <h3>تقرير الحضور اليومي</h3>
-              </div>
-
-              <button className="primary-button" onClick={exportAttendanceCsv}>
-                <Download size={18} />
-                تصدير CSV
-              </button>
-            </div>
-
-            <div className="notice-box">{notice}</div>
-
-            <div className="attendance-summary">
-              <div className="mini-card present">
-                <span>الحاضرون</span>
-                <strong>{attendanceSummary.present}</strong>
-              </div>
-              <div className="mini-card late">
-                <span>المتأخرون</span>
-                <strong>{attendanceSummary.late}</strong>
-              </div>
-              <div className="mini-card absent">
-                <span>الغائبون</span>
-                <strong>{attendanceSummary.absence}</strong>
-              </div>
-            </div>
-          </section>
-        )}
       </main>
 
       {showPrintableCards && (
