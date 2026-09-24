@@ -256,6 +256,43 @@ function App() {
     }
   }, [students, fileName])
 
+  // رموز QR ثابتة ومشتقة من رقم الطالب؛ أعد إنشاء صورها تلقائياً بعد استعادة بيانات الطلاب.
+  // نخزن بيانات الطالب فقط لتجنب استهلاك مساحة localStorage ببيانات الصور الكبيرة.
+  useEffect(() => {
+    const studentsMissingQr = students.filter((student) => !student.qr)
+    if (!studentsMissingQr.length) return
+
+    let cancelled = false
+    void Promise.all(
+      studentsMissingQr.map(async (student) => ({
+        id: student.id,
+        qr: await QRCode.toDataURL(student.id, {
+          width: 220,
+          margin: 1,
+          color: { dark: '#102a43', light: '#ffffff' },
+        }),
+      }))
+    )
+      .then((generatedCodes) => {
+        if (cancelled) return
+        const qrByStudentId = new Map(generatedCodes.map(({ id, qr }) => [id, qr]))
+        setStudents((currentStudents) =>
+          currentStudents.map((student) =>
+            student.qr ? student : { ...student, qr: qrByStudentId.get(student.id) }
+          )
+        )
+        setNotice(`تم استعادة باركودات ${generatedCodes.length} طالب تلقائيًا.`)
+      })
+      .catch((error) => {
+        console.error('تعذر استعادة باركودات الطلاب', error)
+        if (!cancelled) setNotice('تعذر تجهيز بعض الباركودات تلقائيًا. استخدم زر إنشاء الباركودات للمحاولة مجددًا.')
+      })
+
+    return () => {
+      cancelled = true
+    }
+  }, [students])
+
 
 
   // حفظ سجل الحضور اليومي
