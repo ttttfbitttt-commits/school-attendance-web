@@ -1845,6 +1845,7 @@ function App() {
                     type="button"
                     className={`mode-selector-btn late ${attendanceMode === 'late' ? 'active' : ''}`}
                     onClick={() => setAttendanceMode('late')}
+                    aria-pressed={attendanceMode === 'late'}
                   >
                     <Clock3 size={18} />
                     <span>حصر التأخر</span>
@@ -1854,6 +1855,7 @@ function App() {
                     type="button"
                     className={`mode-selector-btn present ${attendanceMode === 'present' ? 'active' : ''}`}
                     onClick={() => setAttendanceMode('present')}
+                    aria-pressed={attendanceMode === 'present'}
                   >
                     <CheckCircle2 size={18} />
                     <span>تحضير الطلاب</span>
@@ -1863,10 +1865,28 @@ function App() {
                     type="button"
                     className={`mode-selector-btn auto ${attendanceMode === 'auto' ? 'active' : ''}`}
                     onClick={() => setAttendanceMode('auto')}
+                    aria-pressed={attendanceMode === 'auto'}
                   >
                     <Sparkles size={18} />
                     <span>التحضير التلقائي</span>
                   </button>
+                </div>
+
+                <div className={`attendance-mode-help ${attendanceMode}`} role="status" aria-live="polite">
+                  <strong>
+                    {attendanceMode === 'late'
+                      ? 'حصر التأخر'
+                      : attendanceMode === 'present'
+                        ? 'تحضير الطلاب'
+                        : 'التحضير التلقائي'}
+                  </strong>
+                  <span>
+                    {attendanceMode === 'late'
+                      ? 'يسجّل كل طالب يتم مسح باركوده كمتأخر.'
+                      : attendanceMode === 'present'
+                        ? 'يسجّل كل طالب يتم مسح باركوده كحاضر.'
+                        : `يحدد الحالة تلقائيًا حسب وقت المسح: حاضر قبل ${cutoffTime}، ومتأخر بعده.`}
+                  </span>
                 </div>
 
                 {/* ضبط وقت الحضور الثابت مع زر الحفظ */}

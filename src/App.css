@@ -1214,6 +1214,39 @@ tbody td {
   box-shadow: 0 4px 12px rgba(139, 92, 246, 0.2);
 }
 
+.attendance-mode-help {
+  display: grid;
+  gap: 3px;
+  flex: 1 1 100%;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #f8fafc;
+  color: #475569;
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.attendance-mode-help strong {
+  color: var(--navy);
+  font-size: 13px;
+}
+
+.attendance-mode-help.late {
+  background: #fffbeb;
+  border-color: #fde68a;
+}
+
+.attendance-mode-help.present {
+  background: #f0fdf4;
+  border-color: #bbf7d0;
+}
+
+.attendance-mode-help.auto {
+  background: #f5f3ff;
+  border-color: #ddd6fe;
+}
+
 .cutoff-config-card {
   display: flex;
   align-items: center;
