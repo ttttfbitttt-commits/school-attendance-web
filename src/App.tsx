@@ -17,7 +17,6 @@ import {
   FileText,
   Filter,
   FolderOpen,
-  GraduationCap,
   Layers,
   LayoutDashboard,
   Maximize2,
@@ -1278,11 +1277,11 @@ function App() {
         <div className="sidebar-top">
           <div className="brand">
             <span className="brand-mark">
-              <GraduationCap size={24} />
+              <img src={`${import.meta.env.BASE_URL}attendance-system-logo.svg`} alt="" />
             </span>
             <div>
-              <strong>حصر</strong>
-              <small>منصة المدارس</small>
+              <strong>نظام حصر الطلاب</strong>
+              <small>برمجة الأستاذ: تركي العبدالعزيز</small>
             </div>
           </div>
           <button
