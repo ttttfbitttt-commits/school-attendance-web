@@ -175,6 +175,7 @@ function App() {
   const [notice, setNotice] = useState('جاهز لإدارة الطلاب وحصر الحضور الذكي')
   const [search, setSearch] = useState('')
   const [attendanceSearch, setAttendanceSearch] = useState('')
+  const [attendanceStudentSearch, setAttendanceStudentSearch] = useState('')
   const [scanInput, setScanInput] = useState('')
   const [activeNav, setActiveNav] = useState<'dashboard' | 'students' | 'attendance' | 'reports'>('attendance')
   const [isImporting, setIsImporting] = useState(false)
@@ -349,6 +350,14 @@ function App() {
         .includes(query)
     )
   }, [scanLog, attendanceSearch])
+
+  const attendanceStudentMatches = useMemo(() => {
+    const query = attendanceStudentSearch.trim().toLowerCase()
+    if (!query) return []
+    return students
+      .filter((student) => `${student.name} ${student.id}`.toLowerCase().includes(query))
+      .slice(0, 8)
+  }, [students, attendanceStudentSearch])
 
   const printableStudents = useMemo(() => students.filter((student) => Boolean(student.qr)), [students])
 
@@ -850,7 +859,7 @@ function App() {
   // معالجة قراءة باركود الطالب
   const handleScannedCode = (rawCode: string) => {
     const code = rawCode.trim()
-    if (!code) return
+    if (!code) return false
 
     // منع تكرار قراءة نفس الكود لنفس الطالب خلال ثانية واحدة عند استمرار الكاميرا أمامه
     const nowMs = Date.now()
@@ -858,7 +867,7 @@ function App() {
       lastScanThrottleRef.current.code === code &&
       nowMs - lastScanThrottleRef.current.timestamp < 1200
     ) {
-      return
+      return false
     }
     lastScanThrottleRef.current = { code, timestamp: nowMs }
 
@@ -868,7 +877,7 @@ function App() {
 
     if (!student) {
       playAudioBeep('not-found')
-      return
+      return false
     }
 
     // التحقق هل تم تسجيله اليوم مسبقاً (نستخدم المرجع المحدث دائماً)
@@ -876,7 +885,7 @@ function App() {
     if (alreadyInLog) {
       // إصدار صوت مختلف فقط بدون أي إشعار يعطل العملية
       playAudioBeep('duplicate')
-      return
+      return false
     }
 
     // تحديد الحالة بحسب الوضع المختار
@@ -932,6 +941,18 @@ function App() {
       ...prev,
       [student.id]: { status, time: timeStr },
     }))
+
+    return true
+  }
+
+  const registerAttendanceByStudent = (student: Student) => {
+    const registered = handleScannedCode(student.id)
+    if (registered) {
+      setNotice(`تم تسجيل حضور الطالب ${student.name} وفق نمط التحضير المحدد.`)
+      setAttendanceStudentSearch('')
+    } else if (scanLogRef.current.some((record) => record.studentId === student.id)) {
+      setNotice(`الطالب ${student.name} مسجل في سجل الحضور اليوم.`)
+    }
   }
 
   // تفريغ سجل اليوم
@@ -2139,6 +2160,59 @@ function App() {
                 </div>
               </div>
 
+              <div className="attendance-name-checkin">
+                <div>
+                  <strong>التحضير بالاسم</strong>
+                  <span>ابحث عن الطالب واختر اسمه لتسجيل حضوره دون باركود.</span>
+                </div>
+                <div className="attendance-student-search">
+                  <div className="search-box">
+                    <Search size={16} />
+                    <input
+                      type="search"
+                      value={attendanceStudentSearch}
+                      onChange={(event) => setAttendanceStudentSearch(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' && attendanceStudentMatches.length === 1) {
+                          event.preventDefault()
+                          registerAttendanceByStudent(attendanceStudentMatches[0])
+                        }
+                      }}
+                      placeholder="ابحث باسم الطالب أو رقمه..."
+                      aria-label="ابحث عن طالب لتسجيل حضوره"
+                      aria-autocomplete="list"
+                    />
+                  </div>
+                  {attendanceStudentSearch.trim() && (
+                    <div className="attendance-student-results" role="listbox" aria-label="نتائج البحث عن الطلاب">
+                      {attendanceStudentMatches.length ? (
+                        attendanceStudentMatches.map((student) => {
+                          const alreadyRegistered = scanLog.some((record) => record.studentId === student.id)
+                          return (
+                            <button
+                              type="button"
+                              role="option"
+                              aria-selected="false"
+                              key={student.id}
+                              disabled={alreadyRegistered}
+                              onClick={() => registerAttendanceByStudent(student)}
+                            >
+                              <span>
+                                <strong>{student.name}</strong>
+                                <small>رقم {student.id} · {gradeLabel(student.grade) || '—'} · فصل {student.classroom || '—'}</small>
+                              </span>
+                              <small>{alreadyRegistered ? 'مسجل اليوم' : 'تسجيل الحضور'}</small>
+                            </button>
+                          )
+                        })
+                      ) : (
+                        <p>لم يتم العثور على طالب بهذا الاسم أو الرقم.</p>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+
               <div className="scan-log-toolbar">
                 <div className="search-box">
                   <Search size={16} />
@@ -2146,7 +2220,7 @@ function App() {
                     type="text"
                     value={attendanceSearch}
                     onChange={(event) => setAttendanceSearch(event.target.value)}
-                    placeholder="ابحث في سجل اليوم باسم الطالب أو رقمه أو صفه..."
+                    placeholder="تصفية سجل الحضور الحالي بالاسم أو الرقم أو الصف..."
                   />
                 </div>
 
