@@ -1135,7 +1135,15 @@ function App() {
         </div>
       </article>`
       )
-      .join('')
+    const pagesHtml = Array.from(
+      { length: Math.ceil(cardsHtml.length / cardsPerPage) },
+      (_, pageIndex) => `
+        <section class="print-page">
+          <div class="print-cards-grid">${cardsHtml
+            .slice(pageIndex * cardsPerPage, (pageIndex + 1) * cardsPerPage)
+            .join('')}</div>
+        </section>`
+    ).join('')
 
     return `<!doctype html>
 <html lang="ar" dir="rtl">
@@ -1167,7 +1175,16 @@ function App() {
       box-shadow: 0 2px 6px rgba(0,0,0,0.1);
     }
     .no-print-bar button:hover { background: #f0f7ff; }
-    .print-cards-grid { display: grid; gap: 12px; grid-template-columns: repeat(${cols}, 1fr); }
+    .print-page {
+      width: 194mm; height: 281mm; margin: 16px auto; padding: 0;
+      background: white; break-after: page; page-break-after: always;
+    }
+    .print-page:last-child { break-after: auto; page-break-after: auto; }
+    .print-cards-grid {
+      display: grid; width: 100%; height: 100%; gap: 12px;
+      grid-template-columns: repeat(${cols}, minmax(0, 1fr));
+      grid-template-rows: repeat(2, minmax(0, 1fr));
+    }
     .print-card {
       background: white; border: 1px solid #cbd5e1;
       border-radius: 12px; padding: 12px 10px;
@@ -1186,6 +1203,11 @@ function App() {
     @media print {
       body { background: white; padding: 0; }
       .no-print-bar { display: none !important; }
+      .print-page {
+        width: 100%; height: calc(297mm - 16mm); margin: 0;
+        break-after: page; page-break-after: always;
+      }
+      .print-page:last-child { break-after: auto; page-break-after: auto; }
       .print-card { border: 1px solid #64748b !important; }
     }
   </style>
@@ -1198,7 +1220,7 @@ function App() {
     </div>
     <button onclick="window.print()">إرسال لأمر الطباعة الآن 🖨️</button>
   </div>
-  <div class="print-cards-grid">${cardsHtml}</div>
+  ${pagesHtml}
   ${autoprint ? `<script>window.addEventListener('load', function(){ setTimeout(function(){ window.print(); }, 600); });<\/script>` : ''}
 </body>
 </html>`
