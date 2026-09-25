@@ -115,6 +115,21 @@ const getTodayDateStr = () => {
 
 const normalize = (value: unknown) => String(value ?? '').replace(/\s+/g, ' ').trim()
 const cleanKey = (value: unknown) => normalize(value).toLowerCase()
+const getBarcodeIdCandidates = (rawCode: string) => {
+  const code = normalize(rawCode)
+  if (!code) return []
+
+  const candidates = [code]
+  const portablePath = code.replace(/\\/g, '/')
+  const legacyImagePath = portablePath.match(/(?:^|\/)student_barcodes\/([^/]+)\.png$/i)
+  if (legacyImagePath?.[1]) candidates.push(legacyImagePath[1])
+
+  return [...new Set(candidates)]
+}
+
+const normalizeImportedStudentId = (studentId: string) =>
+  normalize(studentId).replace(/^([+-]?\d+)\.0+$/, '$1')
+
 const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (char) => ({
   '&': '&amp;',
   '<': '&lt;',
@@ -859,7 +874,7 @@ function App() {
         )
         const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height)
         const code = jsQR(imageData.data, imageData.width, imageData.height, {
-          inversionAttempts: 'dontInvert',
+          inversionAttempts: 'attemptBoth',
         })
 
         if (code && code.data) {
@@ -875,6 +890,7 @@ function App() {
   const handleScannedCode = (rawCode: string) => {
     const code = rawCode.trim()
     if (!code) return false
+    const idCandidates = getBarcodeIdCandidates(code)
 
     // منع تكرار قراءة نفس الكود لنفس الطالب خلال ثانية واحدة عند استمرار الكاميرا أمامه
     const nowMs = Date.now()
@@ -886,9 +902,14 @@ function App() {
     }
     lastScanThrottleRef.current = { code, timestamp: nowMs }
 
-    const student = students.find(
-      (s) => s.id === code || s.id.toLowerCase() === code.toLowerCase() || s.name === code
-    )
+    const student =
+      students.find((s) => s.id === code || s.name === code) ??
+      students.find((s) => s.id.toLowerCase() === code.toLowerCase()) ??
+      students.find((s) => idCandidates.some((candidate) => s.id === candidate)) ??
+      students.find((s) => idCandidates.some((candidate) => s.id.toLowerCase() === candidate.toLowerCase())) ??
+      students.find((s) =>
+        idCandidates.some((candidate) => normalizeImportedStudentId(s.id) === normalizeImportedStudentId(candidate))
+      )
 
     if (!student) {
       playAudioBeep('not-found')
