@@ -3,8 +3,7 @@ import { defineConfig } from 'vite'
 
 // https://vite.dev/config/
 export default defineConfig({
-  base: '/school-attendance-web/',
+  base: '/',
   plugins: [react()],
 })
-
 
