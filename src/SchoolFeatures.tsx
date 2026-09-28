@@ -43,7 +43,7 @@ export function downloadWorkbook(name: string, rows: Array<Array<string | number
   sheet['!views'] = [{ rightToLeft: true, state: 'frozen', ySplit: 5 }]
   sheet['!autofilter'] = { ref: `A5:${XLSX.utils.encode_col(columnCount - 1)}${brandedRows.length}` }
   XLSX.utils.book_append_sheet(workbook, sheet, sheetName)
-  workbook.Props = { Title: reportTitle, Subject: schoolName, Creator: schoolName }
+  workbook.Props = { Title: reportTitle, Subject: schoolName, Author: schoolName }
   XLSX.writeFile(workbook, `${name}.xlsx`)
 }
 
