@@ -967,8 +967,14 @@ function AttendanceApp({ onLogout }: { onLogout: () => void }) {
 
     setScanLog((prev) => [newRecord, ...prev])
     void api.markAttendance(student.id, status).then((result) => {
-      if (!result.ok) setNotice('هذا الطالب مسجل بالفعل في سجل اليوم.')
-    }).catch(() => setNotice('تعذر حفظ الحضور في الخادم. تحقق من الاتصال.'))
+      if (!result.ok) {
+        setScanLog((prev) => prev.filter((record) => record !== newRecord))
+        setNotice('هذا الطالب مسجل بالفعل في سجل اليوم.')
+      }
+    }).catch(() => {
+      setScanLog((prev) => prev.filter((record) => record !== newRecord))
+      setNotice('تعذر حفظ الحضور في الخادم. تحقق من الاتصال.')
+    })
 
     return true
   }

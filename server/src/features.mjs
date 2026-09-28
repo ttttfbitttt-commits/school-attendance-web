@@ -111,8 +111,8 @@ async function absenceData({ schoolId, from, to, studentId, scoped }) {
   return scoped(schoolId, async client => {
     const students = (await client.query(`SELECT id,name,phone,grade,classroom,to_char(created_at AT TIME ZONE $1,'YYYY-MM-DD') AS "createdDate"
       FROM students WHERE active=true ORDER BY name`, [RIYADH_TIME_ZONE])).rows
-    const attendance = (await client.query(`SELECT student_id,to_char(attendance_date,'YYYY-MM-DD') AS date
-      FROM attendance_logs WHERE attendance_date BETWEEN $1 AND $2`, [from, to])).rows
+    const attendance = (await client.query(`SELECT DISTINCT student_id,to_char(attendance_date,'YYYY-MM-DD') AS date
+      FROM attendance_logs WHERE attendance_date BETWEEN $1 AND $2 AND status IN ('present','late')`, [from, to])).rows
     const excuses = (await client.query(`SELECT student_id,category,note,to_char(start_date,'YYYY-MM-DD') AS "startDate",to_char(end_date,'YYYY-MM-DD') AS "endDate"
       FROM student_excuses WHERE start_date <= $2 AND (end_date IS NULL OR end_date >= $1) ORDER BY start_date DESC`, [from, to])).rows
     const attendanceByStudent = new Map()
@@ -185,6 +185,7 @@ export async function migrateFeatures(pool) {
       created_at timestamptz NOT NULL DEFAULT now()
     );
     CREATE INDEX IF NOT EXISTS student_excuses_school_student ON student_excuses(school_id,student_id,start_date DESC);
+    CREATE UNIQUE INDEX IF NOT EXISTS student_excuses_unique_period ON student_excuses(school_id,student_id,start_date,COALESCE(end_date,'infinity'::date));
     CREATE INDEX IF NOT EXISTS message_logs_school_created ON message_logs(school_id,created_at DESC);
     ALTER TABLE almadar_accounts ENABLE ROW LEVEL SECURITY;
     ALTER TABLE almadar_accounts FORCE ROW LEVEL SECURITY;
@@ -276,15 +277,25 @@ export async function handleFeatureRequest(context) {
     if (!adminOnly()) { json(res, 403, { error: 'forbidden' }); return true }
     const input = await body(req)
     const studentId = String(input.studentId || '').trim()
-    const category = String(input.category || 'عذر').trim().slice(0, 80)
+    const category = String(input.category || '').trim().slice(0, 80)
     const note = String(input.note || '').trim().slice(0, 1000)
     const startDate = validDate(input.startDate)
     const endDate = input.endDate ? validDate(input.endDate) : null
-    if (!studentId || !startDate || (input.endDate && !endDate) || (endDate && endDate < startDate)) { json(res, 400, { error: 'invalid_excuse' }); return true }
-    const result = await scoped(user.school_id, async client => client.query(`INSERT INTO student_excuses(school_id,student_id,category,note,start_date,end_date,created_by)
-      SELECT $1,id,$2,$3,$4,$5,$6 FROM students WHERE id=$7 AND active=true RETURNING id`, [user.school_id, category || 'عذر', note, startDate, endDate, user.user_id, studentId]))
-    if (!result.rowCount) { json(res, 404, { error: 'student_not_found' }); return true }
-    json(res, 201, { ok: true, id: result.rows[0].id })
+    if (!studentId || !category || !startDate || (input.endDate && !endDate) || (endDate && endDate < startDate)) { json(res, 400, { error: 'invalid_excuse' }); return true }
+    const result = await scoped(user.school_id, async client => {
+      const student = await client.query('SELECT 1 FROM students WHERE id=$1 AND active=true', [studentId])
+      if (!student.rowCount) return { missing: true }
+      const overlap = await client.query(`SELECT id FROM student_excuses
+        WHERE student_id=$1 AND start_date <= COALESCE($3::date,'infinity'::date)
+          AND COALESCE(end_date,'infinity'::date) >= $2::date LIMIT 1`, [studentId, startDate, endDate])
+      if (overlap.rowCount) return { duplicate: true }
+      const inserted = await client.query(`INSERT INTO student_excuses(school_id,student_id,category,note,start_date,end_date,created_by)
+        VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id`, [user.school_id, studentId, category, note, startDate, endDate, user.user_id])
+      return { id: inserted.rows[0].id }
+    })
+    if (result.missing) { json(res, 404, { error: 'student_not_found' }); return true }
+    if (result.duplicate) { json(res, 409, { error: 'excuse_period_exists' }); return true }
+    json(res, 201, { ok: true, id: result.id })
     return true
   }
 

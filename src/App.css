@@ -2645,6 +2645,80 @@ tbody td {
   color: #475569;
 }
 
+.report-student-search {
+  position: relative;
+  min-width: min(100%, 290px);
+}
+
+.feature-toolbar label.report-student-search {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.student-search-box {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 40px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  background: #fff;
+  padding-inline: 8px;
+}
+
+.student-search-box input {
+  min-width: 0;
+  min-height: 36px;
+  width: 100%;
+  border: 0;
+  outline: 0;
+  padding: 0;
+  background: transparent;
+  font: inherit;
+}
+
+.student-search-box button {
+  border: 0;
+  background: #e2e8f0;
+  color: #334155;
+  border-radius: 50%;
+  width: 22px;
+  height: 22px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.student-search-results {
+  position: absolute;
+  z-index: 12;
+  inset-inline: 0;
+  top: calc(100% + 4px);
+  display: grid;
+  max-height: 250px;
+  overflow: auto;
+  padding: 5px;
+  border: 1px solid #bfdbfe;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 12px 24px rgba(15, 23, 42, .14);
+}
+
+.student-search-results button {
+  display: grid;
+  gap: 2px;
+  padding: 9px 10px;
+  border: 0;
+  border-radius: 6px;
+  color: #0f3d67;
+  background: transparent;
+  text-align: right;
+  cursor: pointer;
+}
+
+.student-search-results button:hover { background: #eff6ff; }
+.student-search-results small, .student-search-results span { color: #64748b; font-size: 12px; padding: 4px 5px; }
+
 .feature-table {
   width: 100%;
   border-collapse: collapse;

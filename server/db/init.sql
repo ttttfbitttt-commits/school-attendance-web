@@ -105,6 +105,7 @@ CREATE TABLE message_logs (
 );
 
 CREATE INDEX student_excuses_school_student ON student_excuses(school_id, student_id, start_date DESC);
+CREATE UNIQUE INDEX student_excuses_unique_period ON student_excuses(school_id, student_id, start_date, COALESCE(end_date, 'infinity'::date));
 CREATE INDEX message_logs_school_created ON message_logs(school_id, created_at DESC);
 
 -- Even if a future query is written incorrectly, PostgreSQL requires a school context.
