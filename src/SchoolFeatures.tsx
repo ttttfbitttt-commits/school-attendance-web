@@ -119,7 +119,10 @@ export function MessageCenter({ students, attendance }: { students: FeatureStude
     void Promise.all([api.almadar(), api.messages(), api.absenceReport(today(), today())]).then(([account, history, absenceReport]) => {
       setAccountReady(account.account.configured)
       setLogs(history.messages)
-      setConfirmedAbsenceIds(new Set(absenceReport.rows.map(row => (row as AbsenceRow & { studentId?: string }).studentId || row.id)))
+      const absenceIds = absenceReport.rows
+        .map(row => row.studentId || row.id)
+        .filter((id): id is string => Boolean(id))
+      setConfirmedAbsenceIds(new Set(absenceIds))
     }).catch(() => setNotice('تعذر تحميل حالة الرسائل.'))
   }
   useEffect(load, [])
