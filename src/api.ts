@@ -38,7 +38,7 @@ export type AbsenceDetails = {
 export type DailyStudentRow = { id?: string; studentId: string; name: string; grade: string; classroom: string; phone: string; date: string; status: 'unexcused' | 'excused'; note?: string; time?: string }
 export type CountStudentRow = { studentId: string; name: string; grade: string; classroom: string; phone: string; days: number; excusedDays: number; unexcusedDays: number }
 export type StudentHistory = { student: { studentId: string; name: string; grade: string; classroom: string; phone: string }; type: 'absence' | 'late'; days: Array<{ date: string; status: 'unexcused' | 'excused'; time?: string }> }
-export type MessageLog = { id: string; studentId: string | null; studentName: string; recipient: string; senderName: string; type: 'late' | 'absence' | 'general'; body: string; status: 'sent' | 'failed'; errorDetail: string; createdAt: string }
+export type MessageLog = { id: string; studentId: string | null; studentName: string; recipient: string; senderName: string; type: 'late' | 'absence' | 'general' | 'test'; body: string; status: 'sent' | 'failed'; errorDetail: string; createdAt: string }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`/api${path}`, {
@@ -67,6 +67,7 @@ export const api = {
   almadar: () => request<{ account: AlmadarAccount }>('/almadar'),
   saveAlmadar: (settings: { username: string; password: string; apiKey: string; senderName: string }) => request<{ ok: boolean }>('/almadar', { method: 'PUT', body: JSON.stringify(settings) }),
   verifyAlmadar: () => request<{ ok: boolean; balance: string | number | null }>('/almadar/verify', { method: 'POST' }),
+  testAlmadar: (phone: string) => request<{ ok: boolean; recipientSuffix: string }>('/almadar/test-send', { method: 'POST', body: JSON.stringify({ phone }) }),
   excuses: () => request<{ excuses: Excuse[] }>('/excuses'),
   addExcuse: (excuse: { studentId: string; category: string; note: string; startDate: string; endDate: string }) => request<{ ok: boolean; id: string }>('/excuses', { method: 'POST', body: JSON.stringify(excuse) }),
   deleteExcuse: (id: string) => request<{ ok: boolean }>(`/excuses?id=${encodeURIComponent(id)}`, { method: 'DELETE' }),

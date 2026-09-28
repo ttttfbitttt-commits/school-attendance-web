@@ -593,6 +593,30 @@ input {
   margin: 18px 0 0;
 }
 
+.almadar-test-controls {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: end;
+  gap: 18px;
+  margin-top: 18px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.almadar-test-controls > div {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.almadar-test-controls small {
+  color: var(--muted);
+  font-size: 12px;
+}
+
 /* Grade Editor */
 .grade-editor-wrapper {
   margin-bottom: 18px;
@@ -2170,6 +2194,15 @@ tbody td {
   .school-settings-grid {
     grid-template-columns: 1fr;
     gap: 14px;
+  }
+
+  .almadar-test-controls {
+    grid-template-columns: 1fr;
+  }
+
+  .almadar-test-controls > div,
+  .almadar-test-controls > div .secondary-button {
+    width: 100%;
   }
 
   .panel-actions {

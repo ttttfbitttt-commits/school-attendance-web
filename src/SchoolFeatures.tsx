@@ -32,18 +32,22 @@ function downloadWorkbook(name: string, rows: Array<Array<string | number>>, she
 export function AlmadarSettings({ schoolName }: { schoolName: string }) {
   const [configured, setConfigured] = useState(false)
   const [senderName, setSenderName] = useState('')
+  const [savedSenderName, setSavedSenderName] = useState('')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [apiKey, setApiKey] = useState('')
+  const [testPhone, setTestPhone] = useState('')
   const [notice, setNotice] = useState('')
   const [balance, setBalance] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [testing, setTesting] = useState(false)
   const [isOpen, setIsOpen] = useState(false)
 
   const load = () => {
     void api.almadar().then(({ account }) => {
       setConfigured(account.configured)
       setSenderName(account.senderName || '')
+      setSavedSenderName(account.senderName || '')
       setBalance(account.lastBalance ?? null)
     }).catch(() => setNotice('تعذر تحميل إعداد حساب المدار التقني.'))
   }
@@ -59,9 +63,37 @@ export function AlmadarSettings({ schoolName }: { schoolName: string }) {
     setBusy(true)
     try {
       await api.saveAlmadar({ username, password, apiKey, senderName: senderName.trim() })
+      setSavedSenderName(senderName.trim())
       setNotice('تم حفظ بيانات حساب المدار التقني بشكل مشفر.')
       load()
     } catch { setNotice('تعذر حفظ الحساب. تحقق من البيانات ثم أعد المحاولة.') } finally { setBusy(false) }
+  }
+
+  const testSend = async () => {
+    if (!configured) { setNotice('احفظ إعداد حساب المدار أولاً، ثم أرسل رسالة الاختبار.'); return }
+    if (!senderName.trim() || senderName.trim() !== savedSenderName) { setNotice('احفظ اسم المرسل قبل إرسال رسالة الاختبار.'); return }
+    const digits = testPhone.replace(/\D/g, '')
+    const normalizedPhone = digits.startsWith('966') ? digits : `966${digits.replace(/^0+/, '')}`
+    if (!/^9665\d{8}$/.test(normalizedPhone)) { setNotice('أدخل رقم جوال سعودي صحيحًا بصيغة 05 أو 966.'); return }
+    const testMessage = 'مرحبا بك في نظام حصر الطلاب'
+    if (!window.confirm(`سيتم إرسال رسالة اختبار مدفوعة واحدة إلى ${normalizedPhone} وقد تخصم من رصيد المدار.\n\nنص الرسالة: ${testMessage}\n\nهل تريد المتابعة؟`)) return
+    setTesting(true)
+    setNotice('جارٍ إرسال رسالة الاختبار عبر المدار التقني...')
+    try {
+      const result = await api.testAlmadar(normalizedPhone)
+      setNotice(`قبل المدار طلب إرسال رسالة الاختبار إلى الرقم المنتهي بـ ${result.recipientSuffix}. تحقق من وصولها إلى جوال المدير.`)
+    } catch (error) {
+      const code = error instanceof Error ? error.message : ''
+      const messages: Record<string, string> = {
+        invalid_test_phone: 'رقم جوال المدير غير صحيح. أدخل رقمًا يبدأ بـ 05 أو 966.',
+        almadar_not_configured: 'احفظ إعداد حساب المدار أولاً.',
+        almadar_sender_name_rejected: 'رفض المدار اسم المرسل. تحقق من أنه مفعّل لهذا الحساب واكتبه كما يظهر في لوحة المدار.',
+        almadar_insufficient_balance: 'تعذر إرسال الاختبار بسبب رصيد الرسائل. تحقق من الرصيد في حساب المدار.',
+        api_key_not_authorized: 'رفض المدار مفتاح API. تحقق من المفتاح المحفوظ في إعدادات الحساب.',
+        almadar_test_send_failed: 'لم يقبل المدار رسالة الاختبار. راجع اسم المرسل والرصيد وبيانات الحساب، ثم راجع سجل الرسائل للتفاصيل.',
+      }
+      setNotice(messages[code] || 'تعذر الاتصال بخدمة إرسال المدار. تحقق من اتصال الخادم ثم أعد المحاولة.')
+    } finally { setTesting(false) }
   }
 
   const verify = async () => {
@@ -99,6 +131,10 @@ export function AlmadarSettings({ schoolName }: { schoolName: string }) {
       <button className="secondary-button" type="button" onClick={() => void verify()} disabled={busy || !configured}><RefreshCw size={16} /> التحقق من الاتصال</button>
       {configured && balance !== null && <span className="status-chip success"><CheckCircle2 size={15} /> الرصيد الأخير: {balance}</span>}
     </div>
+    {configured && <div className="almadar-test-controls">
+      <label className="school-settings-field">رقم جوال المدير<input type="tel" inputMode="tel" autoComplete="tel" dir="ltr" value={testPhone} onChange={event => setTestPhone(event.target.value)} placeholder="05xxxxxxxx أو 9665xxxxxxxx" /></label>
+      <div><button className="secondary-button" type="button" onClick={() => void testSend()} disabled={busy || testing || !senderName.trim() || senderName.trim() !== savedSenderName}><Send size={16} /> إرسال رسالة اختبار مدفوعة للمدير</button><small>ترسل رسالة واحدة بالنص: «مرحبا بك في نظام حصر الطلاب»</small></div>
+    </div>}
     {notice && <div className="notice-box settings-notice" role="status">{notice}</div>}</>}
   </section>
 }
@@ -168,7 +204,7 @@ export function MessageCenter({ students, attendance }: { students: FeatureStude
       <div className="table-wrap"><table className="feature-table"><thead><tr><th>اختيار</th><th>الطالب</th><th>الصف والفصل</th><th>الجوال</th></tr></thead><tbody>{candidates.map(student => <tr key={student.id}><td><input type="checkbox" checked={selected.has(student.id)} onChange={() => toggle(student.id)} /></td><td><strong>{student.name}</strong><small>{student.id}</small></td><td>{student.grade || '—'} · {student.classroom || '—'}</td><td dir="ltr">{student.phone || '—'}</td></tr>)}{!candidates.length && <tr><td colSpan={4}>لا يوجد طلاب مناسبون لهذا النوع من الرسائل اليوم.</td></tr>}</tbody></table></div>
       {notice && <div className="notice-box" role="status">{notice}</div>}
     </section>
-    <section className="panel"><div className="panel-header"><div><span className="panel-kicker">آخر 200 عملية</span><h2>سجل الرسائل</h2></div><button className="secondary-button" type="button" onClick={load}><RefreshCw size={16} /> تحديث السجل</button></div><div className="table-wrap"><table className="feature-table"><thead><tr><th>الوقت</th><th>الطالب</th><th>المستلم</th><th>النوع</th><th>الحالة</th><th>التفاصيل</th></tr></thead><tbody>{logs.map(log => <tr key={log.id}><td>{formatDateTime(log.createdAt)}</td><td>{log.studentName || '—'}</td><td dir="ltr">{maskPhone(log.recipient)}</td><td>{log.type === 'late' ? 'تأخر' : log.type === 'absence' ? 'غياب' : 'عامة'}</td><td><span className={`status-chip ${log.status === 'sent' ? 'success' : 'failed'}`}>{log.status === 'sent' ? 'تم الإرسال' : 'فشل'}</span></td><td>{log.errorDetail || log.body}</td></tr>)}{!logs.length && <tr><td colSpan={6}>لا يوجد إرسال مسجل حتى الآن.</td></tr>}</tbody></table></div></section>
+    <section className="panel"><div className="panel-header"><div><span className="panel-kicker">آخر 200 عملية</span><h2>سجل الرسائل</h2></div><button className="secondary-button" type="button" onClick={load}><RefreshCw size={16} /> تحديث السجل</button></div><div className="table-wrap"><table className="feature-table"><thead><tr><th>الوقت</th><th>الطالب / العملية</th><th>المستلم</th><th>النوع</th><th>الحالة</th><th>التفاصيل</th></tr></thead><tbody>{logs.map(log => <tr key={log.id}><td>{formatDateTime(log.createdAt)}</td><td>{log.studentName || '—'}</td><td dir="ltr">{maskPhone(log.recipient)}</td><td>{log.type === 'test' ? 'اختبار المدار' : log.type === 'late' ? 'تأخر' : log.type === 'absence' ? 'غياب' : 'عامة'}</td><td><span className={`status-chip ${log.status === 'sent' ? 'success' : 'failed'}`}>{log.status === 'sent' ? log.type === 'test' ? 'قُبل طلب الإرسال' : 'تم الإرسال' : 'فشل'}</span></td><td>{log.errorDetail || log.body}</td></tr>)}{!logs.length && <tr><td colSpan={6}>لا يوجد إرسال مسجل حتى الآن.</td></tr>}</tbody></table></div></section>
   </section>
 }
 

@@ -236,7 +236,7 @@ export async function migrateFeatures(pool) {
       student_name text NOT NULL DEFAULT '',
       recipient text NOT NULL,
       sender_name text NOT NULL,
-      message_type text NOT NULL CHECK (message_type IN ('late','absence','general')),
+      message_type text NOT NULL CHECK (message_type IN ('late','absence','general','test')),
       message_body text NOT NULL,
       status text NOT NULL CHECK (status IN ('sent','failed')),
       error_detail text NOT NULL DEFAULT '',
@@ -278,6 +278,8 @@ export async function migrateFeatures(pool) {
     ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS excuse_status text NOT NULL DEFAULT 'unexcused';
     ALTER TABLE attendance_logs DROP CONSTRAINT IF EXISTS attendance_logs_excuse_status_check;
     ALTER TABLE attendance_logs ADD CONSTRAINT attendance_logs_excuse_status_check CHECK (excuse_status IN ('unexcused','excused'));
+    ALTER TABLE message_logs DROP CONSTRAINT IF EXISTS message_logs_message_type_check;
+    ALTER TABLE message_logs ADD CONSTRAINT message_logs_message_type_check CHECK (message_type IN ('late','absence','general','test'));
     CREATE INDEX IF NOT EXISTS student_excuses_school_student ON student_excuses(school_id,student_id,start_date DESC);
     CREATE UNIQUE INDEX IF NOT EXISTS student_excuses_unique_period ON student_excuses(school_id,student_id,start_date,COALESCE(end_date,'infinity'::date));
     CREATE INDEX IF NOT EXISTS message_logs_school_created ON message_logs(school_id,created_at DESC);
@@ -616,6 +618,49 @@ export async function handleFeatureRequest(context) {
     if (!result.ok) { json(res, 400, result); return true }
     await scoped(user.school_id, async client => client.query('UPDATE almadar_accounts SET last_balance=$1,verified_at=now(),updated_at=now() WHERE school_id=$2', [result.balance === null ? null : String(result.balance), user.school_id]))
     json(res, 200, { ok: true, balance: result.balance })
+    return true
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/almadar/test-send') {
+    if (!adminOnly()) { json(res, 403, { error: 'forbidden' }); return true }
+    const input = await body(req)
+    const recipient = normalizePhone(input.phone)
+    if (!recipient) { json(res, 400, { error: 'invalid_test_phone' }); return true }
+    const account = await accountForSchool(user.school_id, scoped)
+    if (!account) { json(res, 400, { error: 'almadar_not_configured' }); return true }
+    const messageBody = 'مرحبا بك في نظام حصر الطلاب'
+    const outcome = await sendMessage(decrypt(account.api_key_encrypted), {
+      number: recipient,
+      senderName: account.sender_name,
+      sendAtOption: 'Now',
+      messageBody,
+      allow_duplicate: true,
+    })
+    const error = outcome.ok ? '' : outcome.error
+    await scoped(user.school_id, async client => client.query(`INSERT INTO message_logs(school_id,student_id,student_name,recipient,sender_name,message_type,message_body,status,error_detail,sent_by)
+      VALUES($1,NULL,$2,$3,$4,'test',$5,$6,$7,$8)`, [
+      user.school_id,
+      'اختبار إعداد حساب المدار',
+      recipient,
+      account.sender_name,
+      messageBody,
+      outcome.ok ? 'sent' : 'failed',
+      error,
+      user.user_id,
+    ]))
+    if (!outcome.ok) {
+      const normalizedError = error.toLowerCase()
+      const code = /sender|اسم المرسل/.test(normalizedError)
+        ? 'almadar_sender_name_rejected'
+        : /balance|رصيد/.test(normalizedError)
+          ? 'almadar_insufficient_balance'
+          : /unauthor|api key|مفتاح api|مفتاح غير صحيح/.test(normalizedError)
+            ? 'api_key_not_authorized'
+            : 'almadar_test_send_failed'
+      json(res, 400, { error: code })
+      return true
+    }
+    json(res, 200, { ok: true, recipientSuffix: recipient.slice(-4) })
     return true
   }
 
