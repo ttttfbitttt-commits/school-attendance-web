@@ -39,7 +39,7 @@ import {
 import './App.css'
 import { AuthGate } from './AuthGate'
 import { api, type SchoolProfile } from './api'
-import { AlmadarSettings, MessageCenter, ReportsCenter } from './SchoolFeatures'
+import { AlmadarSettings, downloadWorkbook, MessageCenter, reportBrandHeader, ReportsCenter } from './SchoolFeatures'
 
 type Student = {
   id: string
@@ -1077,10 +1077,7 @@ function AttendanceApp({ onLogout }: { onLogout: () => void }) {
         record.status === 'late' ? 'متأخر' : 'حاضر',
       ])
 
-    const worksheet = XLSX.utils.aoa_to_sheet([headers, ...rows])
-    const workbook = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(workbook, worksheet, 'Sheet1')
-    XLSX.writeFile(workbook, `تقرير_الحضور_${reportDate}.xlsx`)
+    downloadWorkbook(`تقرير_الحضور_${reportDate}`, [headers, ...rows], 'الحضور', schoolSettings.schoolName, 'تقرير الحضور اليومي')
     setNotice(`تم تصدير ${attendanceRows.length} سجل حضور بصيغة Excel بنجاح.`)
   }
 
@@ -1097,17 +1094,17 @@ function AttendanceApp({ onLogout }: { onLogout: () => void }) {
     const lateCount = scanLog.filter((s) => s.status === 'late').length
 
     const rowsHtml = scanLog
-      .map(
+    .map(
         (r, i) => `
       <tr>
         <td>${i + 1}</td>
-        <td>${r.day} ${r.date}</td>
-        <td style="font-weight: 700; direction: ltr;">${r.time}</td>
-        <td>${r.studentId}</td>
-        <td style="font-weight: 700; color: #0c4277;">${r.name}</td>
-        <td>${r.grade}</td>
-        <td>${r.classroom || '—'}</td>
-        <td style="direction: ltr;">${r.phone || '—'}</td>
+        <td>${escapeHtml(`${r.day} ${r.date}`)}</td>
+        <td style="font-weight: 700; direction: ltr;">${escapeHtml(r.time)}</td>
+        <td>${escapeHtml(r.studentId)}</td>
+        <td style="font-weight: 700; color: #0c4277;">${escapeHtml(r.name)}</td>
+        <td>${escapeHtml(r.grade)}</td>
+        <td>${escapeHtml(r.classroom || '—')}</td>
+        <td style="direction: ltr;">${escapeHtml(r.phone || '—')}</td>
         <td>
           <span class="badge ${r.status}">
             ${r.status === 'present' ? '✓ حاضر' : '⏰ متأخر'}
@@ -1127,8 +1124,11 @@ function AttendanceApp({ onLogout }: { onLogout: () => void }) {
     @page { size: A4 landscape; margin: 10mm; }
     * { box-sizing: border-box; }
     body { font-family: 'Cairo', Arial, sans-serif; direction: rtl; margin: 0; padding: 16px; color: #0f172a; }
-    .header { text-align: center; border-bottom: 2px solid #0c4277; padding-bottom: 12px; margin-bottom: 14px; }
-    .header h1 { margin: 0; color: #0c4277; font-size: 22px; font-weight: 800; }
+    .header { text-align: center; padding-bottom: 12px; margin-bottom: 14px; }
+    .report-brand { text-align: center; border-bottom: 2px solid #0c4277; padding-bottom: 9px; margin: 0 auto 8px; }
+    .report-brand img { display: block; width: 64px; height: 48px; object-fit: contain; margin: 0 auto 4px; }
+    .report-school { color: #334155; font-size: 13px; font-weight: 700; margin: 0 0 3px; }
+    .report-brand h1 { margin: 0; color: #0c4277; font-size: 19px; font-weight: 800; }
     .header p { margin: 4px 0 0; color: #475569; font-size: 13px; }
     .summary-pills { display: flex; justify-content: center; gap: 16px; margin-bottom: 16px; }
     .pill { padding: 6px 18px; border-radius: 999px; font-weight: 700; font-size: 13px; border: 1px solid #cbd5e1; }
@@ -1146,8 +1146,8 @@ function AttendanceApp({ onLogout }: { onLogout: () => void }) {
 </head>
 <body>
   <div class="header">
-    <h1>سجل حصر الحضور والتأخر المدرسي</h1>
-    <p>اليوم: ${dayName} | التاريخ: ${todayStr} | ${escapeHtml(schoolSettings.schoolName)} | العام الدراسي: ${escapeHtml(schoolSettings.academicYear)} | ${escapeHtml(schoolSettings.semester)} | مدير المدرسة: ${escapeHtml(schoolSettings.principalName)} | وقت الطباعة: ${new Intl.DateTimeFormat('ar-SA', { hour: '2-digit', minute: '2-digit' }).format(new Date())}</p>
+    ${reportBrandHeader('سجل حصر الحضور والتأخر المدرسي', schoolSettings.schoolName)}
+    <p>اليوم: ${dayName} | التاريخ: ${todayStr} | العام الدراسي: ${escapeHtml(schoolSettings.academicYear)} | ${escapeHtml(schoolSettings.semester)} | مدير المدرسة: ${escapeHtml(schoolSettings.principalName)} | وقت الطباعة: ${new Intl.DateTimeFormat('ar-SA', { hour: '2-digit', minute: '2-digit' }).format(new Date())}</p>
   </div>
   <div class="summary-pills">
     <div class="pill total">إجمالي الطلاب المسجلين: ${scanLog.length}</div>
@@ -1919,7 +1919,7 @@ function AttendanceApp({ onLogout }: { onLogout: () => void }) {
 
         {activeNav === 'reports' && <ReportsCenter students={students} schoolName={schoolSettings.schoolName} />}
 
-        {activeNav === 'messages' && <MessageCenter students={students} attendance={scanLog} />}
+        {activeNav === 'messages' && <MessageCenter students={students} attendance={scanLog} schoolName={schoolSettings.schoolName} />}
 
         {activeNav === 'attendance' && (
           <section className="attendance-panel">
