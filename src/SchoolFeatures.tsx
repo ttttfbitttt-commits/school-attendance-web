@@ -60,7 +60,6 @@ export function AlmadarSettings({ schoolName }: { schoolName: string }) {
     setBusy(true)
     try {
       await api.saveAlmadar({ username, password, apiKey, senderName: senderName.trim() })
-      setUsername(''); setPassword(''); setApiKey('')
       setNotice('تم حفظ بيانات حساب المدار التقني بشكل مشفر.')
       load()
     } catch { setNotice('تعذر حفظ الحساب. تحقق من البيانات ثم أعد المحاولة.') } finally { setBusy(false) }
