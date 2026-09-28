@@ -21,6 +21,7 @@ services:
     environment:
       NODE_ENV: production
       DATABASE_URL: postgres://attendance:${POSTGRES_PASSWORD}@db:5432/attendance
+      ALMADAR_ENCRYPTION_KEY: ${ALMADAR_ENCRYPTION_KEY}
     depends_on:
       db:
         condition: service_healthy

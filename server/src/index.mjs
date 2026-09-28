@@ -2,6 +2,7 @@ import http from 'node:http'
 import crypto from 'node:crypto'
 import { URL } from 'node:url'
 import pg from 'pg'
+import { handleFeatureRequest, migrateFeatures } from './features.mjs'
 
 const { Pool } = pg
 const pool = new Pool({ connectionString: process.env.DATABASE_URL })
@@ -86,6 +87,7 @@ function todayRiyadh() { return new Intl.DateTimeFormat('en-CA', { timeZone: 'As
 async function migrateDatabase() {
   await pool.query("ALTER TABLE schools ADD COLUMN IF NOT EXISTS preferences jsonb NOT NULL DEFAULT '{}'::jsonb")
   await pool.query('ALTER TABLE students ADD COLUMN IF NOT EXISTS active boolean NOT NULL DEFAULT true')
+  await migrateFeatures(pool)
 }
 
 const server = http.createServer(async (req, res) => {
@@ -159,7 +161,12 @@ const server = http.createServer(async (req, res) => {
       await scoped(user.school_id, async c => c.query('DELETE FROM attendance_logs WHERE attendance_date=$1', [date]))
       return json(res,200,{ok:true})
     }
+    if (await handleFeatureRequest({ req, res, url, user, pool, body, json, scoped, todayRiyadh })) return
     return json(res, 404, { error: 'not_found' })
-  } catch (error) { console.error(error); return json(res, 500, { error: 'server_error' }) }
+  } catch (error) {
+    console.error(error)
+    if (error instanceof Error && error.message === 'almadar_encryption_not_configured') return json(res, 503, { error: 'almadar_encryption_not_configured' })
+    return json(res, 500, { error: 'server_error' })
+  }
 })
 migrateDatabase().then(() => server.listen(PORT, '0.0.0.0', () => console.log(`API listening on ${PORT}`))).catch((error) => { console.error('Database migration failed', error); process.exit(1) })

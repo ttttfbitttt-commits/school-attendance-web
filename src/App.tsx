@@ -39,6 +39,7 @@ import {
 import './App.css'
 import { AuthGate } from './AuthGate'
 import { api, type SchoolProfile } from './api'
+import { AlmadarSettings, MessageCenter, ReportsCenter } from './SchoolFeatures'
 
 type Student = {
   id: string
@@ -168,7 +169,9 @@ function AttendanceApp({ onLogout }: { onLogout: () => void }) {
   const [attendanceSearch, setAttendanceSearch] = useState('')
   const [attendanceStudentSearch, setAttendanceStudentSearch] = useState('')
   const [scanInput, setScanInput] = useState('')
-  const [activeNav, setActiveNav] = useState<'dashboard' | 'students' | 'attendance'>('attendance')
+  const [activeNav, setActiveNav] = useState<'dashboard' | 'students' | 'attendance' | 'reports' | 'messages'>('attendance')
+  const [manualAttendanceSelection, setManualAttendanceSelection] = useState<Student[]>([])
+  const [manualAttendanceSubmitting, setManualAttendanceSubmitting] = useState(false)
   const [isImporting, setIsImporting] = useState(false)
   const [showPrintableCards, setShowPrintableCards] = useState(false)
   const [cardsPerPage, setCardsPerPage] = useState<CardsPerPage>(6)
@@ -970,14 +973,53 @@ function AttendanceApp({ onLogout }: { onLogout: () => void }) {
     return true
   }
 
-  const registerAttendanceByStudent = (student: Student) => {
-    const registered = handleScannedCode(student.id)
-    if (registered) {
-      setNotice(`تم تسجيل حضور الطالب ${student.name} وفق نمط التحضير المحدد.`)
-      setAttendanceStudentSearch('')
-    } else if (scanLogRef.current.some((record) => record.studentId === student.id)) {
+  const addManualAttendanceStudent = (student: Student) => {
+    if (scanLogRef.current.some((record) => record.studentId === student.id)) {
       setNotice(`الطالب ${student.name} مسجل في سجل الحضور اليوم.`)
+      return
     }
+    setManualAttendanceSelection((current) => current.some((item) => item.id === student.id) ? current : [...current, student])
+    setAttendanceStudentSearch('')
+  }
+
+  const confirmManualAttendance = () => {
+    const pending = manualAttendanceSelection.filter((student) => !scanLogRef.current.some((record) => record.studentId === student.id))
+    if (!pending.length) {
+      setManualAttendanceSelection([])
+      setNotice('جميع الطلاب المحددين مسجلون مسبقاً اليوم.')
+      return
+    }
+    const names = pending.slice(0, 8).map((student) => student.name).join('، ')
+    const extra = pending.length > 8 ? ` وغيرهم ${pending.length - 8}` : ''
+    if (!window.confirm(`سيتم تسجيل حضور ${pending.length} طالباً: ${names}${extra}. هل تريد التأكيد؟`)) return
+    const now = new Date()
+    const currentTime = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`
+    const currentStatus: 'present' | 'late' = attendanceMode === 'late'
+      ? 'late'
+      : attendanceMode === 'present'
+        ? 'present'
+        : `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}` > cutoffTime ? 'late' : 'present'
+    setManualAttendanceSubmitting(true)
+    void api.markAttendanceBulk(pending.map((student) => student.id), currentStatus)
+      .then((result) => {
+        const created = new Set(result.created)
+        const records: ScanRecord[] = pending.filter((student) => created.has(student.id)).map((student) => ({
+          studentId: student.id,
+          day: ARABIC_DAYS[now.getDay()],
+          date: getTodayDateStr(),
+          time: currentTime,
+          name: student.name,
+          grade: gradeLabel(student.grade),
+          classroom: student.classroom,
+          phone: student.phone,
+          status: currentStatus,
+        }))
+        if (records.length) setScanLog((current) => [...records, ...current])
+        setManualAttendanceSelection([])
+        setNotice(`تم تسجيل حضور ${records.length} طالباً${result.duplicates.length ? `، و${result.duplicates.length} مسجلون مسبقاً` : ''}.`)
+      })
+      .catch(() => setNotice('تعذر حفظ التحضير اليدوي في الخادم. تحقق من الاتصال ثم أعد المحاولة.'))
+      .finally(() => setManualAttendanceSubmitting(false))
   }
 
   // تفريغ سجل اليوم
@@ -1308,6 +1350,7 @@ function AttendanceApp({ onLogout }: { onLogout: () => void }) {
     setTimeout(() => URL.revokeObjectURL(url), 600000)
   }
 
+  const pageLabel = activeNav === 'dashboard' ? 'إعدادات المدرسة' : activeNav === 'attendance' ? 'سجل الحضور' : activeNav === 'reports' ? 'التقارير' : activeNav === 'messages' ? 'الرسائل' : 'إدارة الطلاب'
   return (
     <div className="app-shell" dir="rtl">
       {isMobileMenuOpen && (
@@ -1378,6 +1421,27 @@ function AttendanceApp({ onLogout }: { onLogout: () => void }) {
             <span>سجل الحضور</span>
           </button>
 
+          <button
+            className={activeNav === 'reports' ? 'nav-item active' : 'nav-item'}
+            onClick={() => {
+              setActiveNav('reports')
+              setIsMobileMenuOpen(false)
+            }}
+          >
+            <FileText size={18} />
+            <span>التقارير</span>
+          </button>
+
+          <button
+            className={activeNav === 'messages' ? 'nav-item active' : 'nav-item'}
+            onClick={() => {
+              setActiveNav('messages')
+              setIsMobileMenuOpen(false)
+            }}
+          >
+            <ExternalLink size={18} />
+            <span>الرسائل</span>
+          </button>
         </nav>
 
         <div className="sidebar-bottom">
@@ -1413,8 +1477,8 @@ function AttendanceApp({ onLogout }: { onLogout: () => void }) {
               <Menu size={22} />
             </button>
             <div>
-              <span className="eyebrow">إدارة المدرسة / {activeNav === 'dashboard' ? 'الإعدادات' : activeNav === 'attendance' ? 'الحضور' : 'الطلاب'}</span>
-              <h1>{activeNav === 'dashboard' ? 'إعدادات المدرسة' : activeNav === 'attendance' ? 'سجل الحضور' : 'إدارة الطلاب'}</h1>
+              <span className="eyebrow">إدارة المدرسة / {pageLabel}</span>
+              <h1>{pageLabel}</h1>
             </div>
           </div>
 
@@ -1498,6 +1562,7 @@ function AttendanceApp({ onLogout }: { onLogout: () => void }) {
 
               {schoolSettingsNotice && <div className="notice-box settings-notice" role="status">{schoolSettingsNotice}</div>}
             </section>
+            <AlmadarSettings schoolName={schoolSettings.schoolName} />
           </>
         )}
 
@@ -1846,6 +1911,10 @@ function AttendanceApp({ onLogout }: { onLogout: () => void }) {
           </>
         )}
 
+        {activeNav === 'reports' && <ReportsCenter students={students} schoolName={schoolSettings.schoolName} />}
+
+        {activeNav === 'messages' && <MessageCenter students={students} attendance={scanLog} />}
+
         {activeNav === 'attendance' && (
           <section className="attendance-panel">
             {/* 1. الشريط العلوي للأوضاع الثلاثة والوقت الثابت */}
@@ -2155,7 +2224,7 @@ function AttendanceApp({ onLogout }: { onLogout: () => void }) {
                       onKeyDown={(event) => {
                         if (event.key === 'Enter' && attendanceStudentMatches.length === 1) {
                           event.preventDefault()
-                          registerAttendanceByStudent(attendanceStudentMatches[0])
+                          addManualAttendanceStudent(attendanceStudentMatches[0])
                         }
                       }}
                       placeholder="ابحث باسم الطالب أو رقمه..."
@@ -2175,7 +2244,7 @@ function AttendanceApp({ onLogout }: { onLogout: () => void }) {
                               aria-selected="false"
                               key={student.id}
                               disabled={alreadyRegistered}
-                              onClick={() => registerAttendanceByStudent(student)}
+                              onClick={() => addManualAttendanceStudent(student)}
                             >
                               <span>
                                 <strong>{student.name}</strong>
@@ -2192,6 +2261,19 @@ function AttendanceApp({ onLogout }: { onLogout: () => void }) {
                   )}
                 </div>
               </div>
+
+              {manualAttendanceSelection.length > 0 && (
+                <div className="manual-selection-panel">
+                  <div>
+                    <strong>طلاب التحضير اليدوي ({manualAttendanceSelection.length})</strong>
+                    <span>{manualAttendanceSelection.map((student) => student.name).join('، ')}</span>
+                  </div>
+                  <div className="feature-actions">
+                    <button type="button" className="secondary-button" onClick={() => setManualAttendanceSelection([])}>إلغاء التحديد</button>
+                    <button type="button" className="primary-button" onClick={confirmManualAttendance} disabled={manualAttendanceSubmitting}>تأكيد تسجيل الحضور</button>
+                  </div>
+                </div>
+              )}
 
               <div className="scan-log-toolbar">
                 <div className="search-box">
