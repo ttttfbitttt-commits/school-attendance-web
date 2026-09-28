@@ -1,5 +1,5 @@
-import { FormEvent, useEffect, useState } from 'react'
-import type { ReactNode } from 'react'
+import { useEffect, useState } from 'react'
+import type { FormEvent, ReactNode } from 'react'
 import { LockKeyhole, School, UserRound } from 'lucide-react'
 import { api, type Account } from './api'
 
