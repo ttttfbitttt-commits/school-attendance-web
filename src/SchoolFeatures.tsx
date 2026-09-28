@@ -39,6 +39,7 @@ export function AlmadarSettings({ schoolName }: { schoolName: string }) {
   const [notice, setNotice] = useState('')
   const [balance, setBalance] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  const [isOpen, setIsOpen] = useState(false)
 
   const load = () => {
     void api.almadar().then(({ account }) => {
@@ -78,9 +79,9 @@ export function AlmadarSettings({ schoolName }: { schoolName: string }) {
   return <section className="panel almadar-settings-panel">
     <div className="panel-header">
       <div><span className="panel-kicker">الرسائل النصية</span><h2>إعداد حساب المدار التقني</h2><p>لكل مدرسة حساب مستقل. لا تعاد كلمة المرور أو مفتاح API إلى المتصفح بعد الحفظ.</p></div>
-      <ShieldCheck size={30} />
+      <div className="feature-actions"><button type="button" className="primary-button" onClick={() => setIsOpen(current => !current)}><ShieldCheck size={16} /> إعداد حساب المدار التقني</button>{configured && <span className="status-chip success"><CheckCircle2 size={15} /> الحساب محفوظ</span>}</div>
     </div>
-    <div className="school-settings-grid">
+    {isOpen && <><div className="school-settings-grid">
       <label className="school-settings-field">اسم المستخدم<input value={username} onChange={event => setUsername(event.target.value)} placeholder={configured ? 'اتركه فارغاً للإبقاء على القيمة المحفوظة' : 'اسم المستخدم'} /></label>
       <label className="school-settings-field">كلمة المرور<input value={password} type="password" onChange={event => setPassword(event.target.value)} placeholder={configured ? 'اتركها فارغة للإبقاء على القيمة المحفوظة' : 'كلمة المرور'} /></label>
       <label className="school-settings-field">مفتاح API<input value={apiKey} type="password" onChange={event => setApiKey(event.target.value)} placeholder={configured ? 'اتركه فارغاً للإبقاء على القيمة المحفوظة' : 'مفتاح API'} /></label>
@@ -89,9 +90,9 @@ export function AlmadarSettings({ schoolName }: { schoolName: string }) {
     <div className="feature-actions">
       <button className="primary-button" type="button" onClick={() => void save()} disabled={busy}><Save size={16} /> حفظ الحساب</button>
       <button className="secondary-button" type="button" onClick={() => void verify()} disabled={busy || !configured}><RefreshCw size={16} /> التحقق من الاتصال</button>
-      {configured && <span className="status-chip success"><CheckCircle2 size={15} /> الحساب محفوظ{balance !== null ? ` · الرصيد الأخير: ${balance}` : ''}</span>}
+      {configured && balance !== null && <span className="status-chip success"><CheckCircle2 size={15} /> الرصيد الأخير: {balance}</span>}
     </div>
-    {notice && <div className="notice-box settings-notice" role="status">{notice}</div>}
+    {notice && <div className="notice-box settings-notice" role="status">{notice}</div>}</>}
   </section>
 }
 
