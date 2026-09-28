@@ -7,6 +7,7 @@ CREATE TABLE schools (
   principal_name text NOT NULL DEFAULT '',
   academic_year text NOT NULL DEFAULT '',
   semester text NOT NULL DEFAULT '',
+  preferences jsonb NOT NULL DEFAULT '{}'::jsonb,
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
@@ -34,6 +35,7 @@ CREATE TABLE students (
   classroom text NOT NULL DEFAULT '',
   sheet text NOT NULL DEFAULT '',
   row_number integer NOT NULL DEFAULT 0,
+  active boolean NOT NULL DEFAULT true,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now(),
   PRIMARY KEY (school_id, id)

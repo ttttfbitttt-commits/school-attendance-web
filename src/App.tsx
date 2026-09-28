@@ -18,6 +18,7 @@ import {
   FolderOpen,
   Layers,
   LayoutDashboard,
+  LogOut,
   Maximize2,
   Menu,
   Minimize2,
@@ -37,7 +38,7 @@ import {
 } from 'lucide-react'
 import './App.css'
 import { AuthGate } from './AuthGate'
-import { api } from './api'
+import { api, type SchoolProfile } from './api'
 
 type Student = {
   id: string
@@ -80,19 +81,7 @@ const DEFAULT_SCHOOL_SETTINGS: SchoolSettings = {
   semester: 'الفصل الأول',
 }
 
-const readSchoolSettings = (): SchoolSettings => {
-  try {
-    const saved = JSON.parse(localStorage.getItem('school_settings') || '{}') as Partial<SchoolSettings>
-    return {
-      schoolName: typeof saved.schoolName === 'string' ? saved.schoolName : DEFAULT_SCHOOL_SETTINGS.schoolName,
-      principalName: typeof saved.principalName === 'string' ? saved.principalName : DEFAULT_SCHOOL_SETTINGS.principalName,
-      academicYear: typeof saved.academicYear === 'string' ? saved.academicYear : DEFAULT_SCHOOL_SETTINGS.academicYear,
-      semester: typeof saved.semester === 'string' ? saved.semester : DEFAULT_SCHOOL_SETTINGS.semester,
-    }
-  } catch {
-    return DEFAULT_SCHOOL_SETTINGS
-  }
-}
+const readSchoolSettings = (): SchoolSettings => DEFAULT_SCHOOL_SETTINGS
 
 const QR_SCAN_INTERVAL_MS = 100
 const QR_SCAN_MAX_DIMENSION = 360
@@ -166,20 +155,13 @@ const findHeaderRow = (rows: unknown[][]) => {
   return best.score >= 2 ? best.index : -1
 }
 
-function AttendanceApp() {
+function AttendanceApp({ onLogout }: { onLogout: () => void }) {
   const [schoolSettings, setSchoolSettings] = useState<SchoolSettings>(() => readSchoolSettings())
   const [schoolSettingsDraft, setSchoolSettingsDraft] = useState<SchoolSettings>(() => readSchoolSettings())
   const [schoolSettingsNotice, setSchoolSettingsNotice] = useState('')
-  const [students, setStudents] = useState<Student[]>(() => {
-    try {
-      const saved = localStorage.getItem('school_students')
-      return saved ? JSON.parse(saved) : []
-    } catch {
-      return []
-    }
-  })
+  const [students, setStudents] = useState<Student[]>([])
   const [fileName, setFileName] = useState<string>(() => {
-    return localStorage.getItem('school_file_name') || 'لم يتم رفع ملف بعد'
+    return 'لم يتم رفع ملف بعد'
   })
   const [notice, setNotice] = useState('جاهز لإدارة الطلاب وحصر الحضور الذكي')
   const [search, setSearch] = useState('')
@@ -193,26 +175,13 @@ function AttendanceApp() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [printGradeFilter, setPrintGradeFilter] = useState('all')
   const [printClassFilter, setPrintClassFilter] = useState('all')
-  const [gradeAliases, setGradeAliases] = useState<Record<string, string>>(() => {
-    try {
-      const saved = localStorage.getItem('school_grade_aliases')
-      return saved ? JSON.parse(saved) : {}
-    } catch {
-      return {}
-    }
-  })
+  const [gradeAliases, setGradeAliases] = useState<Record<string, string>>({})
   const [showGradeEditor, setShowGradeEditor] = useState(false)
 
   // نظام حصر الحضور بالكاميرا
-  const [attendanceMode, setAttendanceMode] = useState<AttendanceMode>(() => {
-    return (localStorage.getItem('school_attendance_mode') as AttendanceMode) || 'auto'
-  })
-  const [cutoffTime, setCutoffTime] = useState<string>(() => {
-    return localStorage.getItem('school_cutoff_time') || '07:30'
-  })
-  const [cutoffDraft, setCutoffDraft] = useState<string>(() => {
-    return localStorage.getItem('school_cutoff_time') || '07:30'
-  })
+  const [attendanceMode, setAttendanceMode] = useState<AttendanceMode>('auto')
+  const [cutoffTime, setCutoffTime] = useState<string>('07:30')
+  const [cutoffDraft, setCutoffDraft] = useState<string>('07:30')
   const [cutoffSavedNotice, setCutoffSavedNotice] = useState(false)
   const [isCameraActive, setIsCameraActive] = useState(false)
   const [isFullScreen, setIsFullScreen] = useState(false)
@@ -224,21 +193,35 @@ function AttendanceApp() {
     scanTime: string
   } | null>(null)
 
-  const [scanLog, setScanLog] = useState<ScanRecord[]>(() => {
-    try {
-      const saved = localStorage.getItem(`school_attendance_log_${getTodayDateStr()}`)
-      return saved ? JSON.parse(saved) : []
-    } catch {
-      return []
-    }
+  const [scanLog, setScanLog] = useState<ScanRecord[]>([])
+
+  const schoolProfile = (settings: SchoolSettings = schoolSettings): SchoolProfile => ({
+    ...settings,
+    preferences: { attendanceMode, cutoffTime, gradeAliases },
   })
+  const applySchoolProfile = (profile: SchoolProfile) => {
+    const settings = {
+      schoolName: profile.schoolName,
+      principalName: profile.principalName,
+      academicYear: profile.academicYear,
+      semester: profile.semester,
+    }
+    setSchoolSettings(settings)
+    setSchoolSettingsDraft(settings)
+    setGradeAliases(profile.preferences.gradeAliases)
+    setAttendanceMode(profile.preferences.attendanceMode)
+    setCutoffTime(profile.preferences.cutoffTime)
+    setCutoffDraft(profile.preferences.cutoffTime)
+  }
 
   // المصدر المعتمد بعد تسجيل الدخول هو الخادم؛ التخزين المحلي يبقى فقط كنسخة مؤقتة للمتصفح.
   useEffect(() => {
-    void Promise.all([api.students(), api.attendance()])
-      .then(([studentResult, attendanceResult]) => {
+    void Promise.all([api.school(), api.students(), api.attendance()])
+      .then(([schoolResult, studentResult, attendanceResult]) => {
+        const remoteSchool = schoolResult.school
         const remoteStudents = studentResult.students as Student[]
         const remoteRecords = attendanceResult.records as Array<Omit<ScanRecord, 'day'>>
+        applySchoolProfile(remoteSchool)
         setStudents(remoteStudents)
         setScanLog(remoteRecords.map((record) => ({
           ...record,
@@ -266,19 +249,6 @@ function AttendanceApp() {
   const cameraWrapperRef = useRef<HTMLDivElement>(null)
   const overlayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const lastScanThrottleRef = useRef<{ code: string; timestamp: number }>({ code: '', timestamp: 0 })
-
-  // حفظ الطلاب واسم الملف دائماً في localStorage
-  useEffect(() => {
-    if (students.length > 0) {
-      try {
-        const stripped = students.map(({ qr, ...rest }) => rest)
-        localStorage.setItem('school_students', JSON.stringify(stripped))
-        localStorage.setItem('school_file_name', fileName)
-      } catch (e) {
-        console.warn('Failed to save students to localStorage', e)
-      }
-    }
-  }, [students, fileName])
 
   // رموز QR ثابتة ومشتقة من رقم الطالب؛ أعد إنشاء صورها تلقائياً بعد استعادة بيانات الطلاب.
   // نخزن بيانات الطالب فقط لتجنب استهلاك مساحة localStorage ببيانات الصور الكبيرة.
@@ -318,29 +288,6 @@ function AttendanceApp() {
   }, [students])
 
 
-
-  // حفظ سجل الحضور اليومي
-  useEffect(() => {
-    try {
-      localStorage.setItem(`school_attendance_log_${getTodayDateStr()}`, JSON.stringify(scanLog))
-    } catch (e) {
-      console.warn('Failed to save scan log', e)
-    }
-  }, [scanLog])
-
-  // حفظ أسماء الصفوف المخصصة
-  useEffect(() => {
-    try {
-      localStorage.setItem('school_grade_aliases', JSON.stringify(gradeAliases))
-    } catch {}
-  }, [gradeAliases])
-
-  // حفظ وضع الحضور المختار
-  useEffect(() => {
-    try {
-      localStorage.setItem('school_attendance_mode', attendanceMode)
-    } catch {}
-  }, [attendanceMode])
 
   // متابعة تغيير وضع ملء الشاشة عند الخروج بزر Esc
   useEffect(() => {
@@ -541,9 +488,8 @@ function AttendanceApp() {
       )
 
       const duplicateCount = imported.length - uniqueStudents.length
+      await api.saveStudents(uniqueStudents.map(({ qr, ...student }) => student))
       setStudents(uniqueStudents)
-      void api.saveStudents(uniqueStudents.map(({ qr, ...student }) => student))
-        .catch(() => setNotice('تمت قراءة الملف محلياً، لكن تعذر حفظه في الخادم. تحقق من الاتصال.'))
       setShowPrintableCards(false)
       setNotice(
         `تم استيراد ${uniqueStudents.length} طالبًا${duplicateCount ? `، وتم تجاهل ${duplicateCount} تكرارًا` : ''}${warnings.length ? `، مع ${warnings.length} تنبيهًا` : ''}`
@@ -591,11 +537,15 @@ function AttendanceApp() {
 
   // حفظ وقت الحضور المبكر
   const saveCutoffTime = () => {
-    setCutoffTime(cutoffDraft)
-    localStorage.setItem('school_cutoff_time', cutoffDraft)
-    setCutoffSavedNotice(true)
-    setTimeout(() => setCutoffSavedNotice(false), 2200)
-    setNotice(`تم حفظ وقت الحضور المبكر: ${cutoffDraft}`)
+    const profile = { ...schoolProfile(), preferences: { attendanceMode, cutoffTime: cutoffDraft, gradeAliases } }
+    void api.saveSchool(profile)
+      .then(({ school }) => {
+        applySchoolProfile(school)
+        setCutoffSavedNotice(true)
+        setTimeout(() => setCutoffSavedNotice(false), 2200)
+        setNotice(`تم حفظ وقت الحضور المبكر: ${cutoffDraft}`)
+      })
+      .catch(() => setNotice('تعذر حفظ وقت الحضور في الخادم. تحقق من الاتصال ثم أعد المحاولة.'))
   }
 
   const saveSchoolSettings = () => {
@@ -611,14 +561,36 @@ function AttendanceApp() {
       return
     }
 
-    try {
-      localStorage.setItem('school_settings', JSON.stringify(nextSettings))
-      setSchoolSettings(nextSettings)
-      setSchoolSettingsDraft(nextSettings)
-      setSchoolSettingsNotice('تم حفظ بيانات المدرسة في هذا المتصفح.')
-    } catch {
-      setSchoolSettingsNotice('تعذر حفظ الإعدادات. تحقق من مساحة تخزين المتصفح.')
-    }
+    void api.saveSchool(schoolProfile(nextSettings))
+      .then(({ school }) => {
+        applySchoolProfile(school)
+        setSchoolSettingsNotice('تم حفظ بيانات المدرسة في الخادم الآمن.')
+      })
+      .catch(() => setSchoolSettingsNotice('تعذر حفظ الإعدادات في الخادم. تحقق من الاتصال ثم أعد المحاولة.'))
+  }
+
+  const savePreferences = (preferences: SchoolProfile['preferences']) => {
+    void api.saveSchool({ ...schoolProfile(), preferences })
+      .then(({ school }) => applySchoolProfile(school))
+      .catch(() => setNotice('تعذر حفظ الإعدادات في الخادم. تحقق من الاتصال ثم أعد المحاولة.'))
+  }
+
+  const selectAttendanceMode = (mode: AttendanceMode) => {
+    setAttendanceMode(mode)
+    savePreferences({ attendanceMode: mode, cutoffTime, gradeAliases })
+  }
+
+  const updateGradeAlias = (grade: string, alias: string) => {
+    const nextAliases = { ...gradeAliases, [grade]: alias }
+    setGradeAliases(nextAliases)
+    savePreferences({ attendanceMode, cutoffTime, gradeAliases: nextAliases })
+  }
+
+  const clearGradeAlias = (grade: string) => {
+    const nextAliases = { ...gradeAliases }
+    delete nextAliases[grade]
+    setGradeAliases(nextAliases)
+    savePreferences({ attendanceMode, cutoffTime, gradeAliases: nextAliases })
   }
 
   // مولد الأصوات الفوري (Web Audio API)
@@ -1012,8 +984,12 @@ function AttendanceApp() {
   const clearTodayScanLog = () => {
     if (!scanLog.length) return
     if (window.confirm('هل أنت متأكد من تفريغ سجل الحضور لهذا اليوم؟')) {
-      setScanLog([])
-      setNotice('تم تفريغ سجل اليوم بنجاح.')
+      void api.clearAttendance(getTodayDateStr())
+        .then(() => {
+          setScanLog([])
+          setNotice('تم تفريغ سجل اليوم من الخادم بنجاح.')
+        })
+        .catch(() => setNotice('تعذر تفريغ السجل من الخادم. تحقق من الاتصال ثم أعد المحاولة.'))
     }
   }
 
@@ -1421,7 +1397,10 @@ function AttendanceApp() {
             <small>تواصل مع الدعم الفني</small>
           </div>
         </div>
-      </aside>
+        <button className="nav-item" type="button" onClick={onLogout}>
+          <LogOut size={18} />
+          <span>تسجيل الخروج</span>
+        </button>      </aside>
 
       <main className="main-content">
         <header className="topbar">
@@ -1460,7 +1439,7 @@ function AttendanceApp() {
               </div>
               <div className="secure-label">
                 <CheckCircle2 size={16} />
-                تُحفظ الإعدادات في هذا المتصفح
+                تُحفظ الإعدادات في الخادم الآمن
               </div>
             </section>
 
@@ -1628,23 +1607,12 @@ function AttendanceApp() {
                             className="grade-editor-input"
                             placeholder={`اسم بديل للصف "${rawGrade}"`}
                             value={gradeAliases[rawGrade] ?? ''}
-                            onChange={(e) =>
-                              setGradeAliases((prev) => ({
-                                ...prev,
-                                [rawGrade]: e.target.value,
-                              }))
-                            }
+                            onChange={(e) => updateGradeAlias(rawGrade, e.target.value)}
                           />
                           {gradeAliases[rawGrade] && (
                             <button
                               className="grade-editor-clear"
-                              onClick={() =>
-                                setGradeAliases((prev) => {
-                                  const next = { ...prev }
-                                  delete next[rawGrade]
-                                  return next
-                                })
-                              }
+                              onClick={() => clearGradeAlias(rawGrade)}
                               title="مسح الاسم البديل"
                             >
                               <X size={13} />
@@ -1899,7 +1867,7 @@ function AttendanceApp() {
                   <button
                     type="button"
                     className={`mode-selector-btn late ${attendanceMode === 'late' ? 'active' : ''}`}
-                    onClick={() => setAttendanceMode('late')}
+                    onClick={() => selectAttendanceMode('late')}
                     aria-pressed={attendanceMode === 'late'}
                   >
                     <Clock3 size={18} />
@@ -1909,7 +1877,7 @@ function AttendanceApp() {
                   <button
                     type="button"
                     className={`mode-selector-btn present ${attendanceMode === 'present' ? 'active' : ''}`}
-                    onClick={() => setAttendanceMode('present')}
+                    onClick={() => selectAttendanceMode('present')}
                     aria-pressed={attendanceMode === 'present'}
                   >
                     <CheckCircle2 size={18} />
@@ -1919,7 +1887,7 @@ function AttendanceApp() {
                   <button
                     type="button"
                     className={`mode-selector-btn auto ${attendanceMode === 'auto' ? 'active' : ''}`}
-                    onClick={() => setAttendanceMode('auto')}
+                    onClick={() => selectAttendanceMode('auto')}
                     aria-pressed={attendanceMode === 'auto'}
                   >
                     <Sparkles size={18} />
@@ -2351,7 +2319,7 @@ function AttendanceApp() {
 }
 
 function App() {
-  return <AuthGate><AttendanceApp /></AuthGate>
+  return <AuthGate>{(_account, logout) => <AttendanceApp onLogout={logout} />}</AuthGate>
 }
 
 export default App

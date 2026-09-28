@@ -3,7 +3,7 @@ import type { FormEvent, ReactNode } from 'react'
 import { LockKeyhole, School, UserRound } from 'lucide-react'
 import { api, type Account } from './api'
 
-export function AuthGate({ children }: { children: ReactNode }) {
+export function AuthGate({ children }: { children: (account: Account, logout: () => void) => ReactNode }) {
   const [account, setAccount] = useState<Account | null>(null)
   const [loading, setLoading] = useState(true)
   const [registering, setRegistering] = useState(false)
@@ -20,7 +20,10 @@ export function AuthGate({ children }: { children: ReactNode }) {
     } catch { setError('تعذر الدخول. تحقق من البريد وكلمة المرور، أو جرّب لاحقاً.') }
   }
   if (loading) return <div className="auth-loading">جارٍ الاتصال بالنظام الآمن…</div>
-  if (account) return <>{children}</>
+  function logout() {
+    void api.logout().catch(() => {}).finally(() => setAccount(null))
+  }
+  if (account) return <>{children(account, logout)}</>
   return <main className="auth-page"><section className="auth-card">
     <div className="auth-icon"><School size={30} /></div><h1>نظام حصر الحضور</h1><p>بيانات كل مدرسة محفوظة في مساحة مستقلة وآمنة.</p>
     <div className="auth-tabs"><button className={!registering ? 'active' : ''} onClick={() => setRegistering(false)}>دخول</button><button className={registering ? 'active' : ''} onClick={() => setRegistering(true)}>تسجيل مدرسة</button></div>

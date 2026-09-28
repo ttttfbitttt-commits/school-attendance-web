@@ -47,12 +47,46 @@ async function createSession(res, userId, schoolId) {
   res.setHeader('set-cookie', sessionCookie(token))
 }
 function account(row) { return { email: row.email, displayName: row.display_name, role: row.role, schoolId: row.school_id } }
+const defaultPreferences = { attendanceMode: 'auto', cutoffTime: '07:30', gradeAliases: {} }
+function schoolProfile(row) {
+  const preferences = row.preferences && typeof row.preferences === 'object' ? row.preferences : {}
+  return {
+    schoolName: row.name,
+    principalName: row.principal_name,
+    academicYear: row.academic_year,
+    semester: row.semester,
+    preferences: {
+      attendanceMode: ['auto', 'present', 'late'].includes(preferences.attendanceMode) ? preferences.attendanceMode : defaultPreferences.attendanceMode,
+      cutoffTime: /^([01]\d|2[0-3]):[0-5]\d$/.test(preferences.cutoffTime || '') ? preferences.cutoffTime : defaultPreferences.cutoffTime,
+      gradeAliases: preferences.gradeAliases && typeof preferences.gradeAliases === 'object' && !Array.isArray(preferences.gradeAliases) ? preferences.gradeAliases : {},
+    },
+  }
+}
+function normalizedSchoolProfile(input) {
+  const schoolName = String(input.schoolName || '').trim()
+  const principalName = String(input.principalName || '').trim()
+  const academicYear = String(input.academicYear || '').trim()
+  const semester = String(input.semester || '').trim()
+  const rawPreferences = input.preferences && typeof input.preferences === 'object' && !Array.isArray(input.preferences) ? input.preferences : {}
+  const attendanceMode = ['auto', 'present', 'late'].includes(rawPreferences.attendanceMode) ? rawPreferences.attendanceMode : defaultPreferences.attendanceMode
+  const cutoffTime = /^([01]\d|2[0-3]):[0-5]\d$/.test(String(rawPreferences.cutoffTime || '')) ? String(rawPreferences.cutoffTime) : defaultPreferences.cutoffTime
+  const gradeAliases = Object.fromEntries(Object.entries(rawPreferences.gradeAliases && typeof rawPreferences.gradeAliases === 'object' && !Array.isArray(rawPreferences.gradeAliases) ? rawPreferences.gradeAliases : {})
+    .filter(([key, value]) => String(key).trim().length <= 100 && String(value).trim().length <= 100)
+    .slice(0, 100)
+    .map(([key, value]) => [String(key).trim(), String(value).trim()]))
+  if (![schoolName, principalName, academicYear, semester].every(value => value.length > 0 && value.length <= 160)) return null
+  return { schoolName, principalName, academicYear, semester, preferences: { attendanceMode, cutoffTime, gradeAliases } }
+}
 async function scoped(schoolId, work) {
   const client = await pool.connect()
   try { await client.query('BEGIN'); await client.query(`SELECT set_config('app.school_id', $1, true)`, [schoolId]); const result = await work(client); await client.query('COMMIT'); return result }
   catch (error) { await client.query('ROLLBACK'); throw error } finally { client.release() }
 }
 function todayRiyadh() { return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Riyadh' }).format(new Date()) }
+async function migrateDatabase() {
+  await pool.query("ALTER TABLE schools ADD COLUMN IF NOT EXISTS preferences jsonb NOT NULL DEFAULT '{}'::jsonb")
+  await pool.query('ALTER TABLE students ADD COLUMN IF NOT EXISTS active boolean NOT NULL DEFAULT true')
+}
 
 const server = http.createServer(async (req, res) => {
   try {
@@ -64,7 +98,7 @@ const server = http.createServer(async (req, res) => {
       const client = await pool.connect()
       try {
         await client.query('BEGIN')
-        const school = await client.query('INSERT INTO schools(name) VALUES($1) RETURNING id,name', [schoolName.trim()])
+        const school = await client.query('INSERT INTO schools(name,principal_name,academic_year,semester) VALUES($1,$2,$3,$4) RETURNING id,name', [schoolName.trim(), String(displayName || '').trim() || schoolName.trim(), '1448 / 1449', 'الفصل الأول'])
         const user = await client.query('INSERT INTO users(email,password_hash,display_name) VALUES(lower($1),$2,$3) RETURNING id,email,display_name', [email, passwordHash(password), String(displayName || '').trim() || schoolName.trim()])
         await client.query('INSERT INTO memberships(school_id,user_id,role) VALUES($1,$2,\'admin\')', [school.rows[0].id, user.rows[0].id])
         await client.query('COMMIT')
@@ -83,20 +117,49 @@ const server = http.createServer(async (req, res) => {
     const user = await auth(req)
     if (!user) return json(res, 401, { error: 'unauthorized' })
     if (req.method === 'GET' && url.pathname === '/api/me') return json(res, 200, { user: account(user) })
-    if (req.method === 'GET' && url.pathname === '/api/students') return json(res, 200, await scoped(user.school_id, async c => ({ students: (await c.query('SELECT id,name,phone,grade,classroom,sheet,row_number AS row FROM students ORDER BY name')).rows })))
+    if (req.method === 'GET' && url.pathname === '/api/school') {
+      const result = await pool.query('SELECT name,principal_name,academic_year,semester,preferences FROM schools WHERE id=$1', [user.school_id])
+      if (!result.rows[0]) return json(res, 404, { error: 'school_not_found' })
+      return json(res, 200, { school: schoolProfile(result.rows[0]) })
+    }
+    if (req.method === 'PUT' && url.pathname === '/api/school') {
+      if (user.role !== 'admin') return json(res, 403, { error: 'forbidden' })
+      const profile = normalizedSchoolProfile(await body(req))
+      if (!profile) return json(res, 400, { error: 'invalid_school_profile' })
+      const result = await pool.query('UPDATE schools SET name=$1,principal_name=$2,academic_year=$3,semester=$4,preferences=$5::jsonb WHERE id=$6 RETURNING name,principal_name,academic_year,semester,preferences', [profile.schoolName, profile.principalName, profile.academicYear, profile.semester, JSON.stringify(profile.preferences), user.school_id])
+      return json(res, 200, { school: schoolProfile(result.rows[0]) })
+    }
+    if (req.method === 'GET' && url.pathname === '/api/students') return json(res, 200, await scoped(user.school_id, async c => ({ students: (await c.query('SELECT id,name,phone,grade,classroom,sheet,row_number AS row FROM students WHERE active=true ORDER BY name')).rows })))
     if (req.method === 'PUT' && url.pathname === '/api/students') {
       if (user.role !== 'admin') return json(res,403,{error:'forbidden'})
       const { students=[] } = await body(req)
-      await scoped(user.school_id, async c => { await c.query('DELETE FROM students'); for (const s of students) await c.query('INSERT INTO students(school_id,id,name,phone,grade,classroom,sheet,row_number) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[user.school_id,s.id,s.name,s.phone||'',s.grade||'',s.classroom||'',s.sheet||'',Number(s.row)||0]) })
+      if (!Array.isArray(students) || students.length > 20000 || students.some(s => !String(s?.id || '').trim() || !String(s?.name || '').trim())) return json(res,400,{error:'invalid_students'})
+      await scoped(user.school_id, async c => {
+        await c.query('UPDATE students SET active=false,updated_at=now()')
+        for (const s of students) await c.query(`INSERT INTO students(school_id,id,name,phone,grade,classroom,sheet,row_number,active) VALUES($1,$2,$3,$4,$5,$6,$7,$8,true)
+          ON CONFLICT(school_id,id) DO UPDATE SET name=EXCLUDED.name,phone=EXCLUDED.phone,grade=EXCLUDED.grade,classroom=EXCLUDED.classroom,sheet=EXCLUDED.sheet,row_number=EXCLUDED.row_number,active=true,updated_at=now()`,[user.school_id,String(s.id).trim(),String(s.name).trim(),String(s.phone||''),String(s.grade||''),String(s.classroom||''),String(s.sheet||''),Number(s.row)||0])
+      })
       return json(res,200,{ok:true})
     }
     if (req.method === 'GET' && url.pathname === '/api/attendance') return json(res,200, await scoped(user.school_id, async c => ({ records:(await c.query(`SELECT a.student_id AS "studentId", to_char(a.attendance_date,'YYYY-MM-DD') AS date, to_char(a.recorded_at AT TIME ZONE 'Asia/Riyadh','HH24:MI:SS') AS time, s.name,s.grade,s.classroom,s.phone,a.status FROM attendance_logs a JOIN students s ON s.school_id=a.school_id AND s.id=a.student_id WHERE a.attendance_date=$1 ORDER BY a.recorded_at DESC`,[url.searchParams.get('date') || todayRiyadh()])).rows })))
     if (req.method === 'POST' && url.pathname === '/api/attendance') {
       const { studentId, status } = await body(req); if (!studentId || !['present','late'].includes(status)) return json(res,400,{error:'invalid_attendance'})
-      const result = await scoped(user.school_id, async c => c.query(`INSERT INTO attendance_logs(school_id,student_id,attendance_date,recorded_by,status) VALUES($1,$2,$3,$4,$5) ON CONFLICT(school_id,student_id,attendance_date) DO NOTHING RETURNING attendance_date,recorded_at`,[user.school_id,studentId,todayRiyadh(),user.user_id,status]))
+      const result = await scoped(user.school_id, async c => {
+        const student = await c.query('SELECT 1 FROM students WHERE id=$1 AND active=true', [studentId])
+        if (!student.rowCount) return null
+        return c.query(`INSERT INTO attendance_logs(school_id,student_id,attendance_date,recorded_by,status) VALUES($1,$2,$3,$4,$5) ON CONFLICT(school_id,student_id,attendance_date) DO NOTHING RETURNING attendance_date,recorded_at`,[user.school_id,studentId,todayRiyadh(),user.user_id,status])
+      })
+      if (!result) return json(res,404,{error:'student_not_found'})
       return json(res, result.rowCount ? 201 : 409, { ok: Boolean(result.rowCount) })
+    }
+    if (req.method === 'DELETE' && url.pathname === '/api/attendance') {
+      if (user.role !== 'admin') return json(res,403,{error:'forbidden'})
+      const date = url.searchParams.get('date') || todayRiyadh()
+      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return json(res,400,{error:'invalid_date'})
+      await scoped(user.school_id, async c => c.query('DELETE FROM attendance_logs WHERE attendance_date=$1', [date]))
+      return json(res,200,{ok:true})
     }
     return json(res, 404, { error: 'not_found' })
   } catch (error) { console.error(error); return json(res, 500, { error: 'server_error' }) }
 })
-server.listen(PORT, '0.0.0.0', () => console.log(`API listening on ${PORT}`))
+migrateDatabase().then(() => server.listen(PORT, '0.0.0.0', () => console.log(`API listening on ${PORT}`))).catch((error) => { console.error('Database migration failed', error); process.exit(1) })
