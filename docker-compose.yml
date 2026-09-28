@@ -1,0 +1,39 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: attendance
+      POSTGRES_USER: attendance
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./server/db/init.sql:/docker-entrypoint-initdb.d/001-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U attendance -d attendance"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks: [private]
+  api:
+    build: ./server
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://attendance:${POSTGRES_PASSWORD}@db:5432/attendance
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [private]
+  web:
+    build: .
+    restart: unless-stopped
+    depends_on: [api]
+    ports:
+      - "127.0.0.1:8080:80"
+    networks: [private]
+volumes:
+  postgres_data:
+networks:
+  private:
+    internal: true

@@ -36,6 +36,8 @@ import {
   ZapOff,
 } from 'lucide-react'
 import './App.css'
+import { AuthGate } from './AuthGate'
+import { api } from './api'
 
 type Student = {
   id: string
@@ -164,7 +166,7 @@ const findHeaderRow = (rows: unknown[][]) => {
   return best.score >= 2 ? best.index : -1
 }
 
-function App() {
+function AttendanceApp() {
   const [schoolSettings, setSchoolSettings] = useState<SchoolSettings>(() => readSchoolSettings())
   const [schoolSettingsDraft, setSchoolSettingsDraft] = useState<SchoolSettings>(() => readSchoolSettings())
   const [schoolSettingsNotice, setSchoolSettingsNotice] = useState('')
@@ -230,6 +232,22 @@ function App() {
       return []
     }
   })
+
+  // المصدر المعتمد بعد تسجيل الدخول هو الخادم؛ التخزين المحلي يبقى فقط كنسخة مؤقتة للمتصفح.
+  useEffect(() => {
+    void Promise.all([api.students(), api.attendance()])
+      .then(([studentResult, attendanceResult]) => {
+        const remoteStudents = studentResult.students as Student[]
+        const remoteRecords = attendanceResult.records as Array<Omit<ScanRecord, 'day'>>
+        setStudents(remoteStudents)
+        setScanLog(remoteRecords.map((record) => ({
+          ...record,
+          day: ARABIC_DAYS[new Date(`${record.date}T12:00:00`).getDay()],
+        })))
+        setNotice('تم تحميل بيانات المدرسة من الخادم الآمن.')
+      })
+      .catch(() => setNotice('تعذر تحميل بيانات الخادم. تحقق من الاتصال ثم أعد المحاولة.'))
+  }, [])
 
   // مرجع لتخزين أحدث حالة من السجل لتجنب مشكلة الـ Stale Closure داخل حلقة الكاميرا
   const scanLogRef = useRef<ScanRecord[]>(scanLog)
@@ -524,6 +542,8 @@ function App() {
 
       const duplicateCount = imported.length - uniqueStudents.length
       setStudents(uniqueStudents)
+      void api.saveStudents(uniqueStudents.map(({ qr, ...student }) => student))
+        .catch(() => setNotice('تمت قراءة الملف محلياً، لكن تعذر حفظه في الخادم. تحقق من الاتصال.'))
       setShowPrintableCards(false)
       setNotice(
         `تم استيراد ${uniqueStudents.length} طالبًا${duplicateCount ? `، وتم تجاهل ${duplicateCount} تكرارًا` : ''}${warnings.length ? `، مع ${warnings.length} تنبيهًا` : ''}`
@@ -971,6 +991,9 @@ function App() {
     }
 
     setScanLog((prev) => [newRecord, ...prev])
+    void api.markAttendance(student.id, status).then((result) => {
+      if (!result.ok) setNotice('هذا الطالب مسجل بالفعل في سجل اليوم.')
+    }).catch(() => setNotice('تعذر حفظ الحضور في الخادم. تحقق من الاتصال.'))
 
     return true
   }
@@ -2325,6 +2348,10 @@ function App() {
       )}
     </div>
   )
+}
+
+function App() {
+  return <AuthGate><AttendanceApp /></AuthGate>
 }
 
 export default App

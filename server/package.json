@@ -1,0 +1,7 @@
+{
+  "name": "7asr2030-api",
+  "private": true,
+  "type": "module",
+  "scripts": { "start": "node src/index.mjs" },
+  "dependencies": { "pg": "^8.13.1" }
+}
