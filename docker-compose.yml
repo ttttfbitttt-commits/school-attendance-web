@@ -14,7 +14,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    networks: [private]
+    networks: [private, edge]
   api:
     build: ./server
     restart: unless-stopped
@@ -37,3 +37,4 @@ volumes:
 networks:
   private:
     internal: true
+  edge:
