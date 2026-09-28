@@ -31,7 +31,7 @@ function downloadWorkbook(name: string, rows: Array<Array<string | number>>, she
 
 export function AlmadarSettings({ schoolName }: { schoolName: string }) {
   const [configured, setConfigured] = useState(false)
-  const [senderName, setSenderName] = useState('School1')
+  const [senderName, setSenderName] = useState('')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
   const [apiKey, setApiKey] = useState('')
@@ -43,7 +43,7 @@ export function AlmadarSettings({ schoolName }: { schoolName: string }) {
   const load = () => {
     void api.almadar().then(({ account }) => {
       setConfigured(account.configured)
-      setSenderName(account.senderName || 'School1')
+      setSenderName(account.senderName || '')
       setBalance(account.lastBalance ?? null)
     }).catch(() => setNotice('تعذر تحميل إعداد حساب المدار التقني.'))
   }
@@ -92,7 +92,7 @@ export function AlmadarSettings({ schoolName }: { schoolName: string }) {
       <label className="school-settings-field">اسم المستخدم<input name="almadar-username" autoComplete="off" data-lpignore="true" data-1p-ignore="true" value={username} onChange={event => setUsername(event.target.value)} placeholder={configured ? 'اتركه فارغاً للإبقاء على القيمة المحفوظة' : 'اسم المستخدم'} /></label>
       <label className="school-settings-field">كلمة المرور<input name="almadar-password" autoComplete="off" data-lpignore="true" data-1p-ignore="true" className="credential-secret" value={password} onChange={event => setPassword(event.target.value)} placeholder={configured ? 'اتركها فارغة للإبقاء على القيمة المحفوظة' : 'كلمة المرور'} /></label>
       <label className="school-settings-field">مفتاح API<input name="almadar-api-key" autoComplete="off" data-lpignore="true" data-1p-ignore="true" className="credential-secret" value={apiKey} onChange={event => setApiKey(event.target.value)} placeholder={configured ? 'اتركه فارغاً للإبقاء على القيمة المحفوظة' : 'مفتاح API'} /></label>
-      <label className="school-settings-field">اسم المرسل المعتمد في المدار<input name="almadar-sender-name" autoComplete="off" value={senderName} onChange={event => setSenderName(event.target.value)} placeholder="School1" /></label>
+      <label className="school-settings-field">اسم المرسل المعتمد في المدار<input name="almadar-sender-name" autoComplete="off" value={senderName} onChange={event => setSenderName(event.target.value)} placeholder="أدخِل الاسم المفعّل لهذا الحساب في المدار" /></label>
     </div>
     <div className="feature-actions">
       <button className="primary-button" type="button" onClick={() => void save()} disabled={busy}><Save size={16} /> حفظ الحساب</button>
