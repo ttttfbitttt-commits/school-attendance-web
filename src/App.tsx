@@ -1724,7 +1724,7 @@ function AttendanceApp({ onLogout }: { onLogout: () => void }) {
 
               {filteredStudents.length ? (
                 <div className="table-wrap">
-                  <table>
+                  <table className="responsive-data-table">
                     <thead>
                       <tr>
                         <th>رقم الطالب</th>
@@ -1738,12 +1738,12 @@ function AttendanceApp({ onLogout }: { onLogout: () => void }) {
                     <tbody>
                       {filteredStudents.map((student) => (
                         <tr key={`${student.id}-${student.sheet}`}>
-                          <td>{student.id}</td>
-                          <td>{student.name}</td>
-                          <td>{gradeLabel(student.grade) || '—'}</td>
-                          <td>{student.classroom || '—'}</td>
-                          <td>{student.phone || '—'}</td>
-                          <td>
+                          <td data-label="رقم الطالب">{student.id}</td>
+                          <td data-label="اسم الطالب">{student.name}</td>
+                          <td data-label="الصف">{gradeLabel(student.grade) || '—'}</td>
+                          <td data-label="الفصل">{student.classroom || '—'}</td>
+                          <td data-label="الجوال">{student.phone || '—'}</td>
+                          <td data-label="باركود">
                             {student.qr ? (
                               <img src={student.qr} alt={`QR ${student.name}`} className="qr-thumb" />
                             ) : (
@@ -2326,7 +2326,7 @@ function AttendanceApp({ onLogout }: { onLogout: () => void }) {
 
               {filteredScanLog.length > 0 ? (
                 <div className="table-wrap">
-                  <table className="scan-records-table">
+                  <table className="scan-records-table responsive-data-table">
                     <thead>
                       <tr>
                         <th style={{ width: '45px' }}>م</th>
@@ -2343,17 +2343,17 @@ function AttendanceApp({ onLogout }: { onLogout: () => void }) {
                     <tbody>
                       {filteredScanLog.map((record, index) => (
                         <tr key={`${record.studentId}-${record.time}-${index}`}>
-                          <td>{index + 1}</td>
-                          <td>
+                          <td data-label="م">{index + 1}</td>
+                          <td data-label="اليوم والتاريخ">
                             {record.day} {record.date}
                           </td>
-                          <td className="log-time-cell">{record.time}</td>
-                          <td className="log-id-cell">{record.studentId}</td>
-                          <td className="log-name-cell">{record.name}</td>
-                          <td>{record.grade}</td>
-                          <td>{record.classroom || '—'}</td>
-                          <td style={{ direction: 'ltr' }}>{record.phone || '—'}</td>
-                          <td>
+                          <td data-label="وقت الحضور" className="log-time-cell">{record.time}</td>
+                          <td data-label="رقم الطالب" className="log-id-cell">{record.studentId}</td>
+                          <td data-label="اسم الطالب" className="log-name-cell">{record.name}</td>
+                          <td data-label="الصف">{record.grade}</td>
+                          <td data-label="الفصل">{record.classroom || '—'}</td>
+                          <td data-label="رقم الجوال" style={{ direction: 'ltr' }}>{record.phone || '—'}</td>
+                          <td data-label="الحالة">
                             <span className={`log-status-badge ${record.status}`}>
                               {record.status === 'present' ? '✓ حاضر' : '⏰ متأخر'}
                             </span>

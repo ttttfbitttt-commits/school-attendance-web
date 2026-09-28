@@ -3353,3 +3353,406 @@ tbody td {
     padding-block: 14px;
   }
 }
+
+/* Touch-first layout for the whole application, including messages and data tables. */
+@media (max-width: 860px) {
+  html,
+  body,
+  #root,
+  .app-shell,
+  .main-content,
+  .feature-page,
+  .reports-center,
+  .attendance-panel {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .sidebar {
+    height: 100dvh;
+    max-height: 100dvh;
+  }
+
+  .topbar,
+  .page-intro,
+  .panel,
+  .panel-header,
+  .toolbar,
+  .attendance-toolbar,
+  .feature-intro,
+  .feature-actions,
+  .feature-toolbar,
+  .message-type-tabs,
+  .student-picker,
+  .excuse-form,
+  .manual-selection-panel,
+  .school-settings-grid,
+  .almadar-test-controls {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .topbar-title-section,
+  .top-actions,
+  .panel-header > *,
+  .page-intro > *,
+  .feature-intro > *,
+  .feature-toolbar > * {
+    min-width: 0;
+    max-width: 100%;
+  }
+
+  .topbar-title-section {
+    flex: 1 1 190px;
+  }
+
+  .top-actions {
+    flex-wrap: wrap;
+  }
+
+  .main-content img {
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 580px) {
+  .main-content {
+    padding-inline: 10px;
+  }
+
+  .panel,
+  .reports-center .panel,
+  .message-compose-panel {
+    padding: 14px;
+    border-radius: 15px;
+  }
+
+  .panel-header,
+  .page-intro,
+  .feature-intro {
+    align-items: stretch;
+  }
+
+  .feature-intro {
+    flex-direction: column;
+    gap: 10px;
+  }
+
+  .feature-intro h2,
+  .feature-page .panel h2,
+  .message-compose-panel h2 {
+    font-size: 18px;
+    overflow-wrap: anywhere;
+  }
+
+  .message-type-tabs {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 8px;
+  }
+
+  .message-type-tabs button {
+    width: 100%;
+    min-height: 44px;
+    text-align: center;
+  }
+
+  .message-body-field textarea,
+  .feature-toolbar > input,
+  .school-settings-field input,
+  .school-settings-field select,
+  .school-settings-field textarea,
+  .report-date input,
+  .student-picker > input,
+  .excuse-form input,
+  .excuse-form select {
+    width: 100%;
+    min-width: 0;
+    min-height: 44px;
+    font-size: 16px;
+  }
+
+  .message-body-field textarea {
+    min-height: 145px;
+  }
+
+  .feature-toolbar {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    align-items: stretch;
+    gap: 9px;
+  }
+
+  .feature-toolbar > button,
+  .feature-actions > button,
+  .panel-actions > button,
+  .panel-header > button,
+  .almadar-test-controls button,
+  .school-settings-panel button {
+    width: 100%;
+    min-width: 0;
+    min-height: 44px;
+    justify-content: center;
+    white-space: normal;
+  }
+
+  .message-log-panel .feature-actions {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+    gap: 8px;
+  }
+
+  .message-log-panel .feature-actions > button {
+    padding-inline: 8px;
+  }
+
+  .automatic-message-note,
+  .notice-box,
+  .notice-box p {
+    overflow-wrap: anywhere;
+  }
+
+  .table-wrap {
+    width: 100%;
+    max-width: 100%;
+    margin-top: 10px;
+    overflow: visible;
+    border: 0;
+    border-radius: 0;
+  }
+
+  .feature-table,
+  .responsive-data-table {
+    display: block;
+    width: 100%;
+    min-width: 0;
+    border-collapse: separate;
+    border-spacing: 0;
+    font-size: 13px;
+  }
+
+  .feature-table thead,
+  .responsive-data-table thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
+  }
+
+  .feature-table tbody,
+  .responsive-data-table tbody {
+    display: grid;
+    gap: 10px;
+  }
+
+  .feature-table tbody tr,
+  .responsive-data-table tbody tr {
+    display: grid;
+    min-width: 0;
+    border: 1px solid #dbe5ee;
+    border-radius: 12px;
+    background: #fff;
+    overflow: hidden;
+    box-shadow: 0 3px 10px rgba(16, 42, 67, .035);
+  }
+
+  .feature-table th,
+  .feature-table td,
+  .responsive-data-table th,
+  .responsive-data-table td {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .feature-table td,
+  .responsive-data-table td {
+    display: grid;
+    grid-template-columns: minmax(82px, .38fr) minmax(0, 1fr);
+    align-items: start;
+    gap: 9px;
+    padding: 10px 11px;
+    border-bottom: 1px solid #edf1f5;
+    text-align: right;
+    line-height: 1.55;
+  }
+
+  .feature-table td::before,
+  .responsive-data-table td::before {
+    content: attr(data-label);
+    color: #64748b;
+    font-size: 11px;
+    font-weight: 800;
+  }
+
+  .feature-table td:last-child,
+  .responsive-data-table td:last-child {
+    border-bottom: 0;
+  }
+
+  .feature-table td[colspan],
+  .responsive-data-table td[colspan] {
+    display: block;
+    padding: 16px 12px;
+    text-align: center;
+  }
+
+  .feature-table td[colspan]::before,
+  .responsive-data-table td[colspan]::before {
+    content: none;
+  }
+
+  .feature-table td[data-label="اختيار"] {
+    grid-template-columns: 82px minmax(0, 1fr);
+  }
+
+  .feature-table td[data-label="اختيار"] input[type="checkbox"] {
+    width: 22px;
+    height: 22px;
+    margin: 0;
+  }
+
+  .feature-table td[dir="ltr"],
+  .responsive-data-table td[dir="ltr"] {
+    text-align: left;
+  }
+
+  .responsive-data-table .qr-thumb {
+    width: 58px;
+    height: 58px;
+  }
+
+  .table-heading,
+  .toolbar {
+    align-items: stretch;
+  }
+
+  .file-meta {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .file-meta strong {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .daily-actions {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .daily-actions button {
+    min-height: 44px;
+    white-space: normal;
+  }
+
+  .count-card-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 9px;
+  }
+
+  .count-card {
+    min-height: 84px;
+    padding: 13px;
+  }
+
+  .count-card strong {
+    font-size: 22px;
+  }
+
+  .daily-row,
+  .history-row {
+    min-width: 0;
+    gap: 9px;
+    padding: 12px;
+  }
+
+  .daily-row > div,
+  .history-row > span {
+    min-width: 0;
+    flex: 1 1 auto;
+    overflow-wrap: anywhere;
+  }
+
+  .daily-row select {
+    min-width: 0;
+    max-width: 124px;
+    flex: 0 0 104px;
+  }
+
+  .history-row > strong {
+    flex: 0 0 auto;
+    white-space: nowrap;
+  }
+
+  .report-modal-overlay {
+    padding: max(8px, env(safe-area-inset-top)) 8px max(8px, env(safe-area-inset-bottom));
+  }
+
+  .report-modal,
+  .correction-dialog,
+  .print-modal-dialog {
+    width: 100%;
+    max-width: 100%;
+    max-height: calc(100dvh - 16px);
+  }
+
+  .report-modal-header,
+  .print-modal-header {
+    min-width: 0;
+  }
+
+  .report-modal-header > div,
+  .print-modal-heading > div {
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+
+  .report-modal-actions,
+  .print-modal-controls,
+  .correction-form {
+    min-width: 0;
+  }
+
+  input,
+  select,
+  textarea,
+  button {
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 380px) {
+  .main-content {
+    padding-inline: 8px;
+  }
+
+  .panel,
+  .reports-center .panel,
+  .message-compose-panel {
+    padding: 12px;
+  }
+
+  .topbar-title-section {
+    gap: 7px;
+  }
+
+  .mobile-menu-btn {
+    width: 38px;
+    height: 38px;
+  }
+
+  .profile-button {
+    gap: 6px;
+    padding-inline: 7px;
+  }
+
+  .daily-actions {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
