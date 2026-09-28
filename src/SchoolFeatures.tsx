@@ -72,7 +72,16 @@ export function AlmadarSettings({ schoolName }: { schoolName: string }) {
       const nextBalance = result.balance === null ? 'غير متوفر' : String(result.balance)
       setBalance(nextBalance)
       setNotice(`تم الاتصال بالمدار التقني بنجاح. رصيد الرسائل المتبقي: ${nextBalance}`)
-    } catch { setNotice('تعذر التحقق من الحساب. احفظ مفتاح API صحيحاً ثم أعد المحاولة.') } finally { setBusy(false) }
+    } catch (error) {
+      const code = error instanceof Error ? error.message : ''
+      setNotice(
+        code === 'provider_unreachable'
+          ? 'تعذر الوصول إلى خادم المدار التقني من خادم الموقع. أعد المحاولة بعد التحقق من الاتصال.'
+          : code === 'api_key_not_authorized'
+            ? 'رفض المدار التقني مفتاح API لهذا الحساب. تحقق من المفتاح في لوحة المدار.'
+            : 'تعذر التحقق من حساب المدار التقني. أعد المحاولة بعد التأكد من البيانات.'
+      )
+    } finally { setBusy(false) }
   }
 
   return <section className="panel almadar-settings-panel">

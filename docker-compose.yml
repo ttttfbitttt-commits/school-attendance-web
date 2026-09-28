@@ -25,7 +25,7 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    networks: [private]
+    networks: [private, edge]
   web:
     build: .
     restart: unless-stopped
