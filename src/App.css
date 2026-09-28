@@ -2421,6 +2421,53 @@ tbody td {
   }
 }
 
+/* Daily absence and lateness reports */
+.daily-report-panel .panel-header p,
+.history-count-panel .panel-header p { margin: 5px 0 0; color: #64748b; }
+.report-date { display: grid; gap: 6px; color: #475569; font-size: 12px; font-weight: 800; }
+.report-date input { min-height: 40px; padding: 7px 9px; border: 1px solid #cbd5e1; border-radius: 9px; font: inherit; }
+.daily-actions { margin: 0 0 14px; }
+.daily-list { display: grid; gap: 9px; margin-top: 14px; }
+.daily-row,
+.history-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; width: 100%; padding: 14px 16px; border: 1px solid #dbe5ee; border-radius: 12px; background: #fff; text-align: right; }
+.daily-row strong,
+.daily-row small,
+.history-row strong,
+.history-row small { display: block; }
+.daily-row strong,
+.history-row strong { color: #102a43; }
+.daily-row small,
+.history-row small { margin-top: 5px; color: #64748b; }
+.daily-row select { min-width: 132px; min-height: 38px; padding: 7px 9px; border: 1px solid #bfdbfe; border-radius: 9px; color: #123b63; background: #fff; font: inherit; }
+.history-row { cursor: pointer; }
+.history-row:hover { border-color: #60a5fa; background: #f8fbff; }
+.count-card-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 13px; margin: 16px 0; }
+.count-card { display: grid; gap: 12px; min-height: 112px; padding: 16px; border: 1px solid #e2e8f0; border-radius: 14px; text-align: right; cursor: pointer; font: inherit; }
+.count-card span { font-weight: 800; }
+.count-card strong { font-size: 25px; }
+.count-card.yellow { color: #854d0e; border-color: #fde68a; background: #fefce8; }
+.count-card.orange { color: #9a3412; border-color: #fdba74; background: #fff7ed; }
+.count-card.red { color: #991b1b; border-color: #fca5a5; background: #fef2f2; }
+.student-picker { display: flex; align-items: center; gap: 9px; flex-wrap: wrap; margin: 14px 0; }
+.student-picker > input { min-width: 230px; flex: 1 1 260px; min-height: 42px; padding: 9px 12px; border: 1px solid #cbd5e1; border-radius: 10px; font: inherit; }
+.student-picker > label { padding: 8px 10px; border: 1px solid #dbe5ee; border-radius: 9px; color: #334155; background: #f8fafc; font-size: 13px; }
+
+@media (max-width: 580px) {
+  .daily-report-panel .panel-header,
+  .history-count-panel .panel-header { align-items: stretch; }
+  .report-date { width: 100%; margin-top: 10px; }
+  .daily-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .daily-actions button { width: 100%; min-width: 0; padding-inline: 6px; font-size: 12px; }
+  .daily-row,
+  .history-row { align-items: stretch; flex-direction: column; gap: 10px; }
+  .daily-row select { width: 100%; }
+  .count-card-grid { grid-template-columns: 1fr; gap: 10px; }
+  .count-card { min-height: 90px; }
+  .student-picker { display: grid; grid-template-columns: 1fr; }
+  .student-picker > input,
+  .student-picker > button { width: 100%; min-width: 0; }
+}
+
 @media print {
   @page {
     size: A4 portrait;

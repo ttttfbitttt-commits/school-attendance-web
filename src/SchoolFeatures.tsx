@@ -1,13 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
 import * as XLSX from 'xlsx'
-import { CheckCircle2, Download, FileText, Mail, Printer, RefreshCw, Save, Send, ShieldCheck, Trash2 } from 'lucide-react'
-import { api, type AbsenceDetails, type AbsenceReport, type AbsenceRow, type AbsenceStatus, type MessageLog } from './api'
+import { CheckCircle2, Download, FileText, Mail, Printer, RefreshCw, Save, Send, ShieldCheck } from 'lucide-react'
+import { api, type MessageLog } from './api'
 
 export type FeatureStudent = { id: string; name: string; phone: string; grade: string; classroom: string }
 export type FeatureAttendance = { studentId: string; status: 'present' | 'late' }
 
 const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Riyadh' }).format(new Date())
-const monthStart = () => `${today().slice(0, 8)}01`
 const escapeHtml = (value: unknown) => String(value ?? '').replace(/[&<>'"]/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[character] || character))
 const maskPhone = (phone: string) => phone.length > 4 ? `${phone.slice(0, 3)}••••${phone.slice(-3)}` : phone
 const formatDateTime = (value: string) => new Intl.DateTimeFormat('ar-SA', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Riyadh' }).format(new Date(value))
@@ -173,262 +172,61 @@ export function MessageCenter({ students, attendance }: { students: FeatureStude
   </section>
 }
 
-type SummaryStatus = AbsenceStatus | 'mixed'
-type AbsenceSummaryRow = AbsenceRow & {
-  studentId?: string
-  unexcusedDays?: number
-  excusedDays?: number
-  specialDays?: number
-  status?: SummaryStatus
+type DailyRow = { studentId: string; name: string; grade: string; classroom: string; phone: string; status: 'unexcused' | 'excused'; date: string; time?: string }
+type CountRow = { studentId: string; name: string; grade: string; classroom: string; phone: string; days: number; excusedDays: number; unexcusedDays: number }
+type History = { student: { studentId: string; name: string; grade: string; classroom: string; phone: string }; type: 'absence' | 'late'; days: Array<{ date: string; status: 'unexcused' | 'excused'; time?: string }> }
+const statusText = (status: 'unexcused' | 'excused') => status === 'excused' ? 'بعذر' : 'بدون عذر'
+
+function exportDaily(title: string, rows: DailyRow[]) {
+  downloadWorkbook(title, [['اسم الطالب', 'الصف', 'الفصل', 'رقم الجوال', 'الحالة'], ...rows.map(row => [row.name, row.grade, row.classroom, row.phone, statusText(row.status)])])
 }
 
-function rowStudentId(row: AbsenceSummaryRow) {
-  return row.studentId || row.id || ''
+function printDaily(title: string, rows: DailyRow[], schoolName: string, date: string) {
+  openPrintDocument(title, `<section class="page"><h1>${escapeHtml(title)}</h1><table><thead><tr><th>الطالب</th><th>الصف</th><th>الفصل</th><th>الجوال</th><th>الحالة</th></tr></thead><tbody>${rows.map(row => `<tr><td>${escapeHtml(row.name)}</td><td>${escapeHtml(row.grade)}</td><td>${escapeHtml(row.classroom)}</td><td dir="ltr">${escapeHtml(row.phone)}</td><td>${statusText(row.status)}</td></tr>`).join('')}</tbody></table><p class="meta">${escapeHtml(schoolName)} · ${date}</p></section>`)
 }
 
-function summaryStatus(row: AbsenceSummaryRow): SummaryStatus {
-  if (row.status === 'unexcused' || row.status === 'excused' || row.status === 'special' || row.status === 'mixed') return row.status
-  return row.hasExcuse ? 'excused' : 'unexcused'
+function DailyList({ title, date, onDate, rows, onStatus, onAll, onExcel, onPdf, late = false }: { title: string; date: string; onDate: (value: string) => void; rows: DailyRow[]; onStatus: (ids: string[], status: 'unexcused' | 'excused') => void; onAll: (status: 'unexcused' | 'excused') => void; onExcel: () => void; onPdf: () => void; late?: boolean }) {
+  return <section className="panel daily-report-panel"><div className="panel-header"><div><span className="panel-kicker">سجل يومي</span><h2>{title}</h2><p>العدد: {rows.length} طالبًا</p></div><label className="report-date">التاريخ<input type="date" value={date} max={today()} onChange={event => onDate(event.target.value)} /></label></div><div className="feature-actions daily-actions"><button className="secondary-button" type="button" onClick={() => onAll('excused')} disabled={!rows.length}>اعتبار الجميع بعذر</button><button className="secondary-button" type="button" onClick={() => onAll('unexcused')} disabled={!rows.length}>اعتبار الجميع بدون عذر</button><button className="export-btn csv" type="button" onClick={onExcel} disabled={!rows.length}><Download size={16} /> Excel</button><button className="export-btn pdf" type="button" onClick={onPdf} disabled={!rows.length}><Printer size={16} /> PDF</button></div><div className="daily-list">{rows.map(row => <article key={row.studentId} className="daily-row"><div><strong>{row.name}</strong><small>{row.grade || '—'} · {row.classroom || '—'} · <span dir="ltr">{row.phone || '—'}</span>{late && row.time ? ` · ${row.time}` : ''}</small></div><select value={row.status} onChange={event => onStatus([row.studentId], event.target.value as 'unexcused' | 'excused')}><option value="unexcused">بدون عذر</option><option value="excused">بعذر</option></select></article>)}{!rows.length && <p className="report-empty-state">لا توجد سجلات لهذا التاريخ.</p>}</div></section>
 }
 
-function statusText(status: SummaryStatus) {
-  return status === 'excused' ? 'بعذر' : status === 'special' ? 'ظرف خاص' : status === 'mixed' ? 'مختلط' : 'بدون عذر'
-}
-
-function absenceTone(days: number) {
-  return days >= 16 ? 'red' : days >= 11 ? 'orange' : days >= 6 ? 'yellow' : 'neutral'
+function HistoryCounts({ type, students, schoolName }: { type: 'absence' | 'late'; students: FeatureStudent[]; schoolName: string }) {
+  const title = type === 'absence' ? 'عدد أيام الغياب' : 'عدد أيام التأخر'
+  const reportTitle = type === 'absence' ? 'أيام غياب الطالب' : 'أيام تأخر الطالب'
+  const [allRows, setAllRows] = useState<CountRow[]>([])
+  const [shownRows, setShownRows] = useState<CountRow[]>([])
+  const [search, setSearch] = useState('')
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [history, setHistory] = useState<History | null>(null)
+  const load = async (ids: string[] = []) => {
+    const result = type === 'absence' ? await api.absenceSummary(ids) : await api.lateSummary(ids)
+    const rows = result.rows as CountRow[]
+    if (!ids.length) setAllRows(rows)
+    setShownRows(rows)
+  }
+  useEffect(() => { void load() }, [type])
+  const matches = useMemo(() => search.trim() ? students.filter(student => student.name.includes(search.trim())).slice(0, 8) : [], [students, search])
+  const buckets = [{ label: 'طلاب غيابهم من 1 إلى 5 أيام', tone: 'yellow', rows: allRows.filter(row => row.days >= 1 && row.days <= 5) }, { label: 'طلاب غيابهم من 6 إلى 10 أيام', tone: 'orange', rows: allRows.filter(row => row.days >= 6 && row.days <= 10) }, { label: 'طلاب غيابهم 11 يومًا فأكثر', tone: 'red', rows: allRows.filter(row => row.days >= 11) }]
+  const open = async (row: CountRow) => setHistory(await api.studentHistory(type, row.studentId) as History)
+  const printHistories = async (rows: CountRow[]) => {
+    const histories = await Promise.all(rows.map(row => api.studentHistory(type, row.studentId)))
+    openPrintDocument(reportTitle, histories.map(item => `<section class="page"><h1>${reportTitle}</h1><div class="heading"><p><span class="label">اسم الطالب:</span> ${escapeHtml(item.student.name)}</p><p><span class="label">الصف والفصل:</span> ${escapeHtml(item.student.grade)} · ${escapeHtml(item.student.classroom)}</p><table><thead><tr><th>التاريخ</th><th>الحالة</th>${type === 'late' ? '<th>الوقت</th>' : ''}</tr></thead><tbody>${item.days.map(day => `<tr><td>${day.date}</td><td>${statusText(day.status)}</td>${type === 'late' ? `<td>${day.time || '—'}</td>` : ''}</tr>`).join('')}</tbody></table><p class="meta">عدد الأيام: ${item.days.length} · الجوال: <span dir="ltr">${escapeHtml(item.student.phone)}</span><br/>${escapeHtml(schoolName)} · ${today()}</p></div></section>`).join(''))
+  }
+  return <section className="panel history-count-panel"><div className="panel-header"><div><span className="panel-kicker">ملخص تراكمي</span><h2>{title}</h2><p>ابحث وحدد الطلاب، أو افتح بطاقة لعرض فئتها.</p></div></div><div className="count-card-grid">{buckets.map(bucket => <button className={`count-card ${bucket.tone}`} type="button" key={bucket.tone} onClick={() => setShownRows(bucket.rows)}><span>{bucket.label.replace('غياب', type === 'late' ? 'تأخر' : 'غياب')}</span><strong>{bucket.rows.length} طالب</strong></button>)}</div><div className="student-picker"><input value={search} onChange={event => setSearch(event.target.value)} placeholder="ابحث باسم الطالب..." />{matches.map(student => <label key={student.id}><input type="checkbox" checked={selected.has(student.id)} onChange={() => setSelected(current => { const next = new Set(current); next.has(student.id) ? next.delete(student.id) : next.add(student.id); return next })} /> {student.name} · {student.grade} · {student.classroom}</label>)}<button type="button" className="primary-button" onClick={() => void load([...selected])} disabled={!selected.size}><CheckCircle2 size={16} /> تأكيد الطلاب المحددين</button><button type="button" className="secondary-button" onClick={() => { setSelected(new Set()); void load() }}>عرض الجميع</button></div><div className="feature-actions"><button type="button" className="export-btn csv" onClick={() => downloadWorkbook(title, [['الطالب','الصف','الفصل','الجوال','عدد الأيام','بعذر','بدون عذر'], ...shownRows.map(row => [row.name,row.grade,row.classroom,row.phone,row.days,row.excusedDays,row.unexcusedDays])])} disabled={!shownRows.length}><Download size={16} /> Excel</button><button type="button" className="export-btn pdf" onClick={() => void printHistories(shownRows)} disabled={!shownRows.length}><Printer size={16} /> PDF لجميع الظاهرين</button></div><div className="daily-list">{shownRows.map(row => <button type="button" className="history-row" key={row.studentId} onClick={() => void open(row)}><span><strong>{row.name}</strong><small>{row.grade} · {row.classroom} · <bdi>{row.phone}</bdi></small></span><strong>{row.days} يومًا</strong></button>)}{!shownRows.length && <p className="report-empty-state">لا توجد بيانات ضمن هذا الاختيار.</p>}</div>{history && <div className="report-modal-overlay"><section className="report-modal"><header className="report-modal-header"><div><span className="panel-kicker">تفاصيل الطالب</span><h2>{history.student.name}</h2><p>{history.student.grade} · {history.student.classroom} · <bdi>{history.student.phone}</bdi></p></div><button type="button" className="modal-close-button" onClick={() => setHistory(null)}>×</button></header><div className="report-modal-actions"><button type="button" className="export-btn csv" onClick={() => downloadWorkbook(`${reportTitle}_${history.student.name}`, [['التاريخ','الحالة', ...(type === 'late' ? ['الوقت'] : [])], ...history.days.map(day => [day.date,statusText(day.status), ...(type === 'late' ? [day.time || '—'] : [])])])}>Excel</button><button type="button" className="export-btn pdf" onClick={() => void printHistories([{ studentId: history.student.studentId, name: history.student.name, grade: history.student.grade, classroom: history.student.classroom, phone: history.student.phone, days: history.days.length, excusedDays: 0, unexcusedDays: 0 }])}>PDF</button></div><div className="absence-detail-list">{history.days.map(day => <article className="absence-day-card" key={day.date}><strong>{day.date}</strong><span>{statusText(day.status)}{type === 'late' && day.time ? ` · ${day.time}` : ''}</span></article>)}</div></section></div>}</section>
 }
 
 export function ReportsCenter({ students, schoolName }: { students: FeatureStudent[]; schoolName: string }) {
-  const [from, setFrom] = useState(monthStart())
-  const [to, setTo] = useState(today())
-  const [studentId, setStudentId] = useState('')
-  const [studentSearch, setStudentSearch] = useState('')
-  const [report, setReport] = useState<AbsenceReport | null>(null)
+  const [todayRows, setTodayRows] = useState<Array<Omit<DailyRow, 'date' | 'status'>>>([])
+  const [absenceDate, setAbsenceDate] = useState(today())
+  const [lateDate, setLateDate] = useState(today())
+  const [absences, setAbsences] = useState<DailyRow[]>([])
+  const [lates, setLates] = useState<DailyRow[]>([])
   const [notice, setNotice] = useState('')
-  const [busy, setBusy] = useState(false)
-  const [mutationBusy, setMutationBusy] = useState(false)
-  const [details, setDetails] = useState<AbsenceDetails | null>(null)
-  const [detailsBusy, setDetailsBusy] = useState(false)
-  const [correction, setCorrection] = useState<null | { studentIds: string[]; from: string; to: string; dates?: string[]; label: string; irreversible?: boolean }>(null)
-  const [correctionTime, setCorrectionTime] = useState('07:30')
-  const [correctionStatus, setCorrectionStatus] = useState<'present' | 'late'>('present')
-
-  const rows = useMemo(() => (report?.rows || []) as AbsenceSummaryRow[], [report])
-  const filteredRows = useMemo(() => rows.filter(row => row.absenceDays > 0), [rows])
-  const selectedRow = useMemo(() => studentId ? filteredRows.find(row => rowStudentId(row) === studentId) : undefined, [filteredRows, studentId])
-  const studentMatches = useMemo(() => {
-    const query = studentSearch.trim().toLocaleLowerCase('ar')
-    if (!query || studentId) return []
-    return students.filter(student => `${student.name} ${student.id} ${student.grade} ${student.classroom}`.toLocaleLowerCase('ar').includes(query)).slice(0, 8)
-  }, [students, studentId, studentSearch])
-
-  const yellow = useMemo(() => filteredRows.filter(row => row.absenceDays >= 6 && row.absenceDays <= 10), [filteredRows])
-  const orange = useMemo(() => filteredRows.filter(row => row.absenceDays >= 11 && row.absenceDays <= 15), [filteredRows])
-  const red = useMemo(() => filteredRows.filter(row => row.absenceDays >= 16), [filteredRows])
-  const categories: Array<{ label: string; rows: AbsenceSummaryRow[]; tone: 'yellow' | 'orange' | 'red'; fileName: string }> = [
-    { label: 'من 6 إلى 10 أيام', rows: yellow, tone: 'yellow', fileName: 'غياب_6_إلى_10_أيام' },
-    { label: 'من 11 إلى 15 يومًا', rows: orange, tone: 'orange', fileName: 'غياب_11_إلى_15_يومًا' },
-    { label: '16 يومًا فأكثر', rows: red, tone: 'red', fileName: 'غياب_16_يومًا_فأكثر' },
-  ]
-
-  const fetchReport = async () => {
-    const next = await api.absenceReport(from, to, studentId)
-    setReport(next)
-    return next
-  }
-
-  const loadReport = async () => {
-    if (!from || !to || from > to) {
-      setNotice('اختر فترة زمنية صحيحة للتقرير.')
-      return
-    }
-    setBusy(true)
-    try {
-      await fetchReport()
-      setNotice('')
-    } catch {
-      setNotice('تعذر إعداد تقرير الغياب. اختر فترة لا تزيد عن سنة ثم أعد المحاولة.')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  const chooseReportStudent = (student: FeatureStudent) => {
-    setStudentId(student.id)
-    setStudentSearch(student.name)
-    setReport(null)
-  }
-
-  const clearReportStudent = () => {
-    setStudentId('')
-    setStudentSearch('')
-    setReport(null)
-  }
-
-  const calculateToday = async () => {
-    const date = today()
-    if (!window.confirm(`سيُحتسب غياب الطلاب غير المسجلين كحاضرين أو متأخرين في ${date}. لن يُسجل غياب جديد قبل ضغط هذا الزر. هل تريد المتابعة؟`)) return
-    setMutationBusy(true)
-    try {
-      await api.calculateAbsences(date)
-      if (from <= date && to >= date) await fetchReport()
-      setNotice('تم احتساب غياب اليوم. يمكن الآن تعديل حالة أي يوم أو تصحيح الحضور.')
-    } catch {
-      setNotice('تعذر احتساب غياب اليوم. تأكد من إعداد سجل الحضور ثم أعد المحاولة.')
-    } finally {
-      setMutationBusy(false)
-    }
-  }
-
-  const applyStatus = async (studentIds: string[], status: AbsenceStatus, options?: { dates?: string[]; label?: string; note?: string }) => {
-    if (!studentIds.length) return
-    setMutationBusy(true)
-    try {
-      const targetDates = options?.dates || []
-      const rangeFrom = targetDates[0] || from
-      const rangeTo = targetDates[targetDates.length - 1] || to
-      await api.setAbsenceStatus({ studentIds, from: rangeFrom, to: rangeTo, status, note: options?.note })
-      await fetchReport()
-      if (details && studentIds.includes(details.student.studentId)) {
-        const refreshed = await api.absenceDetails(details.student.studentId, from, to)
-        setDetails(refreshed)
-      }
-      setNotice(`تم تغيير الحالة إلى ${statusText(status)}${options?.label ? ` لـ ${options.label}` : ''}.`)
-    } catch {
-      setNotice('تعذر حفظ حالة الغياب. أعد المحاولة.')
-    } finally {
-      setMutationBusy(false)
-    }
-  }
-
-  const applyVisibleStatus = async (status: AbsenceStatus) => {
-    if (!filteredRows.length) return
-    const label = status === 'excused' ? 'بعذر' : 'بدون عذر'
-    if (!window.confirm(`سيُطبّق خيار ${label} على ${filteredRows.length} طالبًا وعلى أيام غيابهم ضمن الفترة المحددة. هل تريد المتابعة؟`)) return
-    await applyStatus(filteredRows.map(rowStudentId), status, { label: 'الطلاب الظاهرين' })
-  }
-
-  const openDetails = async (row: AbsenceSummaryRow) => {
-    setDetailsBusy(true)
-    try {
-      const result = await api.absenceDetails(rowStudentId(row), from, to)
-      setDetails(result)
-    } catch {
-      setNotice('تعذر تحميل أيام غياب الطالب.')
-    } finally {
-      setDetailsBusy(false)
-    }
-  }
-
-  const openCorrection = (studentIds: string[], correctionFrom: string, correctionTo: string, label: string, dates?: string[], irreversible = false) => {
-    setCorrection({ studentIds, from: correctionFrom, to: correctionTo, dates, label, irreversible })
-    setCorrectionTime('07:30')
-    setCorrectionStatus('present')
-  }
-
-  const saveCorrection = async () => {
-    if (!correction) return
-    setMutationBusy(true)
-    try {
-      const { studentIds, from: correctionFrom, to: correctionTo, dates } = correction
-      await api.correctAbsences({ studentIds, from: correctionFrom, to: correctionTo, dates, time: correctionTime, status: correctionStatus })
-      setCorrection(null)
-      if (details) {
-        const refreshed = await api.absenceDetails(details.student.studentId, from, to)
-        setDetails(refreshed)
-      }
-      await fetchReport()
-      setNotice('تم تصحيح الحضور وحذف الغياب من التقرير.')
-    } catch {
-      setNotice('تعذر تصحيح الحضور. أعد المحاولة.')
-    } finally {
-      setMutationBusy(false)
-    }
-  }
-
-  const exportPhones = () => downloadWorkbook('تقرير_هواتف_الطلاب', [['اسم الطالب', 'رقم الجوال'], ...students.map(student => [student.name, student.phone])], 'هواتف الطلاب')
-  const printPhones = () => openPrintDocument('تقرير هواتف الطلاب', `<section class="page"><h1>تقرير هواتف الطلاب</h1><table><thead><tr><th>اسم الطالب</th><th>رقم الجوال</th></tr></thead><tbody>${students.map(student => `<tr><td>${escapeHtml(student.name)}</td><td dir="ltr">${escapeHtml(student.phone)}</td></tr>`).join('')}</tbody></table><p class="meta">${escapeHtml(schoolName)} · ${today()}</p></section>`)
-
-  const exportSummary = (exportRows: AbsenceSummaryRow[], name: string) => downloadWorkbook(name, [
-    ['اسم الطالب', 'الصف', 'الفصل', 'إجمالي الغياب', 'بدون عذر', 'بعذر', 'ظرف خاص', 'الحالة'],
-    ...exportRows.map(row => [row.name, row.grade, row.classroom, row.absenceDays, row.unexcusedDays || 0, row.excusedDays || 0, row.specialDays || 0, statusText(summaryStatus(row))]),
-  ], 'ملخص الغياب')
-
-  const printSummary = (printRows: AbsenceSummaryRow[], title: string) => {
-    if (!printRows.length) {
-      setNotice('لا يوجد طلاب في هذه الفئة.')
-      return
-    }
-    openPrintDocument(title, printRows.map(row => {
-      const status = summaryStatus(row)
-      const tone = absenceTone(row.absenceDays)
-      const statusLine = status !== 'unexcused' ? `<p><span class="label">الحالة:</span> ${escapeHtml(statusText(status))}</p>` : ''
-      return `<section class="page"><h1>تنبيه غياب متكرر</h1><div class="heading"><p>نفيدكم بأن الطالب <span class="label">${escapeHtml(row.name)}</span> من الصف <span class="label">${escapeHtml(row.grade || '—')}</span> والفصل <span class="label">${escapeHtml(row.classroom || '—')}</span> بلغ عدد أيام غيابه <span class="label">${row.absenceDays} يومًا</span> خلال الفترة من ${escapeHtml(from)} إلى ${escapeHtml(to)}.</p><div class="notice ${tone}">${statusLine}<p>نأمل متابعة انتظام الطالب في الدراسة والتواصل مع المدرسة عند الحاجة.</p></div><p class="meta">${escapeHtml(schoolName)} · تاريخ الطباعة: ${today()}</p></div></section>`
-    }).join(''))
-  }
-
-  const detailStudentId = details?.student.studentId || ''
-  const detailText = details ? `تنبيه غياب متكرر\nالطالب: ${details.student.name}\nالصف والفصل: ${details.student.grade || '—'} · ${details.student.classroom || '—'}\nعدد أيام الغياب: ${details.days.length}\nالتواريخ: ${details.days.map(day => `${day.date} (${statusText(day.status)})`).join('، ')}` : ''
-
-  const exportDetails = () => {
-    if (!details) return
-    downloadWorkbook(`تفاصيل_غياب_${details.student.name}`, [
-      ['اسم الطالب', details.student.name],
-      ['الصف', details.student.grade || '—'],
-      ['الفصل', details.student.classroom || '—'],
-      [],
-      ['التاريخ', 'الحالة', 'ملاحظات'],
-      ...details.days.map(day => [day.date, statusText(day.status), day.note || '—']),
-    ], 'تفاصيل الغياب')
-  }
-
-  const printDetails = () => {
-    if (!details) return
-    openPrintDocument(`تفاصيل غياب ${details.student.name}`, `<section class="page"><h1>تنبيه غياب متكرر</h1><div class="heading"><p>نفيدكم بأن الطالب <span class="label">${escapeHtml(details.student.name)}</span> من الصف <span class="label">${escapeHtml(details.student.grade || '—')}</span> والفصل <span class="label">${escapeHtml(details.student.classroom || '—')}</span> بلغ عدد أيام غيابه <span class="label">${details.days.length} يومًا</span> خلال الفترة من ${escapeHtml(from)} إلى ${escapeHtml(to)}.</p><div class="notice ${absenceTone(details.days.length)}"><p>نأمل متابعة انتظام الطالب في الدراسة والتواصل مع المدرسة عند الحاجة.</p></div><table><thead><tr><th>تاريخ الغياب</th><th>الحالة</th><th>ملاحظات</th></tr></thead><tbody>${details.days.map(day => `<tr><td>${escapeHtml(day.date)}</td><td>${escapeHtml(statusText(day.status))}</td><td>${escapeHtml(day.note || '—')}</td></tr>`).join('')}</tbody></table><p class="meta">${escapeHtml(schoolName)} · تاريخ الطباعة: ${today()}</p></div></section>`)
-  }
-
-  const copyDetailsText = async () => {
-    if (!detailText) return
-    try {
-      await navigator.clipboard.writeText(detailText)
-      setNotice('تم نسخ نص التقرير.')
-    } catch {
-      setNotice('تعذر نسخ النص من المتصفح.')
-    }
-  }
-
-  return <section className="feature-page reports-center">
-    <section className="panel feature-intro"><div><span className="panel-kicker">إدارة المدرسة</span><h2>التقارير</h2><p>لا يُنشأ الغياب تلقائيًا. استخدم زر احتساب غياب اليوم فقط بعد اكتمال تسجيل الحضور والتأخر.</p></div><FileText size={34} /></section>
-
-    <section className="panel"><div className="panel-header"><div><span className="panel-kicker">بيانات الاتصال</span><h2>تقرير هواتف الطلاب</h2></div><div className="feature-actions"><button type="button" className="export-btn csv" onClick={exportPhones}><Download size={16} /> Excel</button><button type="button" className="export-btn pdf" onClick={printPhones}><Printer size={16} /> PDF</button></div></div><p className="feature-muted">يتضمن اسم الطالب ورقم الجوال فقط.</p></section>
-
-    <section className="panel report-filter-panel">
-      <div className="panel-header"><div><span className="panel-kicker">فترة الدراسة</span><h2>تقارير الغياب</h2><p className="feature-muted">كل طالب يظهر مرة واحدة، وتفاصيل أيامه متاحة من الزر داخل صفه.</p></div><button className="secondary-button calculate-absence-button" type="button" onClick={() => void calculateToday()} disabled={mutationBusy}><CheckCircle2 size={16} /> احتساب غياب اليوم</button></div>
-      <div className="feature-toolbar report-filters">
-        <label>من<input type="date" value={from} onChange={event => { setFrom(event.target.value); setReport(null) }} /></label>
-        <label>إلى<input type="date" value={to} onChange={event => { setTo(event.target.value); setReport(null) }} /></label>
-        <label className="report-student-search">طالب محدد<div className="student-search-box"><input value={studentSearch} onChange={event => { setStudentSearch(event.target.value); setStudentId(''); setReport(null) }} placeholder="اكتب اسم الطالب للبحث..." autoComplete="off" />{studentId && <button type="button" onClick={clearReportStudent} aria-label="إلغاء اختيار الطالب">×</button>}</div>{!studentId && studentSearch.trim() && <div className="student-search-results">{studentMatches.map(student => <button type="button" key={student.id} onClick={() => chooseReportStudent(student)}><strong>{student.name}</strong><small>{student.grade || '—'} · {student.classroom || '—'}</small></button>)}{!studentMatches.length && <span>لا يوجد طالب مطابق.</span>}</div>}</label>
-        <button className="primary-button" type="button" onClick={() => void loadReport()} disabled={busy || mutationBusy}><RefreshCw size={16} /> إعداد التقرير</button>
-      </div>
-      {report && <p className="feature-muted">الطلاب ذوو الغياب المؤكد في الفترة: {filteredRows.length}.</p>}
-      {notice && <div className="notice-box" role="status">{notice}</div>}
-    </section>
-
-    {report && <>
-      <section className="panel absence-alerts-panel"><div className="panel-header"><div><span className="panel-kicker">تنبيهات الغياب</span><h2>الطلاب الغائبون أكثر من 5 أيام</h2><p>اللون يعبّر عن عدد أيام الغياب فقط، وحالة العذر تظهر بشكل مستقل.</p></div></div><div className="absence-category-grid">{categories.map(({ label, rows: categoryRows, tone, fileName }) => <article className={`absence-category ${tone}`} key={label}><h3>{label}</h3><strong>{categoryRows.length} طالب</strong><div><button type="button" className="export-btn csv" onClick={() => exportSummary(categoryRows, fileName)} disabled={!categoryRows.length}>Excel</button><button type="button" className="export-btn pdf" onClick={() => printSummary(categoryRows, label)} disabled={!categoryRows.length}>PDF</button></div></article>)}</div></section>
-
-      <section className="panel absence-summary-panel">
-        <div className="panel-header"><div><span className="panel-kicker">إدارة حالات الغياب</span><h2>{studentId && selectedRow ? `ملخص غياب ${selectedRow.name}` : 'ملخص غياب الطلاب'}</h2><p>الحالة الافتراضية هي بدون عذر. لتعديل كل أيام الطالب استخدم الحالة، ولتعديل يوم محدد افتح التفاصيل.</p></div><div className="feature-actions report-bulk-actions"><button type="button" className="secondary-button" onClick={() => void applyVisibleStatus('excused')} disabled={!filteredRows.length || mutationBusy}>اعتبار الظاهرين بعذر</button><button type="button" className="secondary-button" onClick={() => void applyVisibleStatus('unexcused')} disabled={!filteredRows.length || mutationBusy}>اعتبار الظاهرين بدون عذر</button><button type="button" className="danger-button" onClick={() => openCorrection(filteredRows.map(rowStudentId), from, to, 'كل الطلاب الظاهرين في الفترة', undefined, true)} disabled={!filteredRows.length || mutationBusy}><Trash2 size={16} /> حذف غياب جميع الطلاب</button></div></div>
-        {!filteredRows.length ? <div className="report-empty-state">لا توجد حالات غياب مؤكدة ضمن الفترة المختارة. استخدم «احتساب غياب اليوم» عند الحاجة.</div> : <>
-          <div className="table-wrap report-summary-table"><table className="feature-table"><thead><tr><th>الطالب</th><th>الصف والفصل</th><th>أيام الغياب</th><th>الحالة</th><th>التفاصيل</th><th>تصحيح</th></tr></thead><tbody>{filteredRows.map(row => <tr className={absenceTone(row.absenceDays)} key={rowStudentId(row)}><td><strong>{row.name}</strong></td><td>{row.grade || '—'} · {row.classroom || '—'}</td><td><strong>{row.absenceDays}</strong><small>بدون عذر: {row.unexcusedDays || 0} · بعذر: {row.excusedDays || 0} · ظرف: {row.specialDays || 0}</small></td><td><select className="absence-status-select" value={summaryStatus(row)} onChange={event => void applyStatus([rowStudentId(row)], event.target.value as AbsenceStatus, { label: row.name })} disabled={mutationBusy}><option value="unexcused">بدون عذر</option><option value="excused">بعذر</option><option value="special">ظرف خاص</option>{summaryStatus(row) === 'mixed' && <option value="mixed" disabled>مختلط — راجع التفاصيل</option>}</select></td><td><button type="button" className="text-action-button" onClick={() => void openDetails(row)} disabled={detailsBusy}>عرض أيام الغياب</button></td><td><button type="button" className="icon-danger" onClick={() => openCorrection([rowStudentId(row)], from, to, row.name)} aria-label={`تصحيح حضور ${row.name}`}><Trash2 size={16} /></button></td></tr>)}</tbody></table></div>
-          <div className="absence-summary-cards">{filteredRows.map(row => <article className={`student-summary-card ${absenceTone(row.absenceDays)}`} key={rowStudentId(row)}><div className="student-summary-heading"><div><h3>{row.name}</h3><p>{row.grade || '—'} · {row.classroom || '—'}</p></div><strong>{row.absenceDays}<small>يوم غياب</small></strong></div><p className="summary-counts">بدون عذر: {row.unexcusedDays || 0} · بعذر: {row.excusedDays || 0} · ظرف: {row.specialDays || 0}</p><label className="card-status-control">الحالة<select className="absence-status-select" value={summaryStatus(row)} onChange={event => void applyStatus([rowStudentId(row)], event.target.value as AbsenceStatus, { label: row.name })} disabled={mutationBusy}><option value="unexcused">بدون عذر</option><option value="excused">بعذر</option><option value="special">ظرف خاص</option>{summaryStatus(row) === 'mixed' && <option value="mixed" disabled>مختلط — راجع التفاصيل</option>}</select></label><div className="student-summary-actions"><button type="button" className="secondary-button" onClick={() => void openDetails(row)} disabled={detailsBusy}>عرض أيام الغياب</button><button type="button" className="danger-button" onClick={() => openCorrection([rowStudentId(row)], from, to, row.name)}>تصحيح حضور</button></div></article>)}</div>
-        </>}
-      </section>
-    </>}
-
-    {details && <div className="report-modal-overlay" role="dialog" aria-modal="true" aria-label="تفاصيل أيام الغياب"><section className="report-modal"><header className="report-modal-header"><div><span className="panel-kicker">تفاصيل الطالب</span><h2>{details.student.name}</h2><p>{details.student.grade || '—'} · {details.student.classroom || '—'} · {details.days.length} يوم غياب</p></div><button type="button" className="modal-close-button" onClick={() => setDetails(null)} aria-label="إغلاق">×</button></header><div className="report-modal-actions"><button className="export-btn csv" type="button" onClick={exportDetails}><Download size={16} /> Excel</button><button className="export-btn pdf" type="button" onClick={printDetails}><Printer size={16} /> PDF</button><button className="secondary-button" type="button" onClick={() => void copyDetailsText()}>نسخ النص</button><button className="danger-button" type="button" onClick={() => openCorrection([detailStudentId], from, to, details.student.name)}><Trash2 size={16} /> تصحيح كل الأيام</button></div><section className={`student-notice-copy ${absenceTone(details.days.length)}`}><h3>تنبيه غياب متكرر</h3><p>نفيدكم بأن الطالب <strong>{details.student.name}</strong> من الصف <strong>{details.student.grade || '—'}</strong> والفصل <strong>{details.student.classroom || '—'}</strong> بلغ عدد أيام غيابه <strong>{details.days.length} يومًا</strong> خلال الفترة المحددة.</p></section><div className="absence-detail-list">{details.days.map(day => <article className="absence-day-card" key={day.date}><div><strong>{day.date}</strong><small>{day.note || 'لا توجد ملاحظات'}</small></div><label>الحالة<select className="absence-status-select" value={day.status} onChange={event => void applyStatus([detailStudentId], event.target.value as AbsenceStatus, { dates: [day.date], label: day.date, note: day.note })} disabled={mutationBusy}><option value="unexcused">بدون عذر</option><option value="excused">بعذر</option><option value="special">ظرف خاص</option></select></label><button type="button" className="icon-danger" onClick={() => openCorrection([detailStudentId], day.date, day.date, `${details.student.name} في ${day.date}`, [day.date])} aria-label={`تصحيح حضور ${details.student.name} في ${day.date}`}><Trash2 size={16} /></button></article>)}</div></section></div>}
-
-    {correction && <div className="report-modal-overlay" role="dialog" aria-modal="true" aria-label="تصحيح الحضور"><section className="correction-dialog"><header className="report-modal-header"><div><span className="panel-kicker">تصحيح الحضور</span><h2>{correction.label}</h2><p>{correction.from} إلى {correction.to}</p></div><button type="button" className="modal-close-button" onClick={() => setCorrection(null)} aria-label="إغلاق">×</button></header><p className={correction.irreversible ? 'correction-warning' : 'feature-muted'}>{correction.irreversible ? 'لا يمكن التراجع عن هذه العملية. سيتحول الغياب المحدد إلى حضور في السجل.' : 'سيُزال الغياب المحدد ويُسجل الطالب بالحالة والوقت اللذين تختارهما.'}</p><div className="correction-form"><label>الحالة<select value={correctionStatus} onChange={event => setCorrectionStatus(event.target.value as 'present' | 'late')}><option value="present">حاضر</option><option value="late">متأخر</option></select></label><label>وقت الحضور<input type="time" value={correctionTime} onChange={event => setCorrectionTime(event.target.value)} /></label></div><div className="report-modal-actions"><button className="secondary-button" type="button" onClick={() => setCorrection(null)}>إلغاء</button><button className="danger-button" type="button" onClick={() => void saveCorrection()} disabled={mutationBusy}><Trash2 size={16} /> تأكيد التصحيح</button></div></section></div>}
-  </section>
+  const loadToday = async () => setTodayRows((await api.missingAttendance(today())).rows)
+  const loadAbsences = async (date = absenceDate) => setAbsences((await api.dailyAbsences(date)).rows as DailyRow[])
+  const loadLates = async (date = lateDate) => setLates((await api.dailyLates(date)).rows as DailyRow[])
+  useEffect(() => { void Promise.all([loadToday(), loadAbsences(), loadLates()]).catch(() => setNotice('تعذر تحميل بعض بيانات التقارير.')) }, [])
+  const calculate = async () => { if (!window.confirm('سيُعتمد غياب الطلاب الظاهرين في غياب اليوم. هل تريد المتابعة؟')) return; await api.calculateAbsences(today()); await Promise.all([loadToday(), loadAbsences()]); setNotice('تم اعتماد غياب اليوم.') }
+  const updateAbsence = async (ids: string[], status: 'unexcused' | 'excused') => { await api.setAbsenceStatus({ studentIds: ids, from: absenceDate, to: absenceDate, status }); await loadAbsences() }
+  const updateLate = async (ids: string[], status: 'unexcused' | 'excused') => { await api.setDailyLateStatus({ date: lateDate, studentIds: ids, status }); await loadLates() }
+  return <section className="feature-page reports-center"><section className="panel feature-intro"><div><span className="panel-kicker">إدارة المدرسة</span><h2>التقارير</h2><p>تابع الغياب والتأخر يوميًا، ثم اعرض الإجماليات والتفاصيل عند الحاجة.</p></div><FileText size={34} /></section><section className="panel"><div className="panel-header"><div><span className="panel-kicker">بيانات الاتصال</span><h2>تقرير هواتف الطلاب</h2></div><div className="feature-actions"><button type="button" className="export-btn csv" onClick={() => downloadWorkbook('تقرير_هواتف_الطلاب', [['اسم الطالب','الصف','الفصل','رقم الجوال'], ...students.map(student => [student.name,student.grade,student.classroom,student.phone])])}><Download size={16} /> Excel</button><button type="button" className="export-btn pdf" onClick={() => openPrintDocument('تقرير هواتف الطلاب', `<section class="page"><h1>تقرير هواتف الطلاب</h1><table><thead><tr><th>الطالب</th><th>الصف</th><th>الفصل</th><th>الجوال</th></tr></thead><tbody>${students.map(student => `<tr><td>${escapeHtml(student.name)}</td><td>${escapeHtml(student.grade)}</td><td>${escapeHtml(student.classroom)}</td><td dir="ltr">${escapeHtml(student.phone)}</td></tr>`).join('')}</tbody></table><p class="meta">${escapeHtml(schoolName)} · ${today()}</p></section>`)}><Printer size={16} /> PDF</button></div></div></section><section className="panel daily-report-panel"><div className="panel-header"><div><span className="panel-kicker">متابعة مباشرة</span><h2>غياب اليوم</h2><p>طلاب لم يسجلوا حضورًا أو تأخرًا حتى الآن: {todayRows.length}</p></div><button type="button" className="primary-button" onClick={() => void calculate()} disabled={!todayRows.length}><CheckCircle2 size={16} /> اعتماد غياب اليوم</button></div><div className="daily-list">{todayRows.map(row => <article key={row.studentId} className="daily-row"><div><strong>{row.name}</strong><small>{row.grade || '—'} · {row.classroom || '—'} · <bdi>{row.phone || '—'}</bdi></small></div></article>)}{!todayRows.length && <p className="report-empty-state">لا يوجد طالب بانتظار تسجيل الحضور الآن.</p>}</div></section><DailyList title="غياب الطلاب" date={absenceDate} onDate={value => { setAbsenceDate(value); void loadAbsences(value) }} rows={absences} onStatus={(ids, status) => void updateAbsence(ids, status)} onAll={status => void updateAbsence(absences.map(row => row.studentId), status)} onExcel={() => exportDaily(`غياب_${absenceDate}`, absences)} onPdf={() => printDaily('غياب الطلاب', absences, schoolName, absenceDate)} /><HistoryCounts type="absence" students={students} schoolName={schoolName} /><DailyList title="تأخر الطلاب" date={lateDate} onDate={value => { setLateDate(value); void loadLates(value) }} rows={lates} onStatus={(ids, status) => void updateLate(ids, status)} onAll={status => void updateLate(lates.map(row => row.studentId), status)} onExcel={() => exportDaily(`تأخر_${lateDate}`, lates)} onPdf={() => printDaily('تأخر الطلاب', lates, schoolName, lateDate)} late /><HistoryCounts type="late" students={students} schoolName={schoolName} />{notice && <div className="notice-box">{notice}</div>}</section>
 }

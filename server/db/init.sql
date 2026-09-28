@@ -49,6 +49,7 @@ CREATE TABLE attendance_logs (
   recorded_at timestamptz NOT NULL DEFAULT now(),
   recorded_by uuid NOT NULL REFERENCES users(id),
   status text NOT NULL CHECK (status IN ('present', 'late')),
+  excuse_status text NOT NULL DEFAULT 'unexcused' CHECK (excuse_status IN ('unexcused', 'excused')),
   UNIQUE (school_id, student_id, attendance_date),
   FOREIGN KEY (school_id, student_id) REFERENCES students(school_id, id) ON DELETE RESTRICT
 );
@@ -62,6 +63,7 @@ CREATE TABLE sessions (
 );
 
 CREATE INDEX attendance_logs_school_day ON attendance_logs(school_id, attendance_date DESC);
+CREATE INDEX attendance_logs_late_history ON attendance_logs(school_id, student_id, attendance_date DESC) WHERE status = 'late';
 
 CREATE TABLE almadar_accounts (
   school_id uuid PRIMARY KEY REFERENCES schools(id) ON DELETE CASCADE,

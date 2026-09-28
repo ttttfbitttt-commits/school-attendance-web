@@ -275,12 +275,16 @@ export async function migrateFeatures(pool) {
       name text PRIMARY KEY,
       applied_at timestamptz NOT NULL DEFAULT now()
     );
+    ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS excuse_status text NOT NULL DEFAULT 'unexcused';
+    ALTER TABLE attendance_logs DROP CONSTRAINT IF EXISTS attendance_logs_excuse_status_check;
+    ALTER TABLE attendance_logs ADD CONSTRAINT attendance_logs_excuse_status_check CHECK (excuse_status IN ('unexcused','excused'));
     CREATE INDEX IF NOT EXISTS student_excuses_school_student ON student_excuses(school_id,student_id,start_date DESC);
     CREATE UNIQUE INDEX IF NOT EXISTS student_excuses_unique_period ON student_excuses(school_id,student_id,start_date,COALESCE(end_date,'infinity'::date));
     CREATE INDEX IF NOT EXISTS message_logs_school_created ON message_logs(school_id,created_at DESC);
     CREATE INDEX IF NOT EXISTS absence_records_school_day ON absence_records(school_id,absence_date DESC);
     CREATE INDEX IF NOT EXISTS absence_records_school_student ON absence_records(school_id,student_id,absence_date DESC);
     CREATE INDEX IF NOT EXISTS absence_corrections_school_student ON absence_corrections(school_id,student_id,absence_date DESC);
+    CREATE INDEX IF NOT EXISTS attendance_logs_late_history ON attendance_logs(school_id,student_id,attendance_date DESC) WHERE status='late';
     ALTER TABLE almadar_accounts ENABLE ROW LEVEL SECURITY;
     ALTER TABLE almadar_accounts FORCE ROW LEVEL SECURITY;
     ALTER TABLE student_excuses ENABLE ROW LEVEL SECURITY;
@@ -383,6 +387,96 @@ export async function handleFeatureRequest(context) {
       }
     })
     json(res, 200, { ok: true, date, ...result })
+    return true
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/reports/missing-attendance') {
+    const date = validDate(url.searchParams.get('date')) || todayRiyadh()
+    if (date !== todayRiyadh()) { json(res, 400, { error: 'missing_attendance_is_today_only' }); return true }
+    const rows = await scoped(user.school_id, async client => (await client.query(`SELECT
+        s.id AS "studentId",s.name,s.grade,s.classroom,s.phone
+      FROM students s
+      WHERE s.school_id=$1 AND s.active=true
+        AND NOT EXISTS (SELECT 1 FROM attendance_logs a WHERE a.school_id=s.school_id AND a.student_id=s.id AND a.attendance_date=$2)
+        AND NOT EXISTS (SELECT 1 FROM absence_records r WHERE r.school_id=s.school_id AND r.student_id=s.id AND r.absence_date=$2)
+      ORDER BY s.name`, [user.school_id, date])).rows)
+    json(res, 200, { date, rows })
+    return true
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/reports/daily-absences') {
+    const date = validDate(url.searchParams.get('date')) || todayRiyadh()
+    if (date > todayRiyadh()) { json(res, 400, { error: 'invalid_report_date' }); return true }
+    const rows = await scoped(user.school_id, async client => (await client.query(`SELECT
+        r.id,r.student_id AS "studentId",s.name,s.grade,s.classroom,s.phone,r.status,r.note,
+        to_char(r.absence_date,'YYYY-MM-DD') AS date
+      FROM absence_records r JOIN students s ON s.school_id=r.school_id AND s.id=r.student_id
+      WHERE r.school_id=$1 AND r.absence_date=$2
+      ORDER BY s.name`, [user.school_id, date])).rows)
+    json(res, 200, { date, rows })
+    return true
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/reports/daily-lates') {
+    const date = validDate(url.searchParams.get('date')) || todayRiyadh()
+    if (date > todayRiyadh()) { json(res, 400, { error: 'invalid_report_date' }); return true }
+    const rows = await scoped(user.school_id, async client => (await client.query(`SELECT
+        a.id,a.student_id AS "studentId",s.name,s.grade,s.classroom,s.phone,a.excuse_status AS status,
+        to_char(a.attendance_date,'YYYY-MM-DD') AS date,to_char(a.recorded_at AT TIME ZONE $3,'HH24:MI') AS time
+      FROM attendance_logs a JOIN students s ON s.school_id=a.school_id AND s.id=a.student_id
+      WHERE a.school_id=$1 AND a.attendance_date=$2 AND a.status='late'
+      ORDER BY a.recorded_at,s.name`, [user.school_id, date, RIYADH_TIME_ZONE])).rows)
+    json(res, 200, { date, rows })
+    return true
+  }
+
+  if (req.method === 'PATCH' && url.pathname === '/api/reports/daily-lates/status') {
+    if (!adminOnly()) { json(res, 403, { error: 'forbidden' }); return true }
+    const input = await body(req)
+    const date = validDate(input.date)
+    const studentIds = selectedStudentIds(input)
+    const status = ['unexcused', 'excused'].includes(String(input.status)) ? String(input.status) : null
+    if (!date || date > todayRiyadh() || !studentIds || !status) { json(res, 400, { error: 'invalid_late_status_update' }); return true }
+    const updated = await scoped(user.school_id, async client => (await client.query(`UPDATE attendance_logs
+      SET excuse_status=$1
+      WHERE school_id=$2 AND attendance_date=$3 AND status='late' AND student_id=ANY($4::text[])
+      RETURNING student_id`, [status, user.school_id, date, studentIds])).rowCount)
+    json(res, 200, { ok: true, updated })
+    return true
+  }
+
+  if (req.method === 'GET' && ['/api/reports/absence-summary', '/api/reports/late-summary'].includes(url.pathname)) {
+    const isLate = url.pathname.endsWith('late-summary')
+    const rawIds = String(url.searchParams.get('studentIds') || '').split(',').map(value => value.trim()).filter(Boolean)
+    const studentIds = [...new Set(rawIds)].slice(0, 100)
+    const rows = await scoped(user.school_id, async client => (await client.query(`SELECT
+        a.student_id AS "studentId",s.name,s.grade,s.classroom,s.phone,
+        COUNT(*)::int AS "days",
+        COUNT(*) FILTER (WHERE ${isLate ? 'a.excuse_status' : 'a.status'}='excused')::int AS "excusedDays",
+        COUNT(*) FILTER (WHERE ${isLate ? 'a.excuse_status' : 'a.status'}='unexcused')::int AS "unexcusedDays"
+      FROM ${isLate ? 'attendance_logs' : 'absence_records'} a
+      JOIN students s ON s.school_id=a.school_id AND s.id=a.student_id
+      WHERE a.school_id=$1 ${isLate ? "AND a.status='late'" : ''} ${studentIds.length ? 'AND a.student_id=ANY($2::text[])' : ''}
+      GROUP BY a.student_id,s.name,s.grade,s.classroom,s.phone
+      ORDER BY "days" DESC,s.name`, studentIds.length ? [user.school_id, studentIds] : [user.school_id])).rows)
+    json(res, 200, { type: isLate ? 'late' : 'absence', rows })
+    return true
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/reports/student-history') {
+    const type = url.searchParams.get('type') === 'late' ? 'late' : url.searchParams.get('type') === 'absence' ? 'absence' : null
+    const studentId = String(url.searchParams.get('studentId') || '').trim()
+    if (!type || !studentId) { json(res, 400, { error: 'invalid_student_history' }); return true }
+    const result = await scoped(user.school_id, async client => {
+      const student = await client.query('SELECT id AS "studentId",name,grade,classroom,phone FROM students WHERE school_id=$1 AND id=$2', [user.school_id, studentId])
+      if (!student.rowCount) return null
+      const source = type === 'late' ? `SELECT to_char(attendance_date,'YYYY-MM-DD') AS date,excuse_status AS status,to_char(recorded_at AT TIME ZONE $3,'HH24:MI') AS time FROM attendance_logs WHERE school_id=$1 AND student_id=$2 AND status='late' ORDER BY attendance_date DESC` : `SELECT to_char(absence_date,'YYYY-MM-DD') AS date,status,''::text AS time FROM absence_records WHERE school_id=$1 AND student_id=$2 ORDER BY absence_date DESC`
+      const params = type === 'late' ? [user.school_id, studentId, RIYADH_TIME_ZONE] : [user.school_id, studentId]
+      const days = await client.query(source, params)
+      return { student: student.rows[0], type, days: days.rows }
+    })
+    if (!result) { json(res, 404, { error: 'student_not_found' }); return true }
+    json(res, 200, result)
     return true
   }
 
