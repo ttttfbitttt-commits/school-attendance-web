@@ -14,7 +14,7 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
-    networks: [private, edge]
+    networks: [private]
   api:
     build: ./server
     restart: unless-stopped
@@ -24,7 +24,7 @@ services:
     depends_on:
       db:
         condition: service_healthy
-    networks: [private]
+    networks: [private, edge]
   web:
     build: .
     restart: unless-stopped
