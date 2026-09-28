@@ -104,9 +104,52 @@ CREATE TABLE message_logs (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
+-- A confirmed absence is created only when an administrator explicitly runs the
+-- daily calculation. Absence is never inferred from missing attendance data.
+CREATE TABLE absence_records (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  school_id uuid NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  student_id text NOT NULL,
+  absence_date date NOT NULL,
+  status text NOT NULL DEFAULT 'unexcused' CHECK (status IN ('unexcused', 'excused', 'special')),
+  note text NOT NULL DEFAULT '' CHECK (length(note) <= 1000),
+  calculated_at timestamptz NOT NULL DEFAULT now(),
+  calculated_by uuid REFERENCES users(id) ON DELETE SET NULL,
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  updated_by uuid REFERENCES users(id) ON DELETE SET NULL,
+  UNIQUE (school_id, student_id, absence_date),
+  FOREIGN KEY (school_id, student_id) REFERENCES students(school_id, id) ON DELETE RESTRICT
+);
+
+-- Keeps the administrative trace when a confirmed absence is corrected to attendance.
+CREATE TABLE absence_corrections (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  school_id uuid NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  student_id text NOT NULL,
+  absence_date date NOT NULL,
+  prior_status text NOT NULL CHECK (prior_status IN ('unexcused', 'excused', 'special')),
+  prior_note text NOT NULL DEFAULT '',
+  attendance_status text NOT NULL CHECK (attendance_status IN ('present', 'late')),
+  attendance_time time NOT NULL,
+  correction_scope text NOT NULL CHECK (correction_scope IN ('single', 'bulk')),
+  corrected_by uuid REFERENCES users(id) ON DELETE SET NULL,
+  corrected_at timestamptz NOT NULL DEFAULT now(),
+  FOREIGN KEY (school_id, student_id) REFERENCES students(school_id, id) ON DELETE RESTRICT
+);
+
+-- Records which one-time data conversions have already completed. These rows
+-- are internal and prevent a deployment from re-importing historic data.
+CREATE TABLE application_migrations (
+  name text PRIMARY KEY,
+  applied_at timestamptz NOT NULL DEFAULT now()
+);
+
 CREATE INDEX student_excuses_school_student ON student_excuses(school_id, student_id, start_date DESC);
 CREATE UNIQUE INDEX student_excuses_unique_period ON student_excuses(school_id, student_id, start_date, COALESCE(end_date, 'infinity'::date));
 CREATE INDEX message_logs_school_created ON message_logs(school_id, created_at DESC);
+CREATE INDEX absence_records_school_day ON absence_records(school_id, absence_date DESC);
+CREATE INDEX absence_records_school_student ON absence_records(school_id, student_id, absence_date DESC);
+CREATE INDEX absence_corrections_school_student ON absence_corrections(school_id, student_id, absence_date DESC);
 
 -- Even if a future query is written incorrectly, PostgreSQL requires a school context.
 ALTER TABLE students ENABLE ROW LEVEL SECURITY;
@@ -119,8 +162,14 @@ ALTER TABLE student_excuses ENABLE ROW LEVEL SECURITY;
 ALTER TABLE student_excuses FORCE ROW LEVEL SECURITY;
 ALTER TABLE message_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE message_logs FORCE ROW LEVEL SECURITY;
+ALTER TABLE absence_records ENABLE ROW LEVEL SECURITY;
+ALTER TABLE absence_records FORCE ROW LEVEL SECURITY;
+ALTER TABLE absence_corrections ENABLE ROW LEVEL SECURITY;
+ALTER TABLE absence_corrections FORCE ROW LEVEL SECURITY;
 CREATE POLICY students_school_scope ON students USING (school_id = current_setting('app.school_id', true)::uuid) WITH CHECK (school_id = current_setting('app.school_id', true)::uuid);
 CREATE POLICY attendance_school_scope ON attendance_logs USING (school_id = current_setting('app.school_id', true)::uuid) WITH CHECK (school_id = current_setting('app.school_id', true)::uuid);
 CREATE POLICY almadar_accounts_school_scope ON almadar_accounts USING (school_id = current_setting('app.school_id', true)::uuid) WITH CHECK (school_id = current_setting('app.school_id', true)::uuid);
 CREATE POLICY student_excuses_school_scope ON student_excuses USING (school_id = current_setting('app.school_id', true)::uuid) WITH CHECK (school_id = current_setting('app.school_id', true)::uuid);
 CREATE POLICY message_logs_school_scope ON message_logs USING (school_id = current_setting('app.school_id', true)::uuid) WITH CHECK (school_id = current_setting('app.school_id', true)::uuid);
+CREATE POLICY absence_records_school_scope ON absence_records USING (school_id = current_setting('app.school_id', true)::uuid) WITH CHECK (school_id = current_setting('app.school_id', true)::uuid);
+CREATE POLICY absence_corrections_school_scope ON absence_corrections USING (school_id = current_setting('app.school_id', true)::uuid) WITH CHECK (school_id = current_setting('app.school_id', true)::uuid);

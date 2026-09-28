@@ -146,10 +146,13 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/api/attendance') return json(res,200, await scoped(user.school_id, async c => ({ records:(await c.query(`SELECT a.student_id AS "studentId", to_char(a.attendance_date,'YYYY-MM-DD') AS date, to_char(a.recorded_at AT TIME ZONE 'Asia/Riyadh','HH24:MI:SS') AS time, s.name,s.grade,s.classroom,s.phone,a.status FROM attendance_logs a JOIN students s ON s.school_id=a.school_id AND s.id=a.student_id WHERE a.attendance_date=$1 ORDER BY a.recorded_at DESC`,[url.searchParams.get('date') || todayRiyadh()])).rows })))
     if (req.method === 'POST' && url.pathname === '/api/attendance') {
       const { studentId, status } = await body(req); if (!studentId || !['present','late'].includes(status)) return json(res,400,{error:'invalid_attendance'})
+      const attendanceDate = todayRiyadh()
       const result = await scoped(user.school_id, async c => {
         const student = await c.query('SELECT 1 FROM students WHERE id=$1 AND active=true', [studentId])
         if (!student.rowCount) return null
-        return c.query(`INSERT INTO attendance_logs(school_id,student_id,attendance_date,recorded_by,status) VALUES($1,$2,$3,$4,$5) ON CONFLICT(school_id,student_id,attendance_date) DO NOTHING RETURNING attendance_date,recorded_at`,[user.school_id,studentId,todayRiyadh(),user.user_id,status])
+        // Attendance always wins: a student marked present or late cannot remain absent for the same day.
+        await c.query('DELETE FROM absence_records WHERE school_id=$1 AND student_id=$2 AND absence_date=$3', [user.school_id, studentId, attendanceDate])
+        return c.query(`INSERT INTO attendance_logs(school_id,student_id,attendance_date,recorded_by,status) VALUES($1,$2,$3,$4,$5) ON CONFLICT(school_id,student_id,attendance_date) DO NOTHING RETURNING attendance_date,recorded_at`,[user.school_id,studentId,attendanceDate,user.user_id,status])
       })
       if (!result) return json(res,404,{error:'student_not_found'})
       return json(res, result.rowCount ? 201 : 409, { ok: Boolean(result.rowCount) })

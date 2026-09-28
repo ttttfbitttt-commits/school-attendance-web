@@ -3,8 +3,38 @@ export type SchoolPreferences = { attendanceMode: 'auto' | 'present' | 'late'; c
 export type SchoolProfile = { schoolName: string; principalName: string; academicYear: string; semester: string; preferences: SchoolPreferences }
 export type AlmadarAccount = { configured: boolean; senderName?: string; lastBalance?: string | null; verifiedAt?: string | null; updatedAt?: string | null }
 export type Excuse = { id: string; studentId: string; name: string; grade: string; classroom: string; category: string; note: string; startDate: string; endDate: string | null; createdAt: string }
-export type AbsenceRow = { id: string; name: string; phone: string; grade: string; classroom: string; absenceDays: number; hasExcuse: boolean; excuses: Array<{ category: string; note: string; startDate: string; endDate: string | null }> }
-export type AbsenceReport = { from: string; to: string; workingDays: number; rows: AbsenceRow[] }
+export type AbsenceStatus = 'unexcused' | 'excused' | 'special'
+export type AbsenceSummaryStatus = AbsenceStatus | 'mixed'
+export type AbsenceRow = {
+  studentId: string
+  id?: string
+  name: string
+  phone: string
+  grade: string
+  classroom: string
+  absenceDays: number
+  unexcusedDays: number
+  excusedDays: number
+  specialDays: number
+  status: AbsenceSummaryStatus
+  hasExcuse?: boolean
+  excuses?: Array<{ category: string; note: string; startDate: string; endDate: string | null }>
+}
+export type AbsenceReport = {
+  from: string
+  to: string
+  workingDays: number
+  confirmedDays?: number
+  summary?: { absenceDays: number; students: number; unexcusedDays: number; excusedDays: number; specialDays: number }
+  rows: AbsenceRow[]
+}
+export type AbsenceDetails = {
+  from: string
+  to: string
+  student: { studentId: string; name: string; phone: string; grade: string; classroom: string }
+  days: Array<{ date: string; status: AbsenceStatus; note: string; calculatedAt: string; updatedAt: string }>
+  statusCounts: Record<AbsenceStatus, number>
+}
 export type MessageLog = { id: string; studentId: string | null; studentName: string; recipient: string; senderName: string; type: 'late' | 'absence' | 'general'; body: string; status: 'sent' | 'failed'; errorDetail: string; createdAt: string }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -38,6 +68,10 @@ export const api = {
   addExcuse: (excuse: { studentId: string; category: string; note: string; startDate: string; endDate: string }) => request<{ ok: boolean; id: string }>('/excuses', { method: 'POST', body: JSON.stringify(excuse) }),
   deleteExcuse: (id: string) => request<{ ok: boolean }>(`/excuses?id=${encodeURIComponent(id)}`, { method: 'DELETE' }),
   absenceReport: (from: string, to: string, studentId = '') => request<AbsenceReport>(`/reports/absences?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}${studentId ? `&studentId=${encodeURIComponent(studentId)}` : ''}`),
+  calculateAbsences: (date: string) => request<{ ok: boolean; date: string; created: number; confirmed: number }>('/absences/calculate', { method: 'POST', body: JSON.stringify({ date }) }),
+  absenceDetails: (studentId: string, from: string, to: string) => request<AbsenceDetails>(`/absences/details?studentId=${encodeURIComponent(studentId)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`),
+  setAbsenceStatus: (payload: { studentIds: string[]; from: string; to: string; status: AbsenceStatus; note?: string }) => request<{ ok: boolean; updatedDays: number; affectedStudents: number }>('/absences/status/bulk', { method: 'PATCH', body: JSON.stringify(payload) }),
+  correctAbsences: (payload: { studentIds: string[]; from: string; to: string; time: string; dates?: string[]; status?: 'present' | 'late' }) => request<{ ok: boolean; correctedDays: number; affectedStudents: number }>('/absences/correct-present/bulk', { method: 'POST', body: JSON.stringify({ ...payload, attendanceStatus: payload.status || 'present' }) }),
   messages: () => request<{ messages: MessageLog[] }>('/messages'),
   sendMessages: (payload: { studentIds: string[]; type: 'late' | 'absence' | 'general'; message?: string }) => request<{ ok: boolean; sent: number; failed: number }>('/messages/send', { method: 'POST', body: JSON.stringify(payload) }),
 }

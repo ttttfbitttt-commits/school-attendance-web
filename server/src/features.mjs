@@ -28,7 +28,8 @@ function decrypt(value) {
 
 function validDate(value) {
   const date = String(value || '')
-  return /^\d{4}-\d{2}-\d{2}$/.test(date) && !Number.isNaN(new Date(`${date}T12:00:00Z`).valueOf()) ? date : null
+  const parsed = new Date(`${date}T12:00:00Z`)
+  return /^\d{4}-\d{2}-\d{2}$/.test(date) && !Number.isNaN(parsed.valueOf()) && parsed.toISOString().slice(0, 10) === date ? date : null
 }
 
 function workingDates(from, to) {
@@ -106,41 +107,99 @@ async function accountForSchool(schoolId, scoped) {
     FROM almadar_accounts WHERE school_id=$1`, [schoolId])).rows[0] || null)
 }
 
+const ABSENCE_STATUSES = new Set(['unexcused', 'excused', 'special'])
+const ATTENDANCE_STATUSES = new Set(['present', 'late'])
+
+function absenceStatus(value) {
+  const status = String(value || '').trim()
+  return ABSENCE_STATUSES.has(status) ? status : null
+}
+
+function attendanceStatus(value) {
+  const status = String(value || 'present').trim()
+  return ATTENDANCE_STATUSES.has(status) ? status : null
+}
+
+function validTime(value) {
+  const time = String(value || '')
+  return /^([01]\d|2[0-3]):[0-5]\d(?::[0-5]\d)?$/.test(time) ? time : null
+}
+
+function absenceSummaryStatus(row) {
+  const presentStatuses = ['unexcused', 'excused', 'special'].filter(status => Number(row[`${status}Days`] || 0) > 0)
+  return presentStatuses.length === 1 ? presentStatuses[0] : 'mixed'
+}
+
+function reportRange(url, todayRiyadh) {
+  const today = todayRiyadh()
+  const requestedTo = validDate(url.searchParams.get('to')) || today
+  const requestedFrom = validDate(url.searchParams.get('from')) || requestedTo
+  const to = requestedTo > today ? today : requestedTo
+  if (requestedFrom > to || workingDates(requestedFrom, to).length > 366) return null
+  return { from: requestedFrom, to }
+}
+
+function absenceRange(input, todayRiyadh) {
+  const date = validDate(input.date)
+  const from = validDate(input.from) || date
+  const to = validDate(input.to) || date
+  const today = todayRiyadh()
+  if (!from || !to || from > to || to > today || workingDates(from, to).length > 366) return null
+  return { from, to }
+}
+
+function selectedStudentIds(input) {
+  const source = Array.isArray(input.studentIds) ? input.studentIds : input.studentId === undefined ? [] : [input.studentId]
+  const ids = [...new Set(source.map(value => String(value || '').trim()).filter(Boolean))]
+  return ids.length && ids.length <= 500 ? ids : null
+}
+
+function selectedAbsenceDates(input, range) {
+  if (input.dates === undefined && input.date === undefined) return { dates: null }
+  const source = input.dates === undefined ? [input.date] : input.dates
+  if (!Array.isArray(source) || !source.length || source.length > 366) return { invalid: true }
+  const parsed = source.map(validDate)
+  if (parsed.some(date => !date || date < range.from || date > range.to)) return { invalid: true }
+  const dates = [...new Set(parsed)]
+  return { dates }
+}
+
 async function absenceData({ schoolId, from, to, studentId, scoped }) {
-  const dates = workingDates(from, to)
   return scoped(schoolId, async client => {
-    const students = (await client.query(`SELECT id,name,phone,grade,classroom,to_char(created_at AT TIME ZONE $1,'YYYY-MM-DD') AS "createdDate"
-      FROM students WHERE active=true ORDER BY name`, [RIYADH_TIME_ZONE])).rows
-    const attendance = (await client.query(`SELECT DISTINCT student_id,to_char(attendance_date,'YYYY-MM-DD') AS date
-      FROM attendance_logs WHERE attendance_date BETWEEN $1 AND $2 AND status IN ('present','late')`, [from, to])).rows
-    const excuses = (await client.query(`SELECT student_id,category,note,to_char(start_date,'YYYY-MM-DD') AS "startDate",to_char(end_date,'YYYY-MM-DD') AS "endDate"
-      FROM student_excuses WHERE start_date <= $2 AND (end_date IS NULL OR end_date >= $1) ORDER BY start_date DESC`, [from, to])).rows
-    const attendanceByStudent = new Map()
-    attendance.forEach(row => {
-      const values = attendanceByStudent.get(row.student_id) || new Set()
-      values.add(row.date)
-      attendanceByStudent.set(row.student_id, values)
-    })
-    const excusesByStudent = new Map()
-    excuses.forEach(row => {
-      const values = excusesByStudent.get(row.student_id) || []
-      values.push(row)
-      excusesByStudent.set(row.student_id, values)
-    })
-    return {
-      from,
-      to,
-      workingDays: dates.length,
-      rows: students
-        .filter(student => !studentId || student.id === studentId)
-        .map(student => {
-          const eligibleDates = dates.filter(date => date >= (student.createdDate || from))
-          const attended = attendanceByStudent.get(student.id) || new Set()
-          const absenceDays = eligibleDates.reduce((total, date) => total + (attended.has(date) ? 0 : 1), 0)
-          const studentExcuses = excusesByStudent.get(student.id) || []
-          return { ...student, absenceDays, hasExcuse: studentExcuses.length > 0, excuses: studentExcuses }
-        }),
-    }
+    const parameters = [schoolId, from, to]
+    const studentFilter = studentId ? ` AND a.student_id=$4` : ''
+    if (studentId) parameters.push(studentId)
+    const result = await client.query(`SELECT
+        a.student_id AS "studentId", s.name,s.phone,s.grade,s.classroom,
+        COUNT(*)::int AS "absenceDays",
+        COUNT(*) FILTER (WHERE a.status='unexcused')::int AS "unexcusedDays",
+        COUNT(*) FILTER (WHERE a.status='excused')::int AS "excusedDays",
+        COUNT(*) FILTER (WHERE a.status='special')::int AS "specialDays"
+      FROM absence_records a
+      JOIN students s ON s.school_id=a.school_id AND s.id=a.student_id
+      WHERE a.school_id=$1 AND a.absence_date BETWEEN $2 AND $3${studentFilter}
+      GROUP BY a.student_id,s.name,s.phone,s.grade,s.classroom
+      ORDER BY "absenceDays" DESC,s.name`, parameters)
+    const rows = result.rows.map(row => ({
+      ...row,
+      status: absenceSummaryStatus(row),
+      statusCounts: {
+        unexcused: Number(row.unexcusedDays || 0),
+        excused: Number(row.excusedDays || 0),
+        special: Number(row.specialDays || 0),
+      },
+      // Retained temporarily for callers still reading the old report contract.
+      hasExcuse: Number(row.excusedDays || 0) + Number(row.specialDays || 0) > 0,
+      excuses: [],
+    }))
+    const summary = rows.reduce((totals, row) => ({
+      absenceDays: totals.absenceDays + Number(row.absenceDays || 0),
+      students: totals.students + 1,
+      unexcusedDays: totals.unexcusedDays + Number(row.unexcusedDays || 0),
+      excusedDays: totals.excusedDays + Number(row.excusedDays || 0),
+      specialDays: totals.specialDays + Number(row.specialDays || 0),
+    }), { absenceDays: 0, students: 0, unexcusedDays: 0, excusedDays: 0, specialDays: 0 })
+    return { from, to, rows, summary, confirmedDays: summary.absenceDays, workingDays: 0 }
   })
 }
 
@@ -184,15 +243,54 @@ export async function migrateFeatures(pool) {
       sent_by uuid REFERENCES users(id) ON DELETE SET NULL,
       created_at timestamptz NOT NULL DEFAULT now()
     );
+    CREATE TABLE IF NOT EXISTS absence_records (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      school_id uuid NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+      student_id text NOT NULL,
+      absence_date date NOT NULL,
+      status text NOT NULL DEFAULT 'unexcused' CHECK (status IN ('unexcused','excused','special')),
+      note text NOT NULL DEFAULT '' CHECK (length(note) <= 1000),
+      calculated_at timestamptz NOT NULL DEFAULT now(),
+      calculated_by uuid REFERENCES users(id) ON DELETE SET NULL,
+      updated_at timestamptz NOT NULL DEFAULT now(),
+      updated_by uuid REFERENCES users(id) ON DELETE SET NULL,
+      UNIQUE (school_id,student_id,absence_date),
+      FOREIGN KEY (school_id,student_id) REFERENCES students(school_id,id) ON DELETE RESTRICT
+    );
+    CREATE TABLE IF NOT EXISTS absence_corrections (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      school_id uuid NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+      student_id text NOT NULL,
+      absence_date date NOT NULL,
+      prior_status text NOT NULL CHECK (prior_status IN ('unexcused','excused','special')),
+      prior_note text NOT NULL DEFAULT '',
+      attendance_status text NOT NULL CHECK (attendance_status IN ('present','late')),
+      attendance_time time NOT NULL,
+      correction_scope text NOT NULL CHECK (correction_scope IN ('single','bulk')),
+      corrected_by uuid REFERENCES users(id) ON DELETE SET NULL,
+      corrected_at timestamptz NOT NULL DEFAULT now(),
+      FOREIGN KEY (school_id,student_id) REFERENCES students(school_id,id) ON DELETE RESTRICT
+    );
+    CREATE TABLE IF NOT EXISTS application_migrations (
+      name text PRIMARY KEY,
+      applied_at timestamptz NOT NULL DEFAULT now()
+    );
     CREATE INDEX IF NOT EXISTS student_excuses_school_student ON student_excuses(school_id,student_id,start_date DESC);
     CREATE UNIQUE INDEX IF NOT EXISTS student_excuses_unique_period ON student_excuses(school_id,student_id,start_date,COALESCE(end_date,'infinity'::date));
     CREATE INDEX IF NOT EXISTS message_logs_school_created ON message_logs(school_id,created_at DESC);
+    CREATE INDEX IF NOT EXISTS absence_records_school_day ON absence_records(school_id,absence_date DESC);
+    CREATE INDEX IF NOT EXISTS absence_records_school_student ON absence_records(school_id,student_id,absence_date DESC);
+    CREATE INDEX IF NOT EXISTS absence_corrections_school_student ON absence_corrections(school_id,student_id,absence_date DESC);
     ALTER TABLE almadar_accounts ENABLE ROW LEVEL SECURITY;
     ALTER TABLE almadar_accounts FORCE ROW LEVEL SECURITY;
     ALTER TABLE student_excuses ENABLE ROW LEVEL SECURITY;
     ALTER TABLE student_excuses FORCE ROW LEVEL SECURITY;
     ALTER TABLE message_logs ENABLE ROW LEVEL SECURITY;
     ALTER TABLE message_logs FORCE ROW LEVEL SECURITY;
+    ALTER TABLE absence_records ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE absence_records FORCE ROW LEVEL SECURITY;
+    ALTER TABLE absence_corrections ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE absence_corrections FORCE ROW LEVEL SECURITY;
     DO $$ BEGIN
       IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename='almadar_accounts' AND policyname='almadar_accounts_school_scope') THEN
         CREATE POLICY almadar_accounts_school_scope ON almadar_accounts USING (school_id=current_setting('app.school_id',true)::uuid) WITH CHECK (school_id=current_setting('app.school_id',true)::uuid);
@@ -203,24 +301,185 @@ export async function migrateFeatures(pool) {
       IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename='message_logs' AND policyname='message_logs_school_scope') THEN
         CREATE POLICY message_logs_school_scope ON message_logs USING (school_id=current_setting('app.school_id',true)::uuid) WITH CHECK (school_id=current_setting('app.school_id',true)::uuid);
       END IF;
+      IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename='absence_records' AND policyname='absence_records_school_scope') THEN
+        CREATE POLICY absence_records_school_scope ON absence_records USING (school_id=current_setting('app.school_id',true)::uuid) WITH CHECK (school_id=current_setting('app.school_id',true)::uuid);
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename='absence_corrections' AND policyname='absence_corrections_school_scope') THEN
+        CREATE POLICY absence_corrections_school_scope ON absence_corrections USING (school_id=current_setting('app.school_id',true)::uuid) WITH CHECK (school_id=current_setting('app.school_id',true)::uuid);
+      END IF;
     END $$;
   `)
+
+  // The previous report inferred absence from every weekday without attendance.
+  // Its only saved per-day records were student_excuses entries. Import their
+  // recorded start dates once as explicit, unexcused absence days. The source
+  // rows remain intact for audit and no dates are invented during conversion.
+  await pool.query(`WITH migration AS (
+      INSERT INTO application_migrations(name)
+      VALUES ('confirmed_absences_from_legacy_excuses_v1')
+      ON CONFLICT (name) DO NOTHING
+      RETURNING name
+    ), legacy_days AS (
+      SELECT DISTINCT ON (e.school_id,e.student_id,e.start_date)
+        e.school_id,e.student_id,e.start_date,e.created_at,e.created_by
+      FROM student_excuses e
+      ORDER BY e.school_id,e.student_id,e.start_date,e.created_at,e.id
+    )
+    INSERT INTO absence_records(
+      school_id,student_id,absence_date,status,note,calculated_at,calculated_by,updated_at,updated_by
+    )
+    SELECT school_id,student_id,start_date,'unexcused','',created_at,created_by,now(),created_by
+    FROM legacy_days
+    WHERE EXISTS (SELECT 1 FROM migration)
+    ON CONFLICT (school_id,student_id,absence_date) DO NOTHING`)
 }
 
 export async function handleFeatureRequest(context) {
   const { req, res, url, user, pool, body, json, scoped, todayRiyadh } = context
   const adminOnly = () => user.role === 'admin'
 
+  if (req.method === 'POST' && url.pathname === '/api/absences/calculate') {
+    if (!adminOnly()) { json(res, 403, { error: 'forbidden' }); return true }
+    const input = await body(req)
+    const today = todayRiyadh()
+    const date = input.date === undefined || input.date === '' ? today : validDate(input.date)
+    const day = date ? new Date(`${date}T12:00:00Z`).getUTCDay() : -1
+    if (!date || date > today) { json(res, 400, { error: 'invalid_absence_date' }); return true }
+    if (day === 5 || day === 6) { json(res, 400, { error: 'not_school_day' }); return true }
+    const result = await scoped(user.school_id, async client => {
+      // A later present/late mark always wins over a previously confirmed absence.
+      const removedForAttendance = await client.query(`DELETE FROM absence_records absence
+        USING attendance_logs attendance
+        WHERE absence.school_id=attendance.school_id
+          AND absence.student_id=attendance.student_id
+          AND absence.absence_date=attendance.attendance_date
+          AND absence.absence_date=$1
+          AND attendance.status IN ('present','late')`, [date])
+      const totalActive = await client.query('SELECT COUNT(*)::int AS count FROM students WHERE active=true')
+      const attended = await client.query(`SELECT COUNT(DISTINCT attendance.student_id)::int AS count
+        FROM attendance_logs attendance JOIN students student ON student.school_id=attendance.school_id AND student.id=attendance.student_id
+        WHERE student.active=true AND attendance.attendance_date=$1 AND attendance.status IN ('present','late')`, [date])
+      const created = await client.query(`INSERT INTO absence_records(school_id,student_id,absence_date,status,calculated_by,updated_by)
+        SELECT $1,student.id,$2,'unexcused',$3,$3
+        FROM students student
+        WHERE student.active=true
+          AND NOT EXISTS (
+            SELECT 1 FROM attendance_logs attendance
+            WHERE attendance.school_id=student.school_id
+              AND attendance.student_id=student.id
+              AND attendance.attendance_date=$2
+              AND attendance.status IN ('present','late')
+          )
+        ON CONFLICT(school_id,student_id,absence_date) DO NOTHING
+        RETURNING student_id`, [user.school_id, date, user.user_id])
+      const confirmed = await client.query('SELECT COUNT(*)::int AS count FROM absence_records WHERE absence_date=$1', [date])
+      return {
+        totalActive: totalActive.rows[0].count,
+        attended: attended.rows[0].count,
+        created: created.rowCount,
+        alreadyConfirmed: Math.max(0, confirmed.rows[0].count - created.rowCount),
+        confirmed: confirmed.rows[0].count,
+        removedForAttendance: removedForAttendance.rowCount,
+      }
+    })
+    json(res, 200, { ok: true, date, ...result })
+    return true
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/absences/details') {
+    const range = reportRange(url, todayRiyadh)
+    const studentId = String(url.searchParams.get('studentId') || '').trim()
+    if (!range) { json(res, 400, { error: 'invalid_report_range' }); return true }
+    if (!studentId) { json(res, 400, { error: 'student_required' }); return true }
+    const result = await scoped(user.school_id, async client => {
+      const student = await client.query(`SELECT id AS "studentId",name,phone,grade,classroom
+        FROM students WHERE school_id=$1 AND id=$2`, [user.school_id, studentId])
+      if (!student.rowCount) return null
+      const days = await client.query(`SELECT to_char(absence_date,'YYYY-MM-DD') AS date,status,note,
+          calculated_at AS "calculatedAt",updated_at AS "updatedAt"
+        FROM absence_records WHERE school_id=$1 AND student_id=$2 AND absence_date BETWEEN $3 AND $4
+        ORDER BY absence_date DESC`, [user.school_id, studentId, range.from, range.to])
+      const statusCounts = days.rows.reduce((counts, row) => ({ ...counts, [row.status]: counts[row.status] + 1 }), { unexcused: 0, excused: 0, special: 0 })
+      return { student: student.rows[0], days: days.rows, statusCounts }
+    })
+    if (!result) { json(res, 404, { error: 'student_not_found' }); return true }
+    json(res, 200, { from: range.from, to: range.to, ...result })
+    return true
+  }
+
+  if (req.method === 'PATCH' && ['/api/absences/status', '/api/absences/status/bulk'].includes(url.pathname)) {
+    if (!adminOnly()) { json(res, 403, { error: 'forbidden' }); return true }
+    const input = await body(req)
+    const range = absenceRange(input, todayRiyadh)
+    const studentIds = selectedStudentIds(input)
+    const status = absenceStatus(input.status)
+    const hasNote = Object.prototype.hasOwnProperty.call(input, 'note')
+    const note = hasNote ? String(input.note || '').trim().slice(0, 1000) : null
+    if (!range || !studentIds || !status || (hasNote && String(input.note || '').trim().length > 1000)) { json(res, 400, { error: 'invalid_absence_status_update' }); return true }
+    const result = await scoped(user.school_id, async client => {
+      const updated = await client.query(`UPDATE absence_records
+        SET status=$1,
+            note=CASE WHEN $1='unexcused' THEN '' WHEN $2::text IS NULL THEN note ELSE $2 END,
+            updated_at=now(),updated_by=$3
+        WHERE school_id=$4 AND student_id=ANY($5::text[]) AND absence_date BETWEEN $6 AND $7
+        RETURNING student_id`, [status, note, user.user_id, user.school_id, studentIds, range.from, range.to])
+      return { updatedDays: updated.rowCount, affectedStudents: new Set(updated.rows.map(row => row.student_id)).size }
+    })
+    if (!result.updatedDays) { json(res, 404, { error: 'absence_records_not_found' }); return true }
+    json(res, 200, { ok: true, studentIds, from: range.from, to: range.to, status, ...result })
+    return true
+  }
+
+  if (req.method === 'POST' && ['/api/absences/correct-present', '/api/absences/correct-present/bulk'].includes(url.pathname)) {
+    if (!adminOnly()) { json(res, 403, { error: 'forbidden' }); return true }
+    const input = await body(req)
+    const range = absenceRange(input, todayRiyadh)
+    const studentIds = selectedStudentIds(input)
+    const dateSelection = range ? selectedAbsenceDates(input, range) : { invalid: true }
+    const time = validTime(input.time)
+    const status = attendanceStatus(input.attendanceStatus || input.status || 'present')
+    if (!range || !studentIds || dateSelection.invalid || !time || !status) { json(res, 400, { error: 'invalid_absence_correction' }); return true }
+    const correctionScope = studentIds.length === 1 && range.from === range.to && (!dateSelection.dates || dateSelection.dates.length === 1) ? 'single' : 'bulk'
+    const result = await scoped(user.school_id, async client => {
+      const corrected = await client.query(`WITH removed AS (
+          DELETE FROM absence_records
+          WHERE school_id=$1 AND absence_date BETWEEN $2 AND $3
+            AND student_id=ANY($4::text[])
+            AND ($5::date[] IS NULL OR absence_date=ANY($5::date[]))
+          RETURNING school_id,student_id,absence_date,status,note
+        ), attendance AS (
+          INSERT INTO attendance_logs(school_id,student_id,attendance_date,recorded_at,recorded_by,status)
+          SELECT school_id,student_id,absence_date,((absence_date + $6::time) AT TIME ZONE $7),$8,$9
+          FROM removed
+          ON CONFLICT(school_id,student_id,attendance_date) DO UPDATE
+            SET recorded_at=EXCLUDED.recorded_at,recorded_by=EXCLUDED.recorded_by,status=EXCLUDED.status
+        ), audit AS (
+          INSERT INTO absence_corrections(school_id,student_id,absence_date,prior_status,prior_note,attendance_status,attendance_time,correction_scope,corrected_by)
+          SELECT school_id,student_id,absence_date,status,note,$9,$6::time,$10,$8 FROM removed
+        )
+        SELECT COUNT(*)::int AS "correctedDays",COUNT(DISTINCT student_id)::int AS "affectedStudents" FROM removed`,
+      [user.school_id, range.from, range.to, studentIds, dateSelection.dates, time, RIYADH_TIME_ZONE, user.user_id, status, correctionScope])
+      return corrected.rows[0]
+    })
+    if (!result.correctedDays) { json(res, 404, { error: 'absence_records_not_found' }); return true }
+    json(res, 200, { ok: true, studentIds, from: range.from, to: range.to, dates: dateSelection.dates, correctionScope, attendance: { status, time }, ...result })
+    return true
+  }
+
   if (req.method === 'POST' && url.pathname === '/api/attendance/bulk') {
     const input = await body(req)
     const studentIds = Array.isArray(input.studentIds) ? [...new Set(input.studentIds.map(value => String(value || '').trim()).filter(Boolean))].slice(0, 500) : []
     if (!studentIds.length || !['present', 'late'].includes(input.status)) { json(res, 400, { error: 'invalid_attendance' }); return true }
+    const attendanceDate = todayRiyadh()
     const result = await scoped(user.school_id, async client => {
       const active = (await client.query('SELECT id FROM students WHERE active=true AND id=ANY($1::text[])', [studentIds])).rows.map(row => row.id)
+      const removedAbsences = active.length
+        ? await client.query(`DELETE FROM absence_records WHERE school_id=$1 AND absence_date=$2 AND student_id=ANY($3::text[])`, [user.school_id, attendanceDate, active])
+        : { rowCount: 0 }
       const created = (await client.query(`INSERT INTO attendance_logs(school_id,student_id,attendance_date,recorded_by,status)
         SELECT $1,value,$2,$3,$4 FROM unnest($5::text[]) AS value
-        ON CONFLICT(school_id,student_id,attendance_date) DO NOTHING RETURNING student_id`, [user.school_id, todayRiyadh(), user.user_id, input.status, active])).rows.map(row => row.student_id)
-      return { created, duplicates: active.filter(id => !created.includes(id)), missing: studentIds.filter(id => !active.includes(id)) }
+        ON CONFLICT(school_id,student_id,attendance_date) DO NOTHING RETURNING student_id`, [user.school_id, attendanceDate, user.user_id, input.status, active])).rows.map(row => row.student_id)
+      return { created, duplicates: active.filter(id => !created.includes(id)), missing: studentIds.filter(id => !active.includes(id)), removedAbsences: removedAbsences.rowCount }
     })
     json(res, 200, { ok: true, ...result })
     return true
@@ -309,11 +568,9 @@ export async function handleFeatureRequest(context) {
   }
 
   if (req.method === 'GET' && url.pathname === '/api/reports/absences') {
-    const today = todayRiyadh()
-    const to = validDate(url.searchParams.get('to')) || today
-    const from = validDate(url.searchParams.get('from')) || to
-    if (from > to || workingDates(from, to).length > 366) { json(res, 400, { error: 'invalid_report_range' }); return true }
-    const report = await absenceData({ schoolId: user.school_id, from, to: to > today ? today : to, studentId: String(url.searchParams.get('studentId') || '').trim(), scoped })
+    const range = reportRange(url, todayRiyadh)
+    if (!range) { json(res, 400, { error: 'invalid_report_range' }); return true }
+    const report = await absenceData({ schoolId: user.school_id, from: range.from, to: range.to, studentId: String(url.searchParams.get('studentId') || '').trim(), scoped })
     json(res, 200, report)
     return true
   }
