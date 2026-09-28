@@ -584,6 +584,11 @@ input {
   border-color: var(--blue);
 }
 
+/* مدار تقني: حقول أسرار خدمة مستقلة وليست بيانات دخول الموقع. */
+.credential-secret {
+  -webkit-text-security: disc;
+}
+
 .settings-notice {
   margin: 18px 0 0;
 }
