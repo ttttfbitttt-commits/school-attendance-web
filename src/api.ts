@@ -76,7 +76,7 @@ export const api = {
   absenceDetails: (studentId: string, from: string, to: string) => request<AbsenceDetails>(`/absences/details?studentId=${encodeURIComponent(studentId)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`),
   setAbsenceStatus: (payload: { studentIds: string[]; from: string; to: string; status: AbsenceStatus; note?: string }) => request<{ ok: boolean; updatedDays: number; affectedStudents: number }>('/absences/status/bulk', { method: 'PATCH', body: JSON.stringify(payload) }),
   correctAbsences: (payload: { studentIds: string[]; from: string; to: string; time: string; dates?: string[]; status?: 'present' | 'late' }) => request<{ ok: boolean; correctedDays: number; affectedStudents: number }>('/absences/correct-present/bulk', { method: 'POST', body: JSON.stringify({ ...payload, attendanceStatus: payload.status || 'present' }) }),
-  missingAttendance: (date: string) => request<{ date: string; rows: Array<Omit<DailyStudentRow, 'date' | 'status'>> }>(`/reports/missing-attendance?date=${encodeURIComponent(date)}`),
+  missingAttendance: (date: string) => request<{ date: string; count: number }>(`/reports/missing-attendance?date=${encodeURIComponent(date)}`),
   dailyAbsences: (date: string) => request<{ date: string; rows: DailyStudentRow[] }>(`/reports/daily-absences?date=${encodeURIComponent(date)}`),
   dailyLates: (date: string) => request<{ date: string; rows: DailyStudentRow[] }>(`/reports/daily-lates?date=${encodeURIComponent(date)}`),
   setDailyLateStatus: (payload: { date: string; studentIds: string[]; status: 'unexcused' | 'excused' }) => request<{ ok: boolean; updated: number }>('/reports/daily-lates/status', { method: 'PATCH', body: JSON.stringify(payload) }),

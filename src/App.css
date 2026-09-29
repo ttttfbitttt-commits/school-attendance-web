@@ -3756,3 +3756,75 @@ tbody td {
     grid-template-columns: minmax(0, 1fr);
   }
 }
+
+/* Compact pre-confirmation absence summary */
+.pending-absence-panel {
+  scroll-margin-top: 84px;
+}
+
+.pending-absence-panel .panel-header > div:first-child {
+  flex: 1;
+  min-width: 0;
+}
+
+.pending-absence-count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  min-width: 150px;
+  padding: 9px 13px;
+  border: 1px solid #bfdbfe;
+  border-radius: 12px;
+  color: #123b63;
+  background: #f1f7fd;
+  white-space: nowrap;
+}
+
+.pending-absence-count span {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.pending-absence-count strong {
+  font-size: 23px;
+  line-height: 1;
+}
+
+.pending-absence-hint {
+  margin: 12px 0 0;
+  color: #64748b;
+  font-size: 13px;
+}
+
+#daily-absence-log {
+  scroll-margin-top: 84px;
+}
+
+@media (max-width: 580px) {
+  .pending-absence-panel .panel-header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .pending-absence-count {
+    min-width: 0;
+    gap: 8px;
+    padding: 8px 10px;
+  }
+
+  .pending-absence-count span {
+    max-width: 76px;
+    white-space: normal;
+  }
+
+  .pending-absence-panel .panel-header > button {
+    grid-column: 1 / -1;
+    width: 100%;
+    min-height: 46px;
+    justify-content: center;
+    white-space: normal;
+  }
+}

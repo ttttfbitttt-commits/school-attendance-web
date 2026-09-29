@@ -396,14 +396,12 @@ export async function handleFeatureRequest(context) {
   if (req.method === 'GET' && url.pathname === '/api/reports/missing-attendance') {
     const date = validDate(url.searchParams.get('date')) || todayRiyadh()
     if (date !== todayRiyadh()) { json(res, 400, { error: 'missing_attendance_is_today_only' }); return true }
-    const rows = await scoped(user.school_id, async client => (await client.query(`SELECT
-        s.id AS "studentId",s.name,s.grade,s.classroom,s.phone
+    const result = await scoped(user.school_id, async client => client.query(`SELECT COUNT(*)::int AS count
       FROM students s
       WHERE s.school_id=$1 AND s.active=true
         AND NOT EXISTS (SELECT 1 FROM attendance_logs a WHERE a.school_id=s.school_id AND a.student_id=s.id AND a.attendance_date=$2)
-        AND NOT EXISTS (SELECT 1 FROM absence_records r WHERE r.school_id=s.school_id AND r.student_id=s.id AND r.absence_date=$2)
-      ORDER BY s.name`, [user.school_id, date])).rows)
-    json(res, 200, { date, rows })
+        AND NOT EXISTS (SELECT 1 FROM absence_records r WHERE r.school_id=s.school_id AND r.student_id=s.id AND r.absence_date=$2)`, [user.school_id, date]))
+    json(res, 200, { date, count: result.rows[0].count })
     return true
   }
 
