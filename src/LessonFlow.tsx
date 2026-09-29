@@ -279,7 +279,9 @@ function scheduleTableHtml(schedule: LessonSchedule) {
 
 function incidentPrintHtml(incident: LessonIncident) {
   const lesson = periodLabel(incident.periodNumber)
+  const teacherResponseLines = Array.from({ length: 6 }, () => '<div style="height:25px;border-bottom:1px dotted #64748b"></div>').join('')
   return `<section class="page"><h1>مساءلة تأخر / انصراف مبكر</h1>
+    <div style="margin:0 0 12px;text-align:left;color:#b91c1c;font-weight:800;font-size:12px;line-height:1.7">نموذج رقم (18)<br/>رمز النموذج: م ع - 02</div>
     <table><tbody>
       <tr><th>اسم المعلم</th><td>${escapeHtml(incident.teacherName)}</td><th>السجل المدني</th><td dir="ltr">${escapeHtml(incident.identityNumber)}</td></tr>
       <tr><th>الحصة</th><td>${escapeHtml(lesson)}</td><th>الفصل</th><td>${escapeHtml(incident.classroom)}</td></tr>
@@ -290,8 +292,14 @@ function incidentPrintHtml(incident: LessonIncident) {
     <div style="margin-top:34px;display:grid;grid-template-columns:1fr 1fr;gap:28px"><p>قائد المدرسة: ........................</p><p>التوقيع: ........................</p></div>
     <hr style="margin:36px 0 24px" />
     <h2>إفادة المعلم</h2>
-    <p style="min-height:120px;border-bottom:1px dotted #999;line-height:2"></p>
-    <div style="margin-top:24px;display:grid;grid-template-columns:1fr 1fr;gap:28px"><p>الاسم: ........................</p><p>التوقيع: ........................</p></div>
+    <p style="margin:0 0 8px;line-height:1.8">أفيدكم بأن:</p>
+    <div style="margin-top:4px">${teacherResponseLines}</div>
+    <div style="margin-top:20px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px"><p>الاسم: ........................</p><p>التوقيع: ........................</p><p>التاريخ: ........................</p></div>
+    <hr style="margin:30px 0 20px" />
+    <h2>رأي مدير المدرسة</h2>
+    <div style="line-height:1.9;font-size:13px"><p>□ عذر مقبول.</p><p>□ عذر غير مقبول، ويُتخذ الإجراء النظامي.</p><p>□ ملاحظات أو إجراء آخر: ........................................................................</p></div>
+    <div style="margin-top:16px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:20px"><p>مدير المدرسة: ........................</p><p>التوقيع: ........................</p><p>التاريخ: ........................</p></div>
+    <p style="margin-top:24px;padding-top:12px;border-top:1px solid #94a3b8;color:#475569;font-size:11px;line-height:1.9"><strong>ملاحظة:</strong> ترفق بطاقة المساءلة مع أصل القرار في حالة عدم قبول العذر لحفظها في ملف الإدارة بالمدرسة.</p>
   </section>`
 }
 
