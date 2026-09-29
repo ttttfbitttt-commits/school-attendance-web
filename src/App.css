@@ -4018,3 +4018,360 @@ tbody td {
     font-size: 13px;
   }
 }
+
+/* Lesson flow */
+.lesson-flow {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+}
+
+.lesson-hero-panel {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+}
+
+.lesson-hero-panel h2,
+.lesson-section-heading h3,
+.lesson-camera-card h3 {
+  margin: 4px 0 6px;
+  color: #06213d;
+}
+
+.lesson-hero-panel p {
+  margin: 0;
+  color: #64748b;
+}
+
+.lesson-section-tabs {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.lesson-section-tabs button,
+.lesson-day-tabs button {
+  min-height: 46px;
+  border: 1px solid #d8e3ef;
+  border-radius: 12px;
+  background: #fff;
+  color: #173a5c;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.lesson-section-tabs button.active,
+.lesson-day-tabs button.active {
+  border-color: #0d66ad;
+  background: #0d5fa4;
+  color: #fff;
+}
+
+.lesson-panel {
+  display: grid;
+  gap: 16px;
+  min-width: 0;
+  padding: 22px;
+  border: 1px solid #dbe5ee;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 18px 45px rgba(15, 35, 55, .06);
+}
+
+.lesson-import-grid,
+.lesson-kpi-grid,
+.lesson-scan-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.lesson-upload-card {
+  display: grid;
+  gap: 8px;
+  padding: 18px;
+  border: 1px dashed #b9d3ec;
+  border-radius: 14px;
+  color: #173a5c;
+  background: #f8fbff;
+  cursor: pointer;
+}
+
+.lesson-upload-card input,
+.lesson-file-button input {
+  display: none;
+}
+
+.lesson-upload-card span,
+.lesson-map-row small,
+.lesson-incident-card small,
+.lesson-schedule-table small {
+  color: #64748b;
+  font-size: 12px;
+}
+
+.lesson-kpi-grid span {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 44px;
+  padding: 10px 12px;
+  border: 1px solid #e2ebf4;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.lesson-kpi-grid strong {
+  color: #0d5fa4;
+  font-size: 20px;
+}
+
+.lesson-section-heading,
+.lesson-toolbar,
+.lesson-time-row,
+.lesson-map-row,
+.lesson-incident-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  min-width: 0;
+}
+
+.lesson-mapping-list,
+.lesson-times-list,
+.lesson-incidents-list {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+}
+
+.lesson-map-row,
+.lesson-time-row,
+.lesson-incident-card {
+  padding: 12px;
+  border: 1px solid #dfe8f1;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.lesson-map-row > div,
+.lesson-incident-card > div {
+  min-width: 0;
+}
+
+.lesson-map-row strong,
+.lesson-incident-card strong {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.lesson-map-row select,
+.lesson-toolbar select,
+.lesson-toolbar input,
+.lesson-time-row input {
+  min-height: 42px;
+  border: 1px solid #cbd9e6;
+  border-radius: 10px;
+  padding: 8px 10px;
+  background: #fff;
+  color: #08213c;
+  font: inherit;
+}
+
+.lesson-map-row select {
+  width: min(420px, 48%);
+}
+
+.lesson-day-tabs {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.lesson-time-row {
+  justify-content: flex-start;
+}
+
+.lesson-time-row strong {
+  min-width: 78px;
+}
+
+.icon-danger-button {
+  display: inline-grid;
+  width: 42px;
+  height: 42px;
+  place-items: center;
+  border: 1px solid #fecaca;
+  border-radius: 10px;
+  background: #fff7f7;
+  color: #dc2626;
+  cursor: pointer;
+}
+
+.lesson-classroom-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.lesson-classroom-grid article {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid #e2ebf4;
+  border-radius: 12px;
+  background: #f8fafc;
+}
+
+.lesson-classroom-grid strong {
+  overflow-wrap: anywhere;
+}
+
+.lesson-schedule-scroll {
+  overflow-x: auto;
+  border: 1px solid #dbe5ee;
+  border-radius: 14px;
+}
+
+.lesson-schedule-table {
+  width: 100%;
+  min-width: 860px;
+  border-collapse: collapse;
+}
+
+.lesson-schedule-table th,
+.lesson-schedule-table td {
+  padding: 12px;
+  border-bottom: 1px solid #e5edf5;
+  text-align: right;
+  vertical-align: top;
+}
+
+.lesson-schedule-table thead th {
+  background: #f5f8fb;
+  color: #123b63;
+}
+
+.lesson-schedule-table td strong {
+  display: block;
+  color: #06213d;
+}
+
+.lesson-camera-card,
+.lesson-incidents-side {
+  display: grid;
+  align-content: start;
+  gap: 12px;
+  min-width: 0;
+}
+
+.lesson-camera-preview {
+  display: grid;
+  gap: 10px;
+}
+
+.lesson-camera-preview video {
+  width: 100%;
+  max-height: 360px;
+  border-radius: 14px;
+  background: #0f172a;
+}
+
+.lesson-incident-card.highlighted {
+  border-color: #93c5fd;
+  background: #eff6ff;
+}
+
+.lesson-alert,
+.lesson-empty {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  margin: 0;
+  padding: 10px 12px;
+  border-radius: 12px;
+}
+
+.lesson-alert.success {
+  border: 1px solid #bbf7d0;
+  color: #166534;
+  background: #f0fdf4;
+}
+
+.lesson-alert.error {
+  border: 1px solid #fecaca;
+  color: #991b1b;
+  background: #fff7f7;
+}
+
+.lesson-alert.pending,
+.lesson-empty {
+  border: 1px solid #dbe5ee;
+  color: #58718b;
+  background: #f8fafc;
+}
+
+@media (max-width: 920px) {
+  .lesson-section-tabs,
+  .lesson-import-grid,
+  .lesson-kpi-grid,
+  .lesson-scan-grid,
+  .lesson-classroom-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 640px) {
+  .lesson-panel {
+    padding: 14px;
+    border-radius: 14px;
+  }
+
+  .lesson-hero-panel {
+    align-items: flex-start;
+  }
+
+  .lesson-section-tabs,
+  .lesson-import-grid,
+  .lesson-kpi-grid,
+  .lesson-scan-grid,
+  .lesson-classroom-grid,
+  .lesson-day-tabs {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .lesson-toolbar,
+  .lesson-section-heading,
+  .lesson-time-row,
+  .lesson-map-row,
+  .lesson-incident-card {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .lesson-map-row select {
+    width: 100%;
+  }
+
+  .lesson-toolbar > *,
+  .lesson-section-heading button,
+  .lesson-time-row input,
+  .lesson-time-row button,
+  .lesson-incident-card button,
+  .lesson-camera-card button,
+  .lesson-file-button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .lesson-schedule-table {
+    min-width: 720px;
+  }
+}

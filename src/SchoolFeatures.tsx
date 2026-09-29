@@ -21,7 +21,7 @@ export function reportBrandHeader(title: string, schoolName: string) {
   return `<header class="report-brand"><img src="${logoUrl}" alt="شعار وزارة التعليم" /><div class="report-school">${escapeHtml(schoolName)}</div><h1>${escapeHtml(title)}</h1></header>`
 }
 
-function openPrintDocument(title: string, contents: string, schoolName: string, orientation: 'portrait' | 'landscape' = 'portrait') {
+export function openPrintDocument(title: string, contents: string, schoolName: string, orientation: 'portrait' | 'landscape' = 'portrait') {
   const popup = window.open('', '_blank')
   if (!popup) return false
   const brandedContents = contents

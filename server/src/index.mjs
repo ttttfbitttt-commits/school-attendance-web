@@ -3,6 +3,7 @@ import crypto from 'node:crypto'
 import { URL } from 'node:url'
 import pg from 'pg'
 import { handleFeatureRequest, migrateFeatures } from './features.mjs'
+import { handleLessonFlowRequest, migrateLessonFlow } from './lessonFlow.mjs'
 
 const { Pool } = pg
 if (!process.env.DATABASE_URL || !process.env.RUNTIME_DATABASE_URL || !process.env.AUTH_DATABASE_URL) {
@@ -110,7 +111,9 @@ async function configureDatabaseRoles() {
   }
 
   await adminPool.query('GRANT USAGE ON SCHEMA public TO attendance_app, attendance_auth')
-  await adminPool.query('GRANT SELECT, INSERT, UPDATE, DELETE ON schools, students, attendance_logs, almadar_accounts, student_excuses, message_logs, absence_records, absence_corrections TO attendance_app')
+  await adminPool.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON schools, students, attendance_logs, almadar_accounts, student_excuses,
+    message_logs, absence_records, absence_corrections, lesson_teachers, lesson_classrooms, lesson_schedule_imports,
+    lesson_name_mappings, lesson_time_slots, lesson_schedule_assignments, teacher_incidents TO attendance_app`)
   await adminPool.query('GRANT SELECT, INSERT ON schools, users, memberships TO attendance_auth')
   await adminPool.query('GRANT SELECT, INSERT, DELETE ON sessions TO attendance_auth')
 }
@@ -125,6 +128,13 @@ async function enforceTenantRowSecurity() {
     ['message_logs', 'school_id', 'message_logs_school_scope'],
     ['absence_records', 'school_id', 'absence_records_school_scope'],
     ['absence_corrections', 'school_id', 'absence_corrections_school_scope'],
+    ['lesson_teachers', 'school_id', 'lesson_teachers_school_scope'],
+    ['lesson_classrooms', 'school_id', 'lesson_classrooms_school_scope'],
+    ['lesson_schedule_imports', 'school_id', 'lesson_schedule_imports_school_scope'],
+    ['lesson_name_mappings', 'school_id', 'lesson_name_mappings_school_scope'],
+    ['lesson_time_slots', 'school_id', 'lesson_time_slots_school_scope'],
+    ['lesson_schedule_assignments', 'school_id', 'lesson_schedule_assignments_school_scope'],
+    ['teacher_incidents', 'school_id', 'teacher_incidents_school_scope'],
   ]
   for (const [table, schoolColumn, policy] of tables) {
     await adminPool.query(`ALTER TABLE ${table} ENABLE ROW LEVEL SECURITY`)
@@ -140,6 +150,7 @@ async function migrateDatabase() {
   await adminPool.query("ALTER TABLE schools ADD COLUMN IF NOT EXISTS preferences jsonb NOT NULL DEFAULT '{}'::jsonb")
   await adminPool.query('ALTER TABLE students ADD COLUMN IF NOT EXISTS active boolean NOT NULL DEFAULT true')
   await migrateFeatures(adminPool)
+  await migrateLessonFlow(adminPool)
   await enforceTenantRowSecurity()
   await configureDatabaseRoles()
 }
@@ -219,6 +230,7 @@ const server = http.createServer(async (req, res) => {
       await scoped(user.school_id, async c => c.query('DELETE FROM attendance_logs WHERE school_id=$1 AND attendance_date=$2', [user.school_id, date]))
       return json(res,200,{ok:true})
     }
+    if (await handleLessonFlowRequest({ req, res, url, user, pool, body, json, scoped, todayRiyadh })) return
     if (await handleFeatureRequest({ req, res, url, user, pool, body, json, scoped, todayRiyadh })) return
     return json(res, 404, { error: 'not_found' })
   } catch (error) {

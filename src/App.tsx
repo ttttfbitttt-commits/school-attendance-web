@@ -39,6 +39,7 @@ import {
 import './App.css'
 import { AuthGate } from './AuthGate'
 import { api, type SchoolProfile } from './api'
+import { LessonFlowCenter } from './LessonFlow'
 import { AlmadarSettings, downloadWorkbook, MessageCenter, reportBrandHeader, ReportsCenter } from './SchoolFeatures'
 
 type Student = {
@@ -169,7 +170,7 @@ function AttendanceApp({ onLogout }: { onLogout: () => void }) {
   const [attendanceSearch, setAttendanceSearch] = useState('')
   const [attendanceStudentSearch, setAttendanceStudentSearch] = useState('')
   const [scanInput, setScanInput] = useState('')
-  const [activeNav, setActiveNav] = useState<'dashboard' | 'students' | 'attendance' | 'reports' | 'messages'>('attendance')
+  const [activeNav, setActiveNav] = useState<'dashboard' | 'students' | 'attendance' | 'lessons' | 'reports' | 'messages'>('attendance')
   const [manualAttendanceSelection, setManualAttendanceSelection] = useState<Student[]>([])
   const [manualAttendanceSubmitting, setManualAttendanceSubmitting] = useState(false)
   const [isImporting, setIsImporting] = useState(false)
@@ -1356,7 +1357,7 @@ function AttendanceApp({ onLogout }: { onLogout: () => void }) {
     setTimeout(() => URL.revokeObjectURL(url), 600000)
   }
 
-  const pageLabel = activeNav === 'dashboard' ? 'إعدادات المدرسة' : activeNav === 'attendance' ? 'سجل الحضور' : activeNav === 'reports' ? 'التقارير' : activeNav === 'messages' ? 'الرسائل' : 'إدارة الطلاب'
+  const pageLabel = activeNav === 'dashboard' ? 'إعدادات المدرسة' : activeNav === 'attendance' ? 'سجل الحضور' : activeNav === 'lessons' ? 'سير الحصص' : activeNav === 'reports' ? 'التقارير' : activeNav === 'messages' ? 'الرسائل' : 'إدارة الطلاب'
   return (
     <div className="app-shell" dir="rtl">
       {isMobileMenuOpen && (
@@ -1425,6 +1426,17 @@ function AttendanceApp({ onLogout }: { onLogout: () => void }) {
           >
             <BarChart3 size={18} />
             <span>سجل الحضور</span>
+          </button>
+
+          <button
+            className={activeNav === 'lessons' ? 'nav-item active' : 'nav-item'}
+            onClick={() => {
+              setActiveNav('lessons')
+              setIsMobileMenuOpen(false)
+            }}
+          >
+            <Layers size={18} />
+            <span>سير الحصص</span>
           </button>
 
           <button
@@ -1918,6 +1930,8 @@ function AttendanceApp({ onLogout }: { onLogout: () => void }) {
         )}
 
         {activeNav === 'reports' && <ReportsCenter students={students} schoolName={schoolSettings.schoolName} />}
+
+        {activeNav === 'lessons' && <LessonFlowCenter schoolName={schoolSettings.schoolName} />}
 
         {activeNav === 'messages' && <MessageCenter students={students} attendance={scanLog} schoolName={schoolSettings.schoolName} />}
 

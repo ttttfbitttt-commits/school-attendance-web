@@ -39,6 +39,54 @@ export type DailyStudentRow = { id?: string; studentId: string; name: string; gr
 export type CountStudentRow = { studentId: string; name: string; grade: string; classroom: string; phone: string; days: number; excusedDays: number; unexcusedDays: number }
 export type StudentHistory = { student: { studentId: string; name: string; grade: string; classroom: string; phone: string }; type: 'absence' | 'late'; days: Array<{ date: string; status: 'unexcused' | 'excused'; time?: string }> }
 export type MessageLog = { id: string; studentId: string | null; studentName: string; recipient: string; senderName: string; type: 'late' | 'absence' | 'general' | 'test'; body: string; status: 'sent' | 'failed'; errorDetail: string; createdAt: string }
+export type LessonTimeSlot = { weekday: number; periodNumber: number; startTime: string; endTime: string }
+export type LessonClassroom = { id: string; name: string; qrToken: string }
+export type LessonTeacher = { id: string; name: string; identityNumber: string }
+export type LessonTeacherCandidate = { id: string; name: string; identityNumber: string; score: number }
+export type LessonUnresolvedName = { rawName: string; occurrences: number; candidates: LessonTeacherCandidate[] }
+export type LessonFlowOverview = {
+  summary: {
+    teachers: number
+    classrooms: number
+    assignments: number
+    unresolved: number
+    incidents: { drafts: number; confirmed: number; total: number }
+  }
+  activeImport: { id: string; sourceSchoolName: string; importedAt: string } | null
+  teachers: LessonTeacher[]
+  classrooms: LessonClassroom[]
+  times: LessonTimeSlot[]
+  unresolved: LessonUnresolvedName[]
+}
+export type LessonScheduleAssignment = {
+  weekday: number
+  periodNumber: number
+  subjectName: string
+  rawTeacherName: string
+  mappingStatus: 'exact' | 'manual' | 'unresolved'
+  teacherId: string | null
+  teacherName: string | null
+  identityNumber: string | null
+}
+export type LessonSchedule = { classroom: { id: string; name: string }; assignments: LessonScheduleAssignment[] }
+export type LessonIncident = {
+  id: string
+  classroomId: string
+  classroom: string
+  teacherId: string
+  teacherName: string
+  identityNumber: string
+  subject: string
+  incidentDate: string
+  weekday: number
+  periodNumber: number
+  startTime: string
+  endTime: string
+  status: 'draft' | 'confirmed' | 'cancelled'
+  cancelNote: string
+  detectedAt: string
+  confirmedAt: string | null
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`/api${path}`, {
@@ -86,4 +134,22 @@ export const api = {
   studentHistory: (type: 'absence' | 'late', studentId: string) => request<StudentHistory>(`/reports/student-history?type=${type}&studentId=${encodeURIComponent(studentId)}`),
   messages: (type?: MessageLog['type']) => request<{ messages: MessageLog[] }>(`/messages${type ? `?type=${encodeURIComponent(type)}` : ''}`),
   sendMessages: (payload: { studentIds: string[]; type: 'late' | 'absence' | 'general'; message?: string }) => request<{ ok: boolean; sent: number; failed: number }>('/messages/send', { method: 'POST', body: JSON.stringify(payload) }),
+  lessonOverview: () => request<LessonFlowOverview>('/lesson-flow/overview'),
+  importLessonTeachers: (teachers: Array<{ name: string; identityNumber: string; phone?: string }>) =>
+    request<{ ok: boolean; imported: number; exactResolved: number }>('/lesson-flow/teachers', { method: 'POST', body: JSON.stringify({ teachers }) }),
+  importLessonSchedule: (payload: {
+    sourceSchoolName?: string
+    classrooms: Array<{ name: string } | string>
+    assignments: Array<{ classroomName: string; weekday: number; periodNumber: number; subjectName?: string; rawTeacherName?: string }>
+    times: LessonTimeSlot[]
+  }) => request<{ ok: boolean; importedClassrooms: number; importedAssignments: number; resolved: number; seededTimes: number }>('/lesson-flow/schedule', { method: 'POST', body: JSON.stringify(payload) }),
+  saveLessonMappings: (mappings: Array<{ rawName: string; teacherId: string }>) =>
+    request<{ ok: boolean; updated: number }>('/lesson-flow/mappings', { method: 'POST', body: JSON.stringify({ mappings }) }),
+  saveLessonTimes: (times: LessonTimeSlot[]) =>
+    request<{ ok: boolean; saved: number }>('/lesson-flow/times', { method: 'PUT', body: JSON.stringify({ times }) }),
+  lessonSchedule: (classroomId: string) => request<LessonSchedule>(`/lesson-flow/schedule?classroomId=${encodeURIComponent(classroomId)}`),
+  scanLessonClass: (code: string) => request<{ incident: LessonIncident; existing: boolean }>('/lesson-flow/scan', { method: 'POST', body: JSON.stringify({ code }) }),
+  lessonIncidents: (date?: string) => request<{ incidents: LessonIncident[] }>(`/lesson-flow/incidents${date ? `?date=${encodeURIComponent(date)}` : ''}`),
+  confirmLessonIncident: (id: string) => request<{ ok: boolean }>(`/lesson-flow/incidents/${encodeURIComponent(id)}/confirm`, { method: 'POST', body: JSON.stringify({}) }),
+  cancelLessonIncident: (id: string, note = '') => request<{ ok: boolean }>(`/lesson-flow/incidents/${encodeURIComponent(id)}/cancel`, { method: 'POST', body: JSON.stringify({ note }) }),
 }
