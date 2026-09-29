@@ -613,7 +613,7 @@ export function LessonFlowCenter({ schoolName }: { schoolName: string }) {
   }
 
   const printIncident = (incident: LessonIncident) => {
-    openPrintDocument(`مساءلة ${incident.teacherName}`, incidentPrintHtml(incident), schoolName)
+    openPrintDocument('مساءلة تأخر / انصراف مبكر', incidentPrintHtml(incident), schoolName)
   }
 
   const renderSection = () => {
