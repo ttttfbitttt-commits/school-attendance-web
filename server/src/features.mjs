@@ -148,10 +148,10 @@ function absenceRange(input, todayRiyadh) {
   return { from, to }
 }
 
-function selectedStudentIds(input) {
+function selectedStudentIds(input, max = 500) {
   const source = Array.isArray(input.studentIds) ? input.studentIds : input.studentId === undefined ? [] : [input.studentId]
   const ids = [...new Set(source.map(value => String(value || '').trim()).filter(Boolean))]
-  return ids.length && ids.length <= 500 ? ids : null
+  return ids.length && ids.length <= max ? ids : null
 }
 
 function selectedAbsenceDates(input, range) {
@@ -435,7 +435,7 @@ export async function handleFeatureRequest(context) {
     if (!adminOnly()) { json(res, 403, { error: 'forbidden' }); return true }
     const input = await body(req)
     const date = validDate(input.date)
-    const studentIds = selectedStudentIds(input)
+    const studentIds = selectedStudentIds(input, 5000)
     const status = ['unexcused', 'excused'].includes(String(input.status)) ? String(input.status) : null
     if (!date || date > todayRiyadh() || !studentIds || !status) { json(res, 400, { error: 'invalid_late_status_update' }); return true }
     const updated = await scoped(user.school_id, async client => (await client.query(`UPDATE attendance_logs
@@ -506,7 +506,7 @@ export async function handleFeatureRequest(context) {
     if (!adminOnly()) { json(res, 403, { error: 'forbidden' }); return true }
     const input = await body(req)
     const range = absenceRange(input, todayRiyadh)
-    const studentIds = selectedStudentIds(input)
+    const studentIds = selectedStudentIds(input, 5000)
     const status = absenceStatus(input.status)
     const hasNote = Object.prototype.hasOwnProperty.call(input, 'note')
     const note = hasNote ? String(input.note || '').trim().slice(0, 1000) : null

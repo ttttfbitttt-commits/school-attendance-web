@@ -273,8 +273,8 @@ function printDaily(title: string, rows: DailyRow[], schoolName: string, date: s
   openPrintDocument(title, `<section class="page"><h1>${escapeHtml(title)}</h1><table><thead><tr><th>الطالب</th><th>الصف</th><th>الفصل</th><th>الجوال</th><th>الحالة</th></tr></thead><tbody>${rows.map(row => `<tr><td>${escapeHtml(row.name)}</td><td>${escapeHtml(row.grade)}</td><td>${escapeHtml(row.classroom)}</td><td dir="ltr">${escapeHtml(row.phone)}</td><td>${statusText(row.status)}</td></tr>`).join('')}</tbody></table><p class="meta">${date}</p></section>`, schoolName)
 }
 
-function DailyList({ id, title, date, onDate, rows, onStatus, onAll, onExcel, onPdf, late = false }: { id?: string; title: string; date: string; onDate: (value: string) => void; rows: DailyRow[]; onStatus: (ids: string[], status: 'unexcused' | 'excused') => void; onAll: (status: 'unexcused' | 'excused') => void; onExcel: () => void; onPdf: () => void; late?: boolean }) {
-  return <section id={id} className="panel daily-report-panel"><div className="panel-header"><div><span className="panel-kicker">سجل يومي</span><h2>{title}</h2><p>العدد: {rows.length} طالبًا</p></div><label className="report-date">التاريخ<input type="date" value={date} max={today()} onChange={event => onDate(event.target.value)} /></label></div><div className="feature-actions daily-actions"><button className="secondary-button" type="button" onClick={() => onAll('excused')} disabled={!rows.length}>اعتبار الجميع بعذر</button><button className="secondary-button" type="button" onClick={() => onAll('unexcused')} disabled={!rows.length}>اعتبار الجميع بدون عذر</button><button className="export-btn csv" type="button" onClick={onExcel} disabled={!rows.length}><Download size={16} /> Excel</button><button className="export-btn pdf" type="button" onClick={onPdf} disabled={!rows.length}><Printer size={16} /> PDF</button></div><div className="daily-list">{rows.map(row => <article key={row.studentId} className="daily-row"><div><strong>{row.name}</strong><small>{row.grade || '—'} · {row.classroom || '—'} · <span dir="ltr">{row.phone || '—'}</span>{late && row.time ? ` · ${row.time}` : ''}</small></div><select value={row.status} onChange={event => onStatus([row.studentId], event.target.value as 'unexcused' | 'excused')}><option value="unexcused">بدون عذر</option><option value="excused">بعذر</option></select></article>)}{!rows.length && <p className="report-empty-state">لا توجد سجلات لهذا التاريخ.</p>}</div></section>
+function DailyList({ id, title, date, onDate, rows, onStatus, onAll, onExcel, onPdf, busy = false, actionNotice = '', late = false }: { id?: string; title: string; date: string; onDate: (value: string) => void; rows: DailyRow[]; onStatus: (ids: string[], status: 'unexcused' | 'excused') => void; onAll: (status: 'unexcused' | 'excused') => void; onExcel: () => void; onPdf: () => void; busy?: boolean; actionNotice?: string; late?: boolean }) {
+  return <section id={id} className="panel daily-report-panel"><div className="panel-header"><div><span className="panel-kicker">سجل يومي</span><h2>{title}</h2><p>العدد: {rows.length} طالبًا</p></div><label className="report-date">التاريخ<input type="date" value={date} max={today()} onChange={event => onDate(event.target.value)} /></label></div><div className="feature-actions daily-actions" aria-busy={busy}><button className="secondary-button" type="button" onClick={() => onAll('excused')} disabled={!rows.length || busy}>اعتبار الجميع بعذر</button><button className="secondary-button" type="button" onClick={() => onAll('unexcused')} disabled={!rows.length || busy}>اعتبار الجميع بدون عذر</button><button className="export-btn csv" type="button" onClick={onExcel} disabled={!rows.length}><Download size={16} /> Excel</button><button className="export-btn pdf" type="button" onClick={onPdf} disabled={!rows.length}><Printer size={16} /> PDF</button></div>{actionNotice && <p className="report-action-notice" role="status" aria-live="polite">{actionNotice}</p>}<div className="daily-list">{rows.map(row => <article key={row.studentId} className="daily-row"><div><strong>{row.name}</strong><small>{row.grade || '—'} · {row.classroom || '—'} · <span dir="ltr">{row.phone || '—'}</span>{late && row.time ? ` · ${row.time}` : ''}</small></div><select value={row.status} disabled={busy} onChange={event => onStatus([row.studentId], event.target.value as 'unexcused' | 'excused')}><option value="unexcused">بدون عذر</option><option value="excused">بعذر</option></select></article>)}{!rows.length && <p className="report-empty-state">لا توجد سجلات لهذا التاريخ.</p>}</div></section>
 }
 
 function HistoryCounts({ type, students, schoolName }: { type: 'absence' | 'late'; students: FeatureStudent[]; schoolName: string }) {
@@ -312,6 +312,8 @@ export function ReportsCenter({ students, schoolName }: { students: FeatureStude
   const [absences, setAbsences] = useState<DailyRow[]>([])
   const [lates, setLates] = useState<DailyRow[]>([])
   const [notice, setNotice] = useState('')
+  const [dailyStatusNotice, setDailyStatusNotice] = useState('')
+  const [updatingDailyStatus, setUpdatingDailyStatus] = useState(false)
   const [calculatingAbsences, setCalculatingAbsences] = useState(false)
   const [focusDailyAbsenceLog, setFocusDailyAbsenceLog] = useState(false)
 
@@ -351,12 +353,34 @@ export function ReportsCenter({ students, schoolName }: { students: FeatureStude
   }
 
   const updateAbsence = async (ids: string[], status: 'unexcused' | 'excused') => {
-    await api.setAbsenceStatus({ studentIds: ids, from: absenceDate, to: absenceDate, status })
-    await loadAbsences()
+    if (updatingDailyStatus) return
+    setUpdatingDailyStatus(true)
+    setDailyStatusNotice('جارٍ تحديث حالات الغياب...')
+    try {
+      const result = await api.setAbsenceStatus({ studentIds: ids, from: absenceDate, to: absenceDate, status })
+      await loadAbsences()
+      setDailyStatusNotice(`تم تحديث حالة الغياب لـ ${result.affectedStudents} طالبًا.`)
+    } catch (error) {
+      const code = error instanceof Error ? error.message : ''
+      setDailyStatusNotice(code === 'forbidden' ? 'يلزم استخدام حساب مدير المدرسة لتعديل سجل الغياب.' : 'تعذر تحديث حالة الغياب. تحقق من السجل وحاول مرة أخرى.')
+    } finally {
+      setUpdatingDailyStatus(false)
+    }
   }
   const updateLate = async (ids: string[], status: 'unexcused' | 'excused') => {
-    await api.setDailyLateStatus({ date: lateDate, studentIds: ids, status })
-    await loadLates()
+    if (updatingDailyStatus) return
+    setUpdatingDailyStatus(true)
+    setDailyStatusNotice('جارٍ تحديث حالات التأخر...')
+    try {
+      const result = await api.setDailyLateStatus({ date: lateDate, studentIds: ids, status })
+      await loadLates()
+      setDailyStatusNotice(`تم تحديث حالة التأخر لـ ${result.updated} سجلًا.`)
+    } catch (error) {
+      const code = error instanceof Error ? error.message : ''
+      setDailyStatusNotice(code === 'forbidden' ? 'يلزم استخدام حساب مدير المدرسة لتعديل سجل التأخر.' : 'تعذر تحديث حالة التأخر. تحقق من السجل وحاول مرة أخرى.')
+    } finally {
+      setUpdatingDailyStatus(false)
+    }
   }
   const exportPendingExcel = () => downloadWorkbook(
     `ملخص_غياب_اليوم_${today()}`,
@@ -419,9 +443,9 @@ export function ReportsCenter({ students, schoolName }: { students: FeatureStude
         </div></div>
       </section>}
 
-      {activeReport === 'absences' && <DailyList id="daily-absence-log" title="غياب الطلاب" date={absenceDate} onDate={value => { setAbsenceDate(value); void loadAbsences(value) }} rows={absences} onStatus={(ids, status) => void updateAbsence(ids, status)} onAll={status => void updateAbsence(absences.map(row => row.studentId), status)} onExcel={() => exportDaily(`غياب_${absenceDate}`, absences, schoolName)} onPdf={() => printDaily('غياب الطلاب', absences, schoolName, absenceDate)} />}
+      {activeReport === 'absences' && <DailyList id="daily-absence-log" title="غياب الطلاب" date={absenceDate} onDate={value => { setAbsenceDate(value); void loadAbsences(value) }} rows={absences} onStatus={(ids, status) => void updateAbsence(ids, status)} onAll={status => void updateAbsence(absences.map(row => row.studentId), status)} onExcel={() => exportDaily(`غياب_${absenceDate}`, absences, schoolName)} onPdf={() => printDaily('غياب الطلاب', absences, schoolName, absenceDate)} busy={updatingDailyStatus} actionNotice={dailyStatusNotice} />}
       {activeReport === 'absence-history' && <HistoryCounts type="absence" students={students} schoolName={schoolName} />}
-      {activeReport === 'lates' && <DailyList title="تأخر الطلاب" date={lateDate} onDate={value => { setLateDate(value); void loadLates(value) }} rows={lates} onStatus={(ids, status) => void updateLate(ids, status)} onAll={status => void updateLate(lates.map(row => row.studentId), status)} onExcel={() => exportDaily(`تأخر_${lateDate}`, lates, schoolName)} onPdf={() => printDaily('تأخر الطلاب', lates, schoolName, lateDate)} late />}
+      {activeReport === 'lates' && <DailyList title="تأخر الطلاب" date={lateDate} onDate={value => { setLateDate(value); void loadLates(value) }} rows={lates} onStatus={(ids, status) => void updateLate(ids, status)} onAll={status => void updateLate(lates.map(row => row.studentId), status)} onExcel={() => exportDaily(`تأخر_${lateDate}`, lates, schoolName)} onPdf={() => printDaily('تأخر الطلاب', lates, schoolName, lateDate)} busy={updatingDailyStatus} actionNotice={dailyStatusNotice} late />}
       {activeReport === 'late-history' && <HistoryCounts type="late" students={students} schoolName={schoolName} />}
     </div>
 
