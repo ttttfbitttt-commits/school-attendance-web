@@ -73,6 +73,27 @@ input {
   box-shadow: var(--shadow);
 }
 
+/* Keep the desktop navigation available while the page content scrolls. */
+@media (min-width: 861px) {
+  .sidebar {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 20;
+    height: 100dvh;
+    max-height: 100dvh;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+  }
+
+  .main-content {
+    width: calc(100% - 260px);
+    margin-right: 260px;
+    flex: 0 0 auto;
+  }
+}
+
 .sidebar-top {
   display: flex;
   align-items: center;
