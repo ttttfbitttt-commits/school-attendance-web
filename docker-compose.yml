@@ -21,6 +21,10 @@ services:
     environment:
       NODE_ENV: production
       DATABASE_URL: postgres://attendance:${POSTGRES_PASSWORD}@db:5432/attendance
+      RUNTIME_DATABASE_URL: postgres://attendance_app:${APP_DB_PASSWORD:?Set APP_DB_PASSWORD in .env}@db:5432/attendance
+      AUTH_DATABASE_URL: postgres://attendance_auth:${AUTH_DB_PASSWORD:?Set AUTH_DB_PASSWORD in .env}@db:5432/attendance
+      APP_DB_PASSWORD: ${APP_DB_PASSWORD:?Set APP_DB_PASSWORD in .env}
+      AUTH_DB_PASSWORD: ${AUTH_DB_PASSWORD:?Set AUTH_DB_PASSWORD in .env}
       ALMADAR_ENCRYPTION_KEY: ${ALMADAR_ENCRYPTION_KEY}
     depends_on:
       db:

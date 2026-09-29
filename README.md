@@ -30,3 +30,14 @@ If you are developing a production application, we recommend enabling type-aware
 ```
 
 See the [Oxlint rules documentation](https://oxc.rs/docs/guide/usage/linter/rules) for the full list of rules and categories.
+
+## Database credentials
+
+Docker Compose requires two database-role passwords in the ignored `.env` file:
+
+```dotenv
+APP_DB_PASSWORD=<unique random value of at least 32 characters>
+AUTH_DB_PASSWORD=<different unique random value of at least 32 characters>
+```
+
+Generate each value separately with `openssl rand -hex 32`. The API uses a restricted authentication role and a separate restricted school-data role; it uses the `attendance` database administrator only for startup migrations, then closes that connection before accepting requests. Do not use the same value for these roles or reuse `POSTGRES_PASSWORD`.

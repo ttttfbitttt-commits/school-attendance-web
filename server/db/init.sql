@@ -154,6 +154,8 @@ CREATE INDEX absence_records_school_student ON absence_records(school_id, studen
 CREATE INDEX absence_corrections_school_student ON absence_corrections(school_id, student_id, absence_date DESC);
 
 -- Even if a future query is written incorrectly, PostgreSQL requires a school context.
+ALTER TABLE schools ENABLE ROW LEVEL SECURITY;
+ALTER TABLE schools FORCE ROW LEVEL SECURITY;
 ALTER TABLE students ENABLE ROW LEVEL SECURITY;
 ALTER TABLE attendance_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE students FORCE ROW LEVEL SECURITY;
@@ -169,6 +171,7 @@ ALTER TABLE absence_records FORCE ROW LEVEL SECURITY;
 ALTER TABLE absence_corrections ENABLE ROW LEVEL SECURITY;
 ALTER TABLE absence_corrections FORCE ROW LEVEL SECURITY;
 CREATE POLICY students_school_scope ON students USING (school_id = current_setting('app.school_id', true)::uuid) WITH CHECK (school_id = current_setting('app.school_id', true)::uuid);
+CREATE POLICY schools_school_scope ON schools USING (id = current_setting('app.school_id', true)::uuid) WITH CHECK (id = current_setting('app.school_id', true)::uuid);
 CREATE POLICY attendance_school_scope ON attendance_logs USING (school_id = current_setting('app.school_id', true)::uuid) WITH CHECK (school_id = current_setting('app.school_id', true)::uuid);
 CREATE POLICY almadar_accounts_school_scope ON almadar_accounts USING (school_id = current_setting('app.school_id', true)::uuid) WITH CHECK (school_id = current_setting('app.school_id', true)::uuid);
 CREATE POLICY student_excuses_school_scope ON student_excuses USING (school_id = current_setting('app.school_id', true)::uuid) WITH CHECK (school_id = current_setting('app.school_id', true)::uuid);

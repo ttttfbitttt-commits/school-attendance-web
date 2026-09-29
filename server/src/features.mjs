@@ -360,15 +360,16 @@ export async function handleFeatureRequest(context) {
           AND absence.student_id=attendance.student_id
           AND absence.absence_date=attendance.attendance_date
           AND absence.absence_date=$1
-          AND attendance.status IN ('present','late')`, [date])
-      const totalActive = await client.query('SELECT COUNT(*)::int AS count FROM students WHERE active=true')
+          AND absence.school_id=$2
+          AND attendance.status IN ('present','late')`, [date, user.school_id])
+      const totalActive = await client.query('SELECT COUNT(*)::int AS count FROM students WHERE school_id=$1 AND active=true', [user.school_id])
       const attended = await client.query(`SELECT COUNT(DISTINCT attendance.student_id)::int AS count
         FROM attendance_logs attendance JOIN students student ON student.school_id=attendance.school_id AND student.id=attendance.student_id
-        WHERE student.active=true AND attendance.attendance_date=$1 AND attendance.status IN ('present','late')`, [date])
+        WHERE student.school_id=$1 AND student.active=true AND attendance.school_id=$1 AND attendance.attendance_date=$2 AND attendance.status IN ('present','late')`, [user.school_id, date])
       const created = await client.query(`INSERT INTO absence_records(school_id,student_id,absence_date,status,calculated_by,updated_by)
         SELECT $1,student.id,$2,'unexcused',$3,$3
         FROM students student
-        WHERE student.active=true
+        WHERE student.school_id=$1 AND student.active=true
           AND NOT EXISTS (
             SELECT 1 FROM attendance_logs attendance
             WHERE attendance.school_id=student.school_id
@@ -378,7 +379,7 @@ export async function handleFeatureRequest(context) {
           )
         ON CONFLICT(school_id,student_id,absence_date) DO NOTHING
         RETURNING student_id`, [user.school_id, date, user.user_id])
-      const confirmed = await client.query('SELECT COUNT(*)::int AS count FROM absence_records WHERE absence_date=$1', [date])
+      const confirmed = await client.query('SELECT COUNT(*)::int AS count FROM absence_records WHERE school_id=$1 AND absence_date=$2', [user.school_id, date])
       return {
         totalActive: totalActive.rows[0].count,
         attended: attended.rows[0].count,
@@ -568,7 +569,7 @@ export async function handleFeatureRequest(context) {
     if (!studentIds.length || !['present', 'late'].includes(input.status)) { json(res, 400, { error: 'invalid_attendance' }); return true }
     const attendanceDate = todayRiyadh()
     const result = await scoped(user.school_id, async client => {
-      const active = (await client.query('SELECT id FROM students WHERE active=true AND id=ANY($1::text[])', [studentIds])).rows.map(row => row.id)
+      const active = (await client.query('SELECT id FROM students WHERE school_id=$1 AND active=true AND id=ANY($2::text[])', [user.school_id, studentIds])).rows.map(row => row.id)
       const removedAbsences = active.length
         ? await client.query(`DELETE FROM absence_records WHERE school_id=$1 AND absence_date=$2 AND student_id=ANY($3::text[])`, [user.school_id, attendanceDate, active])
         : { rowCount: 0 }
@@ -666,7 +667,7 @@ export async function handleFeatureRequest(context) {
 
   if (req.method === 'GET' && url.pathname === '/api/excuses') {
     const result = await scoped(user.school_id, async client => client.query(`SELECT e.id,e.student_id AS "studentId",s.name,s.grade,s.classroom,e.category,e.note,to_char(e.start_date,'YYYY-MM-DD') AS "startDate",to_char(e.end_date,'YYYY-MM-DD') AS "endDate",e.created_at AS "createdAt"
-      FROM student_excuses e JOIN students s ON s.school_id=e.school_id AND s.id=e.student_id ORDER BY e.start_date DESC,s.name`))
+      FROM student_excuses e JOIN students s ON s.school_id=e.school_id AND s.id=e.student_id WHERE e.school_id=$1 ORDER BY e.start_date DESC,s.name`, [user.school_id]))
     json(res, 200, { excuses: result.rows })
     return true
   }
@@ -681,11 +682,11 @@ export async function handleFeatureRequest(context) {
     const endDate = input.endDate ? validDate(input.endDate) : null
     if (!studentId || !category || !startDate || (input.endDate && !endDate) || (endDate && endDate < startDate)) { json(res, 400, { error: 'invalid_excuse' }); return true }
     const result = await scoped(user.school_id, async client => {
-      const student = await client.query('SELECT 1 FROM students WHERE id=$1 AND active=true', [studentId])
+      const student = await client.query('SELECT 1 FROM students WHERE school_id=$1 AND id=$2 AND active=true', [user.school_id, studentId])
       if (!student.rowCount) return { missing: true }
       const overlap = await client.query(`SELECT id FROM student_excuses
-        WHERE student_id=$1 AND start_date <= COALESCE($3::date,'infinity'::date)
-          AND COALESCE(end_date,'infinity'::date) >= $2::date LIMIT 1`, [studentId, startDate, endDate])
+        WHERE school_id=$1 AND student_id=$2 AND start_date <= COALESCE($4::date,'infinity'::date)
+          AND COALESCE(end_date,'infinity'::date) >= $3::date LIMIT 1`, [user.school_id, studentId, startDate, endDate])
       if (overlap.rowCount) return { duplicate: true }
       const inserted = await client.query(`INSERT INTO student_excuses(school_id,student_id,category,note,start_date,end_date,created_by)
         VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id`, [user.school_id, studentId, category, note, startDate, endDate, user.user_id])
@@ -701,7 +702,7 @@ export async function handleFeatureRequest(context) {
     if (!adminOnly()) { json(res, 403, { error: 'forbidden' }); return true }
     const id = String(url.searchParams.get('id') || '')
     if (!/^[0-9a-f-]{36}$/i.test(id)) { json(res, 400, { error: 'invalid_excuse' }); return true }
-    await scoped(user.school_id, async client => client.query('DELETE FROM student_excuses WHERE id=$1', [id]))
+    await scoped(user.school_id, async client => client.query('DELETE FROM student_excuses WHERE school_id=$1 AND id=$2', [user.school_id, id]))
     json(res, 200, { ok: true })
     return true
   }
@@ -716,7 +717,7 @@ export async function handleFeatureRequest(context) {
 
   if (req.method === 'GET' && url.pathname === '/api/messages') {
     const result = await scoped(user.school_id, async client => client.query(`SELECT id,student_id AS "studentId",student_name AS "studentName",recipient,sender_name AS "senderName",message_type AS type,message_body AS body,status,error_detail AS "errorDetail",created_at AS "createdAt"
-      FROM message_logs ORDER BY created_at DESC LIMIT 200`))
+      FROM message_logs WHERE school_id=$1 ORDER BY created_at DESC LIMIT 200`, [user.school_id]))
     json(res, 200, { messages: result.rows })
     return true
   }
@@ -730,10 +731,10 @@ export async function handleFeatureRequest(context) {
     if (!type || !studentIds.length || (type === 'general' && !message)) { json(res, 400, { error: 'invalid_message' }); return true }
     const account = await accountForSchool(user.school_id, scoped)
     if (!account) { json(res, 400, { error: 'almadar_not_configured' }); return true }
-    const school = await pool.query('SELECT name FROM schools WHERE id=$1', [user.school_id])
+    const school = await scoped(user.school_id, async client => client.query('SELECT name FROM schools WHERE id=$1', [user.school_id]))
     const result = await scoped(user.school_id, async client => {
-      const students = (await client.query('SELECT id,name,phone,grade,classroom FROM students WHERE active=true AND id=ANY($1::text[]) ORDER BY name', [studentIds])).rows
-      const late = type === 'late' ? (await client.query(`SELECT student_id,to_char(recorded_at AT TIME ZONE $2,'HH24:MI:SS') AS time FROM attendance_logs WHERE attendance_date=$1 AND status='late' AND student_id=ANY($3::text[])`, [todayRiyadh(), RIYADH_TIME_ZONE, studentIds])).rows : []
+      const students = (await client.query('SELECT id,name,phone,grade,classroom FROM students WHERE school_id=$1 AND active=true AND id=ANY($2::text[]) ORDER BY name', [user.school_id, studentIds])).rows
+      const late = type === 'late' ? (await client.query(`SELECT student_id,to_char(recorded_at AT TIME ZONE $3,'HH24:MI:SS') AS time FROM attendance_logs WHERE school_id=$1 AND attendance_date=$2 AND status='late' AND student_id=ANY($4::text[])`, [user.school_id, todayRiyadh(), RIYADH_TIME_ZONE, studentIds])).rows : []
       const lateTimes = new Map(late.map(row => [row.student_id, row.time]))
       const apiKey = decrypt(account.api_key_encrypted)
       const rows = []

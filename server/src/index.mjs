@@ -5,7 +5,12 @@ import pg from 'pg'
 import { handleFeatureRequest, migrateFeatures } from './features.mjs'
 
 const { Pool } = pg
-const pool = new Pool({ connectionString: process.env.DATABASE_URL })
+if (!process.env.DATABASE_URL || !process.env.RUNTIME_DATABASE_URL || !process.env.AUTH_DATABASE_URL) {
+  throw new Error('database_roles_not_configured')
+}
+const adminPool = new Pool({ connectionString: process.env.DATABASE_URL })
+const pool = new Pool({ connectionString: process.env.RUNTIME_DATABASE_URL })
+const authPool = new Pool({ connectionString: process.env.AUTH_DATABASE_URL })
 const PORT = Number(process.env.PORT || 3000)
 const COOKIE = 'attendance_session'
 const secureCookie = process.env.NODE_ENV === 'production'
@@ -37,14 +42,14 @@ async function body(req) {
 async function auth(req) {
   const token = parseCookies(req)[COOKIE]
   if (!token) return null
-  const { rows } = await pool.query(`SELECT s.user_id, s.school_id, u.email, u.display_name, m.role
+  const { rows } = await authPool.query(`SELECT s.user_id, s.school_id, u.email, u.display_name, m.role
     FROM sessions s JOIN users u ON u.id=s.user_id JOIN memberships m ON m.user_id=s.user_id AND m.school_id=s.school_id
     WHERE s.token_hash=$1 AND s.expires_at > now()`, [tokenHash(token)])
   return rows[0] || null
 }
 async function createSession(res, userId, schoolId) {
   const token = crypto.randomBytes(32).toString('base64url')
-  await pool.query('INSERT INTO sessions(token_hash,user_id,school_id,expires_at) VALUES($1,$2,$3,now()+interval \'12 hours\')', [tokenHash(token), userId, schoolId])
+  await authPool.query('INSERT INTO sessions(token_hash,user_id,school_id,expires_at) VALUES($1,$2,$3,now()+interval \'12 hours\')', [tokenHash(token), userId, schoolId])
   res.setHeader('set-cookie', sessionCookie(token))
 }
 function account(row) { return { email: row.email, displayName: row.display_name, role: row.role, schoolId: row.school_id } }
@@ -78,16 +83,65 @@ function normalizedSchoolProfile(input) {
   if (![schoolName, principalName, academicYear, semester].every(value => value.length > 0 && value.length <= 160)) return null
   return { schoolName, principalName, academicYear, semester, preferences: { attendanceMode, cutoffTime, gradeAliases } }
 }
-async function scoped(schoolId, work) {
-  const client = await pool.connect()
+async function scopedOn(databasePool, schoolId, work) {
+  const client = await databasePool.connect()
   try { await client.query('BEGIN'); await client.query(`SELECT set_config('app.school_id', $1, true)`, [schoolId]); const result = await work(client); await client.query('COMMIT'); return result }
   catch (error) { await client.query('ROLLBACK'); throw error } finally { client.release() }
 }
+async function scoped(schoolId, work) { return scopedOn(pool, schoolId, work) }
 function todayRiyadh() { return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Riyadh' }).format(new Date()) }
+
+function sqlStringLiteral(value) { return `'${String(value).replaceAll("'", "''")}'` }
+
+async function configureDatabaseRoles() {
+  const runtimePassword = String(process.env.APP_DB_PASSWORD || '')
+  const authPassword = String(process.env.AUTH_DB_PASSWORD || '')
+  const adminPassword = decodeURIComponent(new URL(process.env.DATABASE_URL).password)
+  if (runtimePassword.length < 32 || authPassword.length < 32 || runtimePassword === authPassword || runtimePassword === adminPassword || authPassword === adminPassword) {
+    throw new Error('database_role_passwords_must_be_distinct_and_at_least_32_characters')
+  }
+
+  for (const [role, password] of [['attendance_app', runtimePassword], ['attendance_auth', authPassword]]) {
+    const exists = await adminPool.query('SELECT 1 FROM pg_roles WHERE rolname=$1', [role])
+    const roleSql = exists.rowCount
+      ? `ALTER ROLE ${role} WITH LOGIN PASSWORD ${sqlStringLiteral(password)} NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS`
+      : `CREATE ROLE ${role} WITH LOGIN PASSWORD ${sqlStringLiteral(password)} NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS`
+    await adminPool.query(roleSql)
+  }
+
+  await adminPool.query('GRANT USAGE ON SCHEMA public TO attendance_app, attendance_auth')
+  await adminPool.query('GRANT SELECT, INSERT, UPDATE, DELETE ON schools, students, attendance_logs, almadar_accounts, student_excuses, message_logs, absence_records, absence_corrections TO attendance_app')
+  await adminPool.query('GRANT SELECT, INSERT ON schools, users, memberships TO attendance_auth')
+  await adminPool.query('GRANT SELECT, INSERT, DELETE ON sessions TO attendance_auth')
+}
+
+async function enforceTenantRowSecurity() {
+  const tables = [
+    ['schools', 'id', 'schools_school_scope'],
+    ['students', 'school_id', 'students_school_scope'],
+    ['attendance_logs', 'school_id', 'attendance_school_scope'],
+    ['almadar_accounts', 'school_id', 'almadar_accounts_school_scope'],
+    ['student_excuses', 'school_id', 'student_excuses_school_scope'],
+    ['message_logs', 'school_id', 'message_logs_school_scope'],
+    ['absence_records', 'school_id', 'absence_records_school_scope'],
+    ['absence_corrections', 'school_id', 'absence_corrections_school_scope'],
+  ]
+  for (const [table, schoolColumn, policy] of tables) {
+    await adminPool.query(`ALTER TABLE ${table} ENABLE ROW LEVEL SECURITY`)
+    await adminPool.query(`ALTER TABLE ${table} FORCE ROW LEVEL SECURITY`)
+    const existing = await adminPool.query('SELECT 1 FROM pg_policies WHERE schemaname=$1 AND tablename=$2 AND policyname=$3', ['public', table, policy])
+    if (!existing.rowCount) {
+      await adminPool.query(`CREATE POLICY ${policy} ON ${table} USING (${schoolColumn}=current_setting('app.school_id',true)::uuid) WITH CHECK (${schoolColumn}=current_setting('app.school_id',true)::uuid)`)
+    }
+  }
+}
+
 async function migrateDatabase() {
-  await pool.query("ALTER TABLE schools ADD COLUMN IF NOT EXISTS preferences jsonb NOT NULL DEFAULT '{}'::jsonb")
-  await pool.query('ALTER TABLE students ADD COLUMN IF NOT EXISTS active boolean NOT NULL DEFAULT true')
-  await migrateFeatures(pool)
+  await adminPool.query("ALTER TABLE schools ADD COLUMN IF NOT EXISTS preferences jsonb NOT NULL DEFAULT '{}'::jsonb")
+  await adminPool.query('ALTER TABLE students ADD COLUMN IF NOT EXISTS active boolean NOT NULL DEFAULT true')
+  await migrateFeatures(adminPool)
+  await enforceTenantRowSecurity()
+  await configureDatabaseRoles()
 }
 
 const server = http.createServer(async (req, res) => {
@@ -97,30 +151,31 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/api/auth/register') {
       const { email, password, displayName, schoolName } = await body(req)
       if (!/^\S+@\S+\.\S+$/.test(email || '') || String(password || '').length < 12 || !String(schoolName || '').trim()) return json(res, 400, { error: 'invalid_registration' })
-      const client = await pool.connect()
       try {
-        await client.query('BEGIN')
-        const school = await client.query('INSERT INTO schools(name,principal_name,academic_year,semester) VALUES($1,$2,$3,$4) RETURNING id,name', [schoolName.trim(), String(displayName || '').trim() || schoolName.trim(), '1448 / 1449', 'الفصل الأول'])
-        const user = await client.query('INSERT INTO users(email,password_hash,display_name) VALUES(lower($1),$2,$3) RETURNING id,email,display_name', [email, passwordHash(password), String(displayName || '').trim() || schoolName.trim()])
-        await client.query('INSERT INTO memberships(school_id,user_id,role) VALUES($1,$2,\'admin\')', [school.rows[0].id, user.rows[0].id])
-        await client.query('COMMIT')
-        await createSession(res, user.rows[0].id, school.rows[0].id)
-        return json(res, 201, { user: { ...user.rows[0], role: 'admin', schoolId: school.rows[0].id }, school: school.rows[0] })
-      } catch (e) { await client.query('ROLLBACK'); return json(res, e.code === '23505' ? 409 : 500, { error: 'registration_failed' }) } finally { client.release() }
+        const schoolId = crypto.randomUUID()
+        const registration = await scopedOn(authPool, schoolId, async client => {
+          const school = await client.query('INSERT INTO schools(id,name,principal_name,academic_year,semester) VALUES($1,$2,$3,$4,$5) RETURNING id,name', [schoolId, schoolName.trim(), String(displayName || '').trim() || schoolName.trim(), '1448 / 1449', 'الفصل الأول'])
+          const user = await client.query('INSERT INTO users(email,password_hash,display_name) VALUES(lower($1),$2,$3) RETURNING id,email,display_name', [email, passwordHash(password), String(displayName || '').trim() || schoolName.trim()])
+          await client.query('INSERT INTO memberships(school_id,user_id,role) VALUES($1,$2,\'admin\')', [school.rows[0].id, user.rows[0].id])
+          return { school: school.rows[0], user: user.rows[0] }
+        })
+        await createSession(res, registration.user.id, registration.school.id)
+        return json(res, 201, { user: { ...registration.user, role: 'admin', schoolId: registration.school.id }, school: registration.school })
+      } catch (e) { return json(res, e.code === '23505' ? 409 : 500, { error: 'registration_failed' }) }
     }
     if (req.method === 'POST' && url.pathname === '/api/auth/login') {
       const { email, password } = await body(req)
-      const user = await pool.query(`SELECT u.id,u.email,u.display_name,m.school_id,m.role,u.password_hash FROM users u JOIN memberships m ON m.user_id=u.id WHERE u.email=lower($1) ORDER BY m.role='admin' DESC LIMIT 1`, [email || ''])
+      const user = await authPool.query(`SELECT u.id,u.email,u.display_name,m.school_id,m.role,u.password_hash FROM users u JOIN memberships m ON m.user_id=u.id WHERE u.email=lower($1) ORDER BY m.role='admin' DESC LIMIT 1`, [email || ''])
       if (!user.rows[0] || !passwordMatches(String(password || ''), user.rows[0].password_hash)) return json(res, 401, { error: 'invalid_login' })
       await createSession(res, user.rows[0].id, user.rows[0].school_id)
       return json(res, 200, { user: account(user.rows[0]) })
     }
-    if (req.method === 'POST' && url.pathname === '/api/auth/logout') { const t=parseCookies(req)[COOKIE]; if(t) await pool.query('DELETE FROM sessions WHERE token_hash=$1',[tokenHash(t)]); res.setHeader('set-cookie',sessionCookie('',0)); return json(res,200,{ok:true}) }
+    if (req.method === 'POST' && url.pathname === '/api/auth/logout') { const t=parseCookies(req)[COOKIE]; if(t) await authPool.query('DELETE FROM sessions WHERE token_hash=$1',[tokenHash(t)]); res.setHeader('set-cookie',sessionCookie('',0)); return json(res,200,{ok:true}) }
     const user = await auth(req)
     if (!user) return json(res, 401, { error: 'unauthorized' })
     if (req.method === 'GET' && url.pathname === '/api/me') return json(res, 200, { user: account(user) })
     if (req.method === 'GET' && url.pathname === '/api/school') {
-      const result = await pool.query('SELECT name,principal_name,academic_year,semester,preferences FROM schools WHERE id=$1', [user.school_id])
+      const result = await scoped(user.school_id, async c => c.query('SELECT name,principal_name,academic_year,semester,preferences FROM schools WHERE id=$1', [user.school_id]))
       if (!result.rows[0]) return json(res, 404, { error: 'school_not_found' })
       return json(res, 200, { school: schoolProfile(result.rows[0]) })
     }
@@ -128,27 +183,27 @@ const server = http.createServer(async (req, res) => {
       if (user.role !== 'admin') return json(res, 403, { error: 'forbidden' })
       const profile = normalizedSchoolProfile(await body(req))
       if (!profile) return json(res, 400, { error: 'invalid_school_profile' })
-      const result = await pool.query('UPDATE schools SET name=$1,principal_name=$2,academic_year=$3,semester=$4,preferences=$5::jsonb WHERE id=$6 RETURNING name,principal_name,academic_year,semester,preferences', [profile.schoolName, profile.principalName, profile.academicYear, profile.semester, JSON.stringify(profile.preferences), user.school_id])
+      const result = await scoped(user.school_id, async c => c.query('UPDATE schools SET name=$1,principal_name=$2,academic_year=$3,semester=$4,preferences=$5::jsonb WHERE id=$6 RETURNING name,principal_name,academic_year,semester,preferences', [profile.schoolName, profile.principalName, profile.academicYear, profile.semester, JSON.stringify(profile.preferences), user.school_id]))
       return json(res, 200, { school: schoolProfile(result.rows[0]) })
     }
-    if (req.method === 'GET' && url.pathname === '/api/students') return json(res, 200, await scoped(user.school_id, async c => ({ students: (await c.query('SELECT id,name,phone,grade,classroom,sheet,row_number AS row FROM students WHERE active=true ORDER BY name')).rows })))
+    if (req.method === 'GET' && url.pathname === '/api/students') return json(res, 200, await scoped(user.school_id, async c => ({ students: (await c.query('SELECT id,name,phone,grade,classroom,sheet,row_number AS row FROM students WHERE school_id=$1 AND active=true ORDER BY name', [user.school_id])).rows })))
     if (req.method === 'PUT' && url.pathname === '/api/students') {
       if (user.role !== 'admin') return json(res,403,{error:'forbidden'})
       const { students=[] } = await body(req)
       if (!Array.isArray(students) || students.length > 20000 || students.some(s => !String(s?.id || '').trim() || !String(s?.name || '').trim())) return json(res,400,{error:'invalid_students'})
       await scoped(user.school_id, async c => {
-        await c.query('UPDATE students SET active=false,updated_at=now()')
+        await c.query('UPDATE students SET active=false,updated_at=now() WHERE school_id=$1', [user.school_id])
         for (const s of students) await c.query(`INSERT INTO students(school_id,id,name,phone,grade,classroom,sheet,row_number,active) VALUES($1,$2,$3,$4,$5,$6,$7,$8,true)
           ON CONFLICT(school_id,id) DO UPDATE SET name=EXCLUDED.name,phone=EXCLUDED.phone,grade=EXCLUDED.grade,classroom=EXCLUDED.classroom,sheet=EXCLUDED.sheet,row_number=EXCLUDED.row_number,active=true,updated_at=now()`,[user.school_id,String(s.id).trim(),String(s.name).trim(),String(s.phone||''),String(s.grade||''),String(s.classroom||''),String(s.sheet||''),Number(s.row)||0])
       })
       return json(res,200,{ok:true})
     }
-    if (req.method === 'GET' && url.pathname === '/api/attendance') return json(res,200, await scoped(user.school_id, async c => ({ records:(await c.query(`SELECT a.student_id AS "studentId", to_char(a.attendance_date,'YYYY-MM-DD') AS date, to_char(a.recorded_at AT TIME ZONE 'Asia/Riyadh','HH24:MI:SS') AS time, s.name,s.grade,s.classroom,s.phone,a.status FROM attendance_logs a JOIN students s ON s.school_id=a.school_id AND s.id=a.student_id WHERE a.attendance_date=$1 ORDER BY a.recorded_at DESC`,[url.searchParams.get('date') || todayRiyadh()])).rows })))
+    if (req.method === 'GET' && url.pathname === '/api/attendance') return json(res,200, await scoped(user.school_id, async c => ({ records:(await c.query(`SELECT a.student_id AS "studentId", to_char(a.attendance_date,'YYYY-MM-DD') AS date, to_char(a.recorded_at AT TIME ZONE 'Asia/Riyadh','HH24:MI:SS') AS time, s.name,s.grade,s.classroom,s.phone,a.status FROM attendance_logs a JOIN students s ON s.school_id=a.school_id AND s.id=a.student_id WHERE a.school_id=$1 AND a.attendance_date=$2 ORDER BY a.recorded_at DESC`,[user.school_id,url.searchParams.get('date') || todayRiyadh()])).rows })))
     if (req.method === 'POST' && url.pathname === '/api/attendance') {
       const { studentId, status } = await body(req); if (!studentId || !['present','late'].includes(status)) return json(res,400,{error:'invalid_attendance'})
       const attendanceDate = todayRiyadh()
       const result = await scoped(user.school_id, async c => {
-        const student = await c.query('SELECT 1 FROM students WHERE id=$1 AND active=true', [studentId])
+        const student = await c.query('SELECT 1 FROM students WHERE school_id=$1 AND id=$2 AND active=true', [user.school_id, studentId])
         if (!student.rowCount) return null
         // Attendance always wins: a student marked present or late cannot remain absent for the same day.
         await c.query('DELETE FROM absence_records WHERE school_id=$1 AND student_id=$2 AND absence_date=$3', [user.school_id, studentId, attendanceDate])
@@ -161,7 +216,7 @@ const server = http.createServer(async (req, res) => {
       if (user.role !== 'admin') return json(res,403,{error:'forbidden'})
       const date = url.searchParams.get('date') || todayRiyadh()
       if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return json(res,400,{error:'invalid_date'})
-      await scoped(user.school_id, async c => c.query('DELETE FROM attendance_logs WHERE attendance_date=$1', [date]))
+      await scoped(user.school_id, async c => c.query('DELETE FROM attendance_logs WHERE school_id=$1 AND attendance_date=$2', [user.school_id, date]))
       return json(res,200,{ok:true})
     }
     if (await handleFeatureRequest({ req, res, url, user, pool, body, json, scoped, todayRiyadh })) return
@@ -172,4 +227,15 @@ const server = http.createServer(async (req, res) => {
     return json(res, 500, { error: 'server_error' })
   }
 })
-migrateDatabase().then(() => server.listen(PORT, '0.0.0.0', () => console.log(`API listening on ${PORT}`))).catch((error) => { console.error('Database migration failed', error); process.exit(1) })
+async function start() {
+  await migrateDatabase()
+  await adminPool.end()
+  delete process.env.DATABASE_URL
+  delete process.env.RUNTIME_DATABASE_URL
+  delete process.env.AUTH_DATABASE_URL
+  delete process.env.APP_DB_PASSWORD
+  delete process.env.AUTH_DB_PASSWORD
+  server.listen(PORT, '0.0.0.0', () => console.log(`API listening on ${PORT}`))
+}
+
+start().catch((error) => { console.error('Database migration failed', error); process.exit(1) })
