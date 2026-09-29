@@ -248,6 +248,11 @@ function incidentStatus(status: LessonIncident['status']) {
   return 'مسودة'
 }
 
+function periodLabel(periodNumber: number) {
+  const ordinals = ['', 'الأولى', 'الثانية', 'الثالثة', 'الرابعة', 'الخامسة', 'السادسة', 'السابعة', 'الثامنة', 'التاسعة', 'العاشرة', 'الحادية عشرة', 'الثانية عشرة']
+  return ordinals[periodNumber] ? `الحصة ${ordinals[periodNumber]}` : `الحصة ${periodNumber}`
+}
+
 function scheduleCell(assignments: LessonScheduleAssignment[], weekday: number, periodNumber: number) {
   return assignments.find(item => item.weekday === weekday && item.periodNumber === periodNumber)
 }
@@ -273,13 +278,14 @@ function scheduleTableHtml(schedule: LessonSchedule) {
 }
 
 function incidentPrintHtml(incident: LessonIncident) {
-  return `<section class="page"><h1>تنبيه عن تأخر / انصراف</h1>
+  const lesson = periodLabel(incident.periodNumber)
+  return `<section class="page"><h1>مساءلة تأخر / انصراف مبكر</h1>
     <table><tbody>
-      <tr><th>المدرسة</th><td></td><th>السجل المدني</th><td dir="ltr">${escapeHtml(incident.identityNumber)}</td></tr>
-      <tr><th>الاسم</th><td>${escapeHtml(incident.teacherName)}</td><th>الفصل</th><td>${escapeHtml(incident.classroom)}</td></tr>
+      <tr><th>اسم المعلم</th><td>${escapeHtml(incident.teacherName)}</td><th>السجل المدني</th><td dir="ltr">${escapeHtml(incident.identityNumber)}</td></tr>
+      <tr><th>الحصة</th><td>${escapeHtml(lesson)}</td><th>الفصل</th><td>${escapeHtml(incident.classroom)}</td></tr>
       <tr><th>اليوم</th><td>${escapeHtml(weekdayLabel(incident.weekday))}</td><th>التاريخ</th><td>${escapeHtml(incident.incidentDate)}</td></tr>
     </tbody></table>
-    <p style="margin-top:24px;line-height:2">نفيدكم بعدم تواجدكم أثناء الدوام من الساعة <strong dir="ltr">${escapeHtml(incident.startTime)}</strong> إلى الساعة <strong dir="ltr">${escapeHtml(incident.endTime)}</strong> في الحصة رقم <strong>${incident.periodNumber}</strong>${incident.subject ? ` لمقرر ${escapeHtml(incident.subject)}` : ''}.</p>
+    <p style="margin-top:24px;line-height:2">نفيدكم بعدم تواجدكم أثناء الدوام من الساعة <strong dir="ltr">${escapeHtml(incident.startTime)}</strong> إلى الساعة <strong dir="ltr">${escapeHtml(incident.endTime)}</strong> في <strong>${escapeHtml(lesson)}</strong>${incident.subject ? ` لمقرر ${escapeHtml(incident.subject)}` : ''}.</p>
     <p style="margin-top:20px">عليه نأمل منكم توضيح أسباب ذلك في أقرب وقت.</p>
     <div style="margin-top:34px;display:grid;grid-template-columns:1fr 1fr;gap:28px"><p>قائد المدرسة: ........................</p><p>التوقيع: ........................</p></div>
     <hr style="margin:36px 0 24px" />
