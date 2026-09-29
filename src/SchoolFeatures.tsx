@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import * as XLSX from 'xlsx'
-import { CheckCircle2, Download, FileText, Mail, Printer, RefreshCw, Save, Send, ShieldCheck } from 'lucide-react'
+import { CheckCircle2, Download, FileText, Mail, Printer, RefreshCw, Save, Send, ShieldCheck, XCircle } from 'lucide-react'
 import { api, type MessageLog } from './api'
 
 export type FeatureStudent = { id: string; name: string; phone: string; grade: string; classroom: string }
@@ -307,6 +307,7 @@ type ReportSection = 'pending' | 'phones' | 'absences' | 'absence-history' | 'la
 export function ReportsCenter({ students, schoolName }: { students: FeatureStudent[]; schoolName: string }) {
   const [activeReport, setActiveReport] = useState<ReportSection>('pending')
   const [todayMissingCount, setTodayMissingCount] = useState<number | null>(null)
+  const [todayConfirmedCount, setTodayConfirmedCount] = useState<number | null>(null)
   const [absenceDate, setAbsenceDate] = useState(today())
   const [lateDate, setLateDate] = useState(today())
   const [absences, setAbsences] = useState<DailyRow[]>([])
@@ -315,9 +316,15 @@ export function ReportsCenter({ students, schoolName }: { students: FeatureStude
   const [dailyStatusNotice, setDailyStatusNotice] = useState('')
   const [updatingDailyStatus, setUpdatingDailyStatus] = useState(false)
   const [calculatingAbsences, setCalculatingAbsences] = useState(false)
+  const [cancelingAbsences, setCancelingAbsences] = useState(false)
   const [focusDailyAbsenceLog, setFocusDailyAbsenceLog] = useState(false)
 
-  const loadToday = async () => setTodayMissingCount((await api.missingAttendance(today())).count)
+  const loadToday = async () => {
+    const date = today()
+    const [pending, confirmed] = await Promise.all([api.missingAttendance(date), api.dailyAbsences(date)])
+    setTodayMissingCount(pending.count)
+    setTodayConfirmedCount(confirmed.rows.length)
+  }
   const loadAbsences = async (date = absenceDate) => setAbsences((await api.dailyAbsences(date)).rows as DailyRow[])
   const loadLates = async (date = lateDate) => setLates((await api.dailyLates(date)).rows as DailyRow[])
 
@@ -340,6 +347,7 @@ export function ReportsCenter({ students, schoolName }: { students: FeatureStude
       await api.calculateAbsences(date)
       const [pending, daily] = await Promise.all([api.missingAttendance(date), api.dailyAbsences(date)])
       setTodayMissingCount(pending.count)
+      setTodayConfirmedCount(daily.rows.length)
       setAbsenceDate(date)
       setAbsences(daily.rows as DailyRow[])
       setActiveReport('absences')
@@ -349,6 +357,27 @@ export function ReportsCenter({ students, schoolName }: { students: FeatureStude
       setNotice('تعذر اعتماد الغياب أو تحديث السجل. أعد المحاولة.')
     } finally {
       setCalculatingAbsences(false)
+    }
+  }
+  const cancelTodayAbsences = async () => {
+    if (cancelingAbsences || !todayConfirmedCount) return
+    if (!window.confirm(`سيؤدي هذا إلى إلغاء اعتماد غياب ${todayConfirmedCount} طالبًا لهذا اليوم وحذف سجلات غيابهم المعتمدة. سيعود من لم يسجل حضورًا إلى قائمة غياب اليوم، ولن يُحتسب له يوم غياب. لا يمكن التراجع عن هذا الإجراء. هل تريد المتابعة؟`)) return
+    setCancelingAbsences(true)
+    setNotice('جارٍ إلغاء اعتماد غياب اليوم...')
+    try {
+      const date = today()
+      const result = await api.cancelAbsences(date)
+      const [pending, remaining] = await Promise.all([api.missingAttendance(date), api.dailyAbsences(date)])
+      setTodayMissingCount(pending.count)
+      setTodayConfirmedCount(remaining.rows.length)
+      setAbsenceDate(date)
+      setAbsences(remaining.rows as DailyRow[])
+      setNotice(`تم إلغاء اعتماد الغياب وحذف ${result.deleted} سجلًا لهذا اليوم. لم تُسجل هذه الأيام ضمن عدد الغياب.`)
+    } catch (error) {
+      const code = error instanceof Error ? error.message : ''
+      setNotice(code === 'forbidden' ? 'يلزم استخدام حساب مدير المدرسة لإلغاء اعتماد الغياب.' : 'تعذر إلغاء اعتماد الغياب. تحقق من الاتصال ثم أعد المحاولة.')
+    } finally {
+      setCancelingAbsences(false)
     }
   }
 
@@ -395,7 +424,7 @@ export function ReportsCenter({ students, schoolName }: { students: FeatureStude
 
   const tabs: Array<{ id: ReportSection; label: string; count?: number | null }> = [
     { id: 'pending', label: 'غياب اليوم', count: todayMissingCount },
-    { id: 'absences', label: 'سجل الغياب', count: absences.length },
+    { id: 'absences', label: 'سجل الغياب', count: absenceDate === today() ? todayConfirmedCount : absences.length },
     { id: 'absence-history', label: 'أيام الغياب' },
     { id: 'lates', label: 'سجل التأخر', count: lates.length },
     { id: 'late-history', label: 'أيام التأخر' },
@@ -427,6 +456,7 @@ export function ReportsCenter({ students, schoolName }: { students: FeatureStude
           <div><span className="panel-kicker">متابعة مباشرة</span><h2>غياب اليوم</h2><p>عدد الطلاب الذين لم يسجلوا حضورًا أو تأخرًا حتى الآن. لا تُسجل أسماؤهم في الغياب قبل الاعتماد.</p></div>
           <div className="pending-absence-count" role="status" aria-live="polite" aria-atomic="true"><span>بانتظار الاعتماد</span><strong>{todayMissingCount ?? '—'}</strong></div>
           <button type="button" className="primary-button" onClick={() => void calculate()} disabled={todayMissingCount === null || todayMissingCount === 0 || calculatingAbsences}><CheckCircle2 size={16} /> {calculatingAbsences ? 'جارٍ اعتماد الغياب...' : 'اعتماد غياب الطلاب'}</button>
+          {Boolean(todayConfirmedCount) && <button type="button" className="danger-button cancel-absence-approval" onClick={() => void cancelTodayAbsences()} disabled={cancelingAbsences || calculatingAbsences}><XCircle size={16} /> {cancelingAbsences ? 'جارٍ إلغاء الاعتماد...' : 'إلغاء اعتماد الغياب'}</button>}
         </div>
         <p className="pending-absence-hint">بعد الاعتماد تظهر الأسماء في قسم «سجل الغياب».</p>
         <div className="feature-actions daily-actions">

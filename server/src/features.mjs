@@ -344,6 +344,19 @@ export async function handleFeatureRequest(context) {
   const { req, res, url, user, pool, body, json, scoped, todayRiyadh } = context
   const adminOnly = () => user.role === 'admin'
 
+  if (req.method === 'POST' && url.pathname === '/api/absences/cancel') {
+    if (!adminOnly()) { json(res, 403, { error: 'forbidden' }); return true }
+    const input = await body(req)
+    const date = validDate(input.date)
+    if (!date || date !== todayRiyadh()) { json(res, 400, { error: 'absence_cancellation_is_today_only' }); return true }
+    const deleted = await scoped(user.school_id, async client => client.query(
+      'DELETE FROM absence_records WHERE school_id=$1 AND absence_date=$2 RETURNING student_id',
+      [user.school_id, date],
+    ))
+    json(res, 200, { ok: true, date, deleted: deleted.rowCount })
+    return true
+  }
+
   if (req.method === 'POST' && url.pathname === '/api/absences/calculate') {
     if (!adminOnly()) { json(res, 403, { error: 'forbidden' }); return true }
     const input = await body(req)
