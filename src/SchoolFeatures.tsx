@@ -10,6 +10,11 @@ const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Riyadh' }
 const escapeHtml = (value: unknown) => String(value ?? '').replace(/[&<>'"]/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[character] || character))
 const maskPhone = (phone: string) => phone.length > 4 ? `${phone.slice(0, 3)}••••${phone.slice(-3)}` : phone
 const formatDateTime = (value: string) => new Intl.DateTimeFormat('ar-SA', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Riyadh' }).format(new Date(value))
+type MessageKind = 'late' | 'absence' | 'general'
+const MESSAGE_CANDIDATE_LIMIT = 50
+const MESSAGE_LOG_LIMIT = 40
+const messageLogTitle = (type: MessageKind) => type === 'general' ? 'سجل الرسائل العامة' : type === 'late' ? 'سجل رسائل التأخر' : 'سجل رسائل الغياب'
+const messageTypeText = (type: MessageLog['type']) => type === 'test' ? 'اختبار المدار' : type === 'late' ? 'تأخر' : type === 'absence' ? 'غياب' : 'عامة'
 
 export function reportBrandHeader(title: string, schoolName: string) {
   const logoUrl = `${window.location.origin}/moe-logo.png`
@@ -159,41 +164,71 @@ export function AlmadarSettings({ schoolName }: { schoolName: string }) {
 
 export function MessageCenter({ students, attendance, schoolName }: { students: FeatureStudent[]; attendance: FeatureAttendance[]; schoolName: string }) {
   const [accountReady, setAccountReady] = useState(false)
-  const [type, setType] = useState<'late' | 'absence' | 'general'>('general')
+  const [type, setType] = useState<MessageKind>('general')
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [message, setMessage] = useState('')
   const [logs, setLogs] = useState<MessageLog[]>([])
   const [confirmedAbsenceIds, setConfirmedAbsenceIds] = useState<Set<string>>(new Set())
+  const [absenceCandidatesLoading, setAbsenceCandidatesLoading] = useState(false)
+  const [showStudentDetails, setShowStudentDetails] = useState(false)
+  const [showLogDetails, setShowLogDetails] = useState(false)
+  const [logsLoading, setLogsLoading] = useState(false)
   const [notice, setNotice] = useState('')
   const [sending, setSending] = useState(false)
 
   const load = () => {
-    void Promise.all([api.almadar(), api.messages(), api.absenceReport(today(), today())]).then(([account, history, absenceReport]) => {
+    setLogsLoading(true)
+    void Promise.all([api.almadar(), api.messages(type)]).then(([account, history]) => {
       setAccountReady(account.account.configured)
       setLogs(history.messages)
-      const absenceIds = absenceReport.rows
+    }).catch(() => setNotice('تعذر تحميل حالة الرسائل.'))
+      .finally(() => setLogsLoading(false))
+  }
+  useEffect(() => { load() }, [type])
+
+  useEffect(() => {
+    if (type !== 'absence') return
+    let active = true
+    setAbsenceCandidatesLoading(true)
+    void api.absenceReport(today(), today()).then(result => {
+      if (!active) return
+      const absenceIds = result.rows
         .map(row => row.studentId || row.id)
         .filter((id): id is string => Boolean(id))
       setConfirmedAbsenceIds(new Set(absenceIds))
-    }).catch(() => setNotice('تعذر تحميل حالة الرسائل.'))
-  }
-  useEffect(load, [])
+    }).catch(() => {
+      if (active) setNotice('تعذر تحديث قائمة الغياب المعتمدة. أعد فتح تبويب رسائل الغياب.')
+    }).finally(() => {
+      if (active) setAbsenceCandidatesLoading(false)
+    })
+    return () => { active = false }
+  }, [type])
 
   const lateIds = useMemo(() => new Set(attendance.filter(record => record.status === 'late').map(record => record.studentId)), [attendance])
-  const candidates = useMemo(() => students.filter(student => {
+  const attendanceIds = useMemo(() => new Set(attendance.map(record => record.studentId)), [attendance])
+  const eligibleCandidates = useMemo(() => students.filter(student => {
     if (type === 'late' && !lateIds.has(student.id)) return false
-    if (type === 'absence' && !confirmedAbsenceIds.has(student.id)) return false
+    if (type === 'absence' && (!confirmedAbsenceIds.has(student.id) || attendanceIds.has(student.id))) return false
+    return true
+  }), [students, type, lateIds, confirmedAbsenceIds, attendanceIds])
+  const candidates = useMemo(() => {
     const query = search.trim().toLowerCase()
-    return !query || `${student.name} ${student.id} ${student.grade} ${student.classroom}`.toLowerCase().includes(query)
-  }), [students, type, lateIds, confirmedAbsenceIds, search])
+    return !query ? eligibleCandidates : eligibleCandidates.filter(student => `${student.name} ${student.id} ${student.grade} ${student.classroom}`.toLowerCase().includes(query))
+  }, [eligibleCandidates, search])
+  const visibleCandidates = useMemo(() => candidates.slice(0, MESSAGE_CANDIDATE_LIMIT), [candidates])
+  const hasMoreCandidates = candidates.length > visibleCandidates.length
+  const visibleLogs = useMemo(() => logs.filter(log => log.type === type), [logs, type])
+  const visibleLogRows = useMemo(() => visibleLogs.slice(0, MESSAGE_LOG_LIMIT), [visibleLogs])
+  const hasMoreLogs = visibleLogs.length > visibleLogRows.length
+  const currentLogTitle = messageLogTitle(type)
 
   const toggle = (studentId: string) => setSelected(current => {
     const next = new Set(current)
     next.has(studentId) ? next.delete(studentId) : next.add(studentId)
     return next
   })
-  const chooseType = (nextType: 'late' | 'absence' | 'general') => { setType(nextType); setSelected(new Set()); setMessage('') }
+  const chooseType = (nextType: MessageKind) => { setType(nextType); setSelected(new Set()); setMessage(''); setSearch(''); setShowStudentDetails(false); setShowLogDetails(false); setNotice('') }
 
   const send = async () => {
     if (!accountReady) { setNotice('أكمل إعداد حساب المدار التقني وتحقق من الاتصال أولاً.'); return }
@@ -205,41 +240,43 @@ export function MessageCenter({ students, attendance, schoolName }: { students: 
       const result = await api.sendMessages({ studentIds: [...selected], type, message: type === 'general' ? message.trim() : undefined })
       setNotice(`اكتمل الإرسال: ${result.sent} ناجحة، ${result.failed} فاشلة.`)
       setSelected(new Set())
+      setShowStudentDetails(false)
       load()
     } catch { setNotice('تعذر إتمام الإرسال. راجع سجل الرسائل أو تحقق من حساب المدار التقني.') } finally { setSending(false) }
   }
 
   const exportMessageLogExcel = () => downloadWorkbook(
-    'سجل_الرسائل',
+    currentLogTitle.replace(/\s+/g, '_'),
     [
       ['الوقت', 'الطالب / العملية', 'المستلم', 'اسم المرسل', 'النوع', 'الحالة', 'التفاصيل'],
-      ...logs.map(log => [
+    ...visibleLogs.map(log => [
         formatDateTime(log.createdAt),
         log.studentName || '—',
         maskPhone(log.recipient),
         log.senderName || '—',
-        log.type === 'test' ? 'اختبار المدار' : log.type === 'late' ? 'تأخر' : log.type === 'absence' ? 'غياب' : 'عامة',
+        messageTypeText(log.type),
         log.status === 'sent' ? (log.type === 'test' ? 'قُبل طلب الإرسال' : 'تم الإرسال') : 'فشل',
         log.errorDetail || log.body,
       ]),
     ],
-    'سجل الرسائل',
+    currentLogTitle,
     schoolName,
-    'سجل الرسائل',
+    currentLogTitle,
   )
 
   const exportMessageLogPdf = () => {
-    const body = logs.map(log => `<tr>
+    const body = visibleLogs.map(log => `<tr>
       <td>${escapeHtml(formatDateTime(log.createdAt))}</td>
       <td>${escapeHtml(log.studentName || '—')}</td>
       <td dir="ltr">${escapeHtml(maskPhone(log.recipient))}</td>
       <td>${escapeHtml(log.senderName || '—')}</td>
-      <td>${log.type === 'test' ? 'اختبار المدار' : log.type === 'late' ? 'تأخر' : log.type === 'absence' ? 'غياب' : 'عامة'}</td>
+      <td>${messageTypeText(log.type)}</td>
       <td>${log.status === 'sent' ? (log.type === 'test' ? 'قُبل طلب الإرسال' : 'تم الإرسال') : 'فشل'}</td>
       <td>${escapeHtml(log.errorDetail || log.body)}</td>
     </tr>`).join('')
-    const emptyRow = '<tr><td colspan="7">لا توجد عمليات مسجلة حتى الآن.</td></tr>'
-    openPrintDocument('سجل الرسائل', `<section class="page"><table><thead><tr><th>الوقت</th><th>الطالب / العملية</th><th>المستلم</th><th>اسم المرسل</th><th>النوع</th><th>الحالة</th><th>التفاصيل</th></tr></thead><tbody>${body || emptyRow}</tbody></table><p class="meta">عدد العمليات: ${logs.length} · آخر 200 عملية</p></section>`, schoolName, 'landscape')
+    const title = currentLogTitle
+    const emptyRow = '<tr><td colspan="7">لا توجد عمليات مسجلة لهذا النوع حتى الآن.</td></tr>'
+    openPrintDocument(title, `<section class="page"><table><thead><tr><th>الوقت</th><th>الطالب / العملية</th><th>المستلم</th><th>اسم المرسل</th><th>النوع</th><th>الحالة</th><th>التفاصيل</th></tr></thead><tbody>${body || emptyRow}</tbody></table><p class="meta">عدد العمليات: ${visibleLogs.length} · آخر 200 عملية</p></section>`, schoolName, 'landscape')
   }
 
   return <section className="feature-page">
@@ -250,12 +287,42 @@ export function MessageCenter({ students, attendance, schoolName }: { students: 
         <button className={type === 'late' ? 'active' : ''} onClick={() => chooseType('late')} type="button">رسائل التأخر اليوم</button>
         <button className={type === 'absence' ? 'active' : ''} onClick={() => chooseType('absence')} type="button">رسائل الغياب اليوم</button>
       </div>
-      {type === 'general' ? <label className="message-body-field">نص الرسالة<textarea value={message} onChange={event => setMessage(event.target.value)} placeholder="اكتب الرسالة التي سترسل للطلاب المحددين..." maxLength={1200} /></label> : <div className="automatic-message-note">سيُنشأ النص تلقائياً لكل طالب بحسب {type === 'late' ? 'وقت تأخره' : 'غيابه'} اليوم، ويتضمن اسمه واسم المدرسة.</div>}
-      <div className="feature-toolbar"><input value={search} onChange={event => setSearch(event.target.value)} placeholder="ابحث عن طالب بالاسم أو الرقم..." /><button type="button" className="secondary-button" onClick={() => setSelected(new Set(candidates.map(student => student.id)))}>تحديد الظاهرين ({candidates.length})</button><button type="button" className="primary-button" onClick={() => void send()} disabled={sending || !selected.size}><Send size={16} /> إرسال إلى {selected.size}</button></div>
-      <div className="table-wrap"><table className="feature-table"><thead><tr><th>اختيار</th><th>الطالب</th><th>الصف والفصل</th><th>الجوال</th></tr></thead><tbody>{candidates.map(student => <tr key={student.id}><td data-label="اختيار"><input type="checkbox" checked={selected.has(student.id)} onChange={() => toggle(student.id)} /></td><td data-label="الطالب"><strong>{student.name}</strong><small>{student.id}</small></td><td data-label="الصف والفصل">{student.grade || '—'} · {student.classroom || '—'}</td><td data-label="الجوال" dir="ltr">{student.phone || '—'}</td></tr>)}{!candidates.length && <tr><td colSpan={4}>لا يوجد طلاب مناسبون لهذا النوع من الرسائل اليوم.</td></tr>}</tbody></table></div>
+      {type === 'general' ? <label className="message-body-field">نص الرسالة<textarea value={message} onChange={event => setMessage(event.target.value)} placeholder="اكتب الرسالة التي سترسل للطلاب المحددين..." maxLength={1200} /></label> : <div className="automatic-message-note">سيُنشأ النص تلقائياً لكل طالب بحسب {type === 'late' ? 'وقت تأخره' : 'غيابه المعتمد'} اليوم، ويتضمن اسمه واسم المدرسة.</div>}
+      <div className="message-recipient-summary">
+        <div className="message-recipient-count"><span>عدد الطلاب المناسبين</span><strong>{type === 'absence' && absenceCandidatesLoading ? '…' : eligibleCandidates.length}</strong></div>
+        <div className="feature-actions">
+          <button type="button" className="secondary-button" onClick={() => setShowStudentDetails(value => !value)} aria-expanded={showStudentDetails} aria-controls="message-student-list" disabled={type === 'absence' && absenceCandidatesLoading}>{showStudentDetails ? 'إخفاء بيانات الطلاب' : `عرض بيانات الطلاب (${eligibleCandidates.length})`}</button>
+          {showStudentDetails && <button type="button" className="secondary-button" onClick={() => setSelected(new Set(visibleCandidates.map(student => student.id)))} disabled={!visibleCandidates.length}>تحديد المعروضين ({visibleCandidates.length})</button>}
+          <button type="button" className="primary-button" onClick={() => void send()} disabled={sending || !selected.size}><Send size={16} /> إرسال إلى {selected.size}</button>
+        </div>
+      </div>
+      {showStudentDetails && <>
+        <div className="feature-toolbar"><input value={search} onChange={event => setSearch(event.target.value)} placeholder="ابحث عن طالب بالاسم أو الرقم..." /><span className="message-search-count">المعروض: {candidates.length} من {eligibleCandidates.length}</span></div>
+        {hasMoreCandidates && <p className="message-candidate-hint">يعرض أول {MESSAGE_CANDIDATE_LIMIT} طالباً فقط. استخدم البحث للوصول لطالب محدد.</p>}
+        <div className="table-wrap" id="message-student-list"><table className="feature-table"><thead><tr><th>اختيار</th><th>الطالب</th><th>الصف والفصل</th><th>الجوال</th></tr></thead><tbody>{visibleCandidates.map(student => <tr key={student.id}><td data-label="اختيار"><input type="checkbox" checked={selected.has(student.id)} onChange={() => toggle(student.id)} /></td><td data-label="الطالب"><strong>{student.name}</strong><small>{student.id}</small></td><td data-label="الصف والفصل">{student.grade || '—'} · {student.classroom || '—'}</td><td data-label="الجوال" dir="ltr">{student.phone || '—'}</td></tr>)}{!candidates.length && <tr><td colSpan={4}>لا يوجد طلاب مناسبون لهذا النوع من الرسائل اليوم.</td></tr>}</tbody></table></div>
+      </>}
       {notice && <div className="notice-box" role="status">{notice}</div>}
     </section>
-    <section className="panel message-log-panel"><div className="panel-header"><div><span className="panel-kicker">آخر 200 عملية</span><h2>سجل الرسائل</h2></div><div className="feature-actions"><button className="export-btn csv" type="button" onClick={exportMessageLogExcel} disabled={!logs.length}><Download size={16} /> Excel</button><button className="export-btn pdf" type="button" onClick={exportMessageLogPdf} disabled={!logs.length}><Printer size={16} /> PDF</button></div></div><div className="table-wrap"><table className="feature-table"><thead><tr><th>الوقت</th><th>الطالب / العملية</th><th>المستلم</th><th>اسم المرسل</th><th>النوع</th><th>الحالة</th><th>التفاصيل</th></tr></thead><tbody>{logs.map(log => <tr key={log.id}><td data-label="الوقت">{formatDateTime(log.createdAt)}</td><td data-label="الطالب / العملية">{log.studentName || '—'}</td><td data-label="المستلم" dir="ltr">{maskPhone(log.recipient)}</td><td data-label="اسم المرسل">{log.senderName || '—'}</td><td data-label="النوع">{log.type === 'test' ? 'اختبار المدار' : log.type === 'late' ? 'تأخر' : log.type === 'absence' ? 'غياب' : 'عامة'}</td><td data-label="الحالة"><span className={`status-chip ${log.status === 'sent' ? 'success' : 'failed'}`}>{log.status === 'sent' ? log.type === 'test' ? 'قُبل طلب الإرسال' : 'تم الإرسال' : 'فشل'}</span></td><td data-label="التفاصيل">{log.errorDetail || log.body}</td></tr>)}{!logs.length && <tr><td colSpan={7}>لا يوجد إرسال مسجل حتى الآن.</td></tr>}</tbody></table></div></section>
+    <section className="panel message-log-panel">
+      <div className="panel-header">
+        <div>
+          <span className="panel-kicker">آخر 200 عملية من هذا النوع</span>
+          <h2>{currentLogTitle}</h2>
+        </div>
+        <div className="feature-actions">
+          <button className="secondary-button" type="button" onClick={() => setShowLogDetails(value => !value)} aria-expanded={showLogDetails}>
+            {showLogDetails ? 'إخفاء السجل' : `عرض السجل (${visibleLogs.length})`}
+          </button>
+          <button className="export-btn csv" type="button" onClick={exportMessageLogExcel} disabled={!visibleLogs.length}><Download size={16} /> Excel</button>
+          <button className="export-btn pdf" type="button" onClick={exportMessageLogPdf} disabled={!visibleLogs.length}><Printer size={16} /> PDF</button>
+        </div>
+      </div>
+      <div className="message-log-summary">
+        <div className="message-log-count"><span>عدد العمليات</span><strong>{logsLoading ? '…' : visibleLogs.length}</strong></div>
+        {hasMoreLogs && showLogDetails && <span className="message-candidate-hint">يعرض آخر {MESSAGE_LOG_LIMIT} عملية فقط. التصدير يشمل العمليات المحملة كلها.</span>}
+      </div>
+      {showLogDetails && <div className="table-wrap"><table className="feature-table"><thead><tr><th>الوقت</th><th>الطالب / العملية</th><th>المستلم</th><th>اسم المرسل</th><th>النوع</th><th>الحالة</th><th>التفاصيل</th></tr></thead><tbody>{visibleLogRows.map(log => <tr key={log.id}><td data-label="الوقت">{formatDateTime(log.createdAt)}</td><td data-label="الطالب / العملية">{log.studentName || '—'}</td><td data-label="المستلم" dir="ltr">{maskPhone(log.recipient)}</td><td data-label="اسم المرسل">{log.senderName || '—'}</td><td data-label="النوع">{messageTypeText(log.type)}</td><td data-label="الحالة"><span className={`status-chip ${log.status === 'sent' ? 'success' : 'failed'}`}>{log.status === 'sent' ? log.type === 'test' ? 'قُبل طلب الإرسال' : 'تم الإرسال' : 'فشل'}</span></td><td data-label="التفاصيل">{log.errorDetail || log.body}</td></tr>)}{!visibleLogs.length && <tr><td colSpan={7}>لا توجد عمليات من هذا النوع حتى الآن.</td></tr>}</tbody></table></div>}
+    </section>
   </section>
 }
 
@@ -273,8 +340,8 @@ function printDaily(title: string, rows: DailyRow[], schoolName: string, date: s
   openPrintDocument(title, `<section class="page"><h1>${escapeHtml(title)}</h1><table><thead><tr><th>الطالب</th><th>الصف</th><th>الفصل</th><th>الجوال</th><th>الحالة</th></tr></thead><tbody>${rows.map(row => `<tr><td>${escapeHtml(row.name)}</td><td>${escapeHtml(row.grade)}</td><td>${escapeHtml(row.classroom)}</td><td dir="ltr">${escapeHtml(row.phone)}</td><td>${statusText(row.status)}</td></tr>`).join('')}</tbody></table><p class="meta">${date}</p></section>`, schoolName)
 }
 
-function DailyList({ id, title, date, onDate, rows, onStatus, onAll, onExcel, onPdf, busy = false, actionNotice = '', late = false }: { id?: string; title: string; date: string; onDate: (value: string) => void; rows: DailyRow[]; onStatus: (ids: string[], status: 'unexcused' | 'excused') => void; onAll: (status: 'unexcused' | 'excused') => void; onExcel: () => void; onPdf: () => void; busy?: boolean; actionNotice?: string; late?: boolean }) {
-  return <section id={id} className="panel daily-report-panel"><div className="panel-header"><div><span className="panel-kicker">سجل يومي</span><h2>{title}</h2><p>العدد: {rows.length} طالبًا</p></div><label className="report-date">التاريخ<input type="date" value={date} max={today()} onChange={event => onDate(event.target.value)} /></label></div><div className="feature-actions daily-actions" aria-busy={busy}><button className="secondary-button" type="button" onClick={() => onAll('excused')} disabled={!rows.length || busy}>اعتبار الجميع بعذر</button><button className="secondary-button" type="button" onClick={() => onAll('unexcused')} disabled={!rows.length || busy}>اعتبار الجميع بدون عذر</button><button className="export-btn csv" type="button" onClick={onExcel} disabled={!rows.length}><Download size={16} /> Excel</button><button className="export-btn pdf" type="button" onClick={onPdf} disabled={!rows.length}><Printer size={16} /> PDF</button></div>{actionNotice && <p className="report-action-notice" role="status" aria-live="polite">{actionNotice}</p>}<div className="daily-list">{rows.map(row => <article key={row.studentId} className="daily-row"><div><strong>{row.name}</strong><small>{row.grade || '—'} · {row.classroom || '—'} · <span dir="ltr">{row.phone || '—'}</span>{late && row.time ? ` · ${row.time}` : ''}</small></div><select value={row.status} disabled={busy} onChange={event => onStatus([row.studentId], event.target.value as 'unexcused' | 'excused')}><option value="unexcused">بدون عذر</option><option value="excused">بعذر</option></select></article>)}{!rows.length && <p className="report-empty-state">لا توجد سجلات لهذا التاريخ.</p>}</div></section>
+function DailyList({ id, title, date, onDate, rows, onStatus, onAll, onExcel, onPdf, onCancelApproval, cancelBusy = false, busy = false, actionNotice = '', late = false }: { id?: string; title: string; date: string; onDate: (value: string) => void; rows: DailyRow[]; onStatus: (ids: string[], status: 'unexcused' | 'excused') => void; onAll: (status: 'unexcused' | 'excused') => void; onExcel: () => void; onPdf: () => void; onCancelApproval?: () => void; cancelBusy?: boolean; busy?: boolean; actionNotice?: string; late?: boolean }) {
+  return <section id={id} className="panel daily-report-panel"><div className="panel-header"><div><span className="panel-kicker">سجل يومي</span><h2>{title}</h2><p>العدد: {rows.length} طالبًا</p>{onCancelApproval && <p>اختر تاريخًا سابقًا من التقويم لمراجعة سجله أو إلغاء اعتماده.</p>}</div><label className="report-date">التاريخ<input type="date" value={date} max={today()} disabled={busy || cancelBusy} onChange={event => onDate(event.target.value)} /></label></div><div className="feature-actions daily-actions" aria-busy={busy || cancelBusy}><button className="secondary-button" type="button" onClick={() => onAll('excused')} disabled={!rows.length || busy || cancelBusy}>اعتبار الجميع بعذر</button><button className="secondary-button" type="button" onClick={() => onAll('unexcused')} disabled={!rows.length || busy || cancelBusy}>اعتبار الجميع بدون عذر</button>{onCancelApproval && <button className="danger-button cancel-absence-approval" type="button" onClick={onCancelApproval} disabled={!rows.length || busy || cancelBusy}><XCircle size={16} />{cancelBusy ? 'جارٍ إلغاء الاعتماد...' : 'إلغاء اعتماد هذا اليوم'}</button>}<button className="export-btn csv" type="button" onClick={onExcel} disabled={!rows.length}><Download size={16} /> Excel</button><button className="export-btn pdf" type="button" onClick={onPdf} disabled={!rows.length}><Printer size={16} /> PDF</button></div>{actionNotice && <p className="report-action-notice" role="status" aria-live="polite">{actionNotice}</p>}<div className="daily-list">{rows.map(row => <article key={row.studentId} className="daily-row"><div><strong>{row.name}</strong><small>{row.grade || '—'} · {row.classroom || '—'} · <span dir="ltr">{row.phone || '—'}</span>{late && row.time ? ` · ${row.time}` : ''}</small></div><select value={row.status} disabled={busy || cancelBusy} onChange={event => onStatus([row.studentId], event.target.value as 'unexcused' | 'excused')}><option value="unexcused">بدون عذر</option><option value="excused">بعذر</option></select></article>)}{!rows.length && <p className="report-empty-state">لا توجد سجلات لهذا التاريخ.</p>}</div></section>
 }
 
 function HistoryCounts({ type, students, schoolName }: { type: 'absence' | 'late'; students: FeatureStudent[]; schoolName: string }) {
@@ -317,6 +384,7 @@ export function ReportsCenter({ students, schoolName }: { students: FeatureStude
   const [updatingDailyStatus, setUpdatingDailyStatus] = useState(false)
   const [calculatingAbsences, setCalculatingAbsences] = useState(false)
   const [cancelingAbsences, setCancelingAbsences] = useState(false)
+  const [cancelingSelectedAbsenceDate, setCancelingSelectedAbsenceDate] = useState(false)
   const [focusDailyAbsenceLog, setFocusDailyAbsenceLog] = useState(false)
 
   const loadToday = async () => {
@@ -378,6 +446,27 @@ export function ReportsCenter({ students, schoolName }: { students: FeatureStude
       setNotice(code === 'forbidden' ? 'يلزم استخدام حساب مدير المدرسة لإلغاء اعتماد الغياب.' : 'تعذر إلغاء اعتماد الغياب. تحقق من الاتصال ثم أعد المحاولة.')
     } finally {
       setCancelingAbsences(false)
+    }
+  }
+
+  const cancelSelectedAbsenceDate = async () => {
+    const date = absenceDate
+    const count = absences.length
+    if (cancelingSelectedAbsenceDate || !count) return
+    if (!window.confirm(`سيؤدي هذا إلى إلغاء اعتماد غياب ${count} طالبًا بتاريخ ${date} وحذف سجلات الغياب لهذا التاريخ فقط. لن تُحتسب هذه الأيام ضمن الغياب، ولن تتأثر الأيام الأخرى أو سجلات الحضور. لا يمكن التراجع عن الحذف. هل تريد المتابعة؟`)) return
+    setCancelingSelectedAbsenceDate(true)
+    setDailyStatusNotice(`جارٍ إلغاء اعتماد غياب ${date}...`)
+    try {
+      const result = await api.cancelAbsences(date)
+      const remaining = await api.dailyAbsences(date)
+      setAbsences(remaining.rows as DailyRow[])
+      if (date === today()) await loadToday()
+      setDailyStatusNotice(`تم إلغاء اعتماد غياب ${date} وحذف ${result.deleted} سجلًا. لم تُحتسب هذه الأيام ضمن عدد الغياب.`)
+    } catch (error) {
+      const code = error instanceof Error ? error.message : ''
+      setDailyStatusNotice(code === 'forbidden' ? 'يلزم استخدام حساب مدير المدرسة لإلغاء اعتماد الغياب.' : 'تعذر إلغاء اعتماد الغياب. تحقق من الاتصال ثم أعد المحاولة.')
+    } finally {
+      setCancelingSelectedAbsenceDate(false)
     }
   }
 
@@ -473,7 +562,7 @@ export function ReportsCenter({ students, schoolName }: { students: FeatureStude
         </div></div>
       </section>}
 
-      {activeReport === 'absences' && <DailyList id="daily-absence-log" title="غياب الطلاب" date={absenceDate} onDate={value => { setAbsenceDate(value); void loadAbsences(value) }} rows={absences} onStatus={(ids, status) => void updateAbsence(ids, status)} onAll={status => void updateAbsence(absences.map(row => row.studentId), status)} onExcel={() => exportDaily(`غياب_${absenceDate}`, absences, schoolName)} onPdf={() => printDaily('غياب الطلاب', absences, schoolName, absenceDate)} busy={updatingDailyStatus} actionNotice={dailyStatusNotice} />}
+      {activeReport === 'absences' && <DailyList id="daily-absence-log" title="غياب الطلاب" date={absenceDate} onDate={value => { if (!value) return; setAbsenceDate(value); setDailyStatusNotice(''); void loadAbsences(value) }} rows={absences} onStatus={(ids, status) => void updateAbsence(ids, status)} onAll={status => void updateAbsence(absences.map(row => row.studentId), status)} onExcel={() => exportDaily(`غياب_${absenceDate}`, absences, schoolName)} onPdf={() => printDaily('غياب الطلاب', absences, schoolName, absenceDate)} onCancelApproval={() => void cancelSelectedAbsenceDate()} cancelBusy={cancelingSelectedAbsenceDate} busy={updatingDailyStatus} actionNotice={dailyStatusNotice} />}
       {activeReport === 'absence-history' && <HistoryCounts type="absence" students={students} schoolName={schoolName} />}
       {activeReport === 'lates' && <DailyList title="تأخر الطلاب" date={lateDate} onDate={value => { setLateDate(value); void loadLates(value) }} rows={lates} onStatus={(ids, status) => void updateLate(ids, status)} onAll={status => void updateLate(lates.map(row => row.studentId), status)} onExcel={() => exportDaily(`تأخر_${lateDate}`, lates, schoolName)} onPdf={() => printDaily('تأخر الطلاب', lates, schoolName, lateDate)} busy={updatingDailyStatus} actionNotice={dailyStatusNotice} late />}
       {activeReport === 'late-history' && <HistoryCounts type="late" students={students} schoolName={schoolName} />}

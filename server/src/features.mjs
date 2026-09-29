@@ -348,7 +348,7 @@ export async function handleFeatureRequest(context) {
     if (!adminOnly()) { json(res, 403, { error: 'forbidden' }); return true }
     const input = await body(req)
     const date = validDate(input.date)
-    if (!date || date !== todayRiyadh()) { json(res, 400, { error: 'absence_cancellation_is_today_only' }); return true }
+    if (!date || date > todayRiyadh()) { json(res, 400, { error: 'invalid_absence_date' }); return true }
     const deleted = await scoped(user.school_id, async client => client.query(
       'DELETE FROM absence_records WHERE school_id=$1 AND absence_date=$2 RETURNING student_id',
       [user.school_id, date],
@@ -727,8 +727,11 @@ export async function handleFeatureRequest(context) {
   }
 
   if (req.method === 'GET' && url.pathname === '/api/messages') {
+    const requestedType = String(url.searchParams.get('type') || '').trim()
+    const messageType = ['late', 'absence', 'general', 'test'].includes(requestedType) ? requestedType : ''
+    const params = messageType ? [user.school_id, messageType] : [user.school_id]
     const result = await scoped(user.school_id, async client => client.query(`SELECT id,student_id AS "studentId",student_name AS "studentName",recipient,sender_name AS "senderName",message_type AS type,message_body AS body,status,error_detail AS "errorDetail",created_at AS "createdAt"
-      FROM message_logs WHERE school_id=$1 ORDER BY created_at DESC LIMIT 200`, [user.school_id]))
+      FROM message_logs WHERE school_id=$1${messageType ? ' AND message_type=$2' : ''} ORDER BY created_at DESC LIMIT 200`, params))
     json(res, 200, { messages: result.rows })
     return true
   }
@@ -746,7 +749,16 @@ export async function handleFeatureRequest(context) {
     const result = await scoped(user.school_id, async client => {
       const students = (await client.query('SELECT id,name,phone,grade,classroom FROM students WHERE school_id=$1 AND active=true AND id=ANY($2::text[]) ORDER BY name', [user.school_id, studentIds])).rows
       const late = type === 'late' ? (await client.query(`SELECT student_id,to_char(recorded_at AT TIME ZONE $3,'HH24:MI:SS') AS time FROM attendance_logs WHERE school_id=$1 AND attendance_date=$2 AND status='late' AND student_id=ANY($4::text[])`, [user.school_id, todayRiyadh(), RIYADH_TIME_ZONE, studentIds])).rows : []
+      const confirmedAbsences = type === 'absence' ? (await client.query(`SELECT absence.student_id
+        FROM absence_records absence
+        WHERE absence.school_id=$1 AND absence.absence_date=$2 AND absence.student_id=ANY($3::text[])
+          AND NOT EXISTS (
+            SELECT 1 FROM attendance_logs attendance
+            WHERE attendance.school_id=absence.school_id AND attendance.student_id=absence.student_id
+              AND attendance.attendance_date=absence.absence_date AND attendance.status IN ('present','late')
+          )`, [user.school_id, todayRiyadh(), studentIds])).rows : []
       const lateTimes = new Map(late.map(row => [row.student_id, row.time]))
+      const confirmedAbsenceIds = new Set(confirmedAbsences.map(row => row.student_id))
       const apiKey = decrypt(account.api_key_encrypted)
       const rows = []
       for (const student of students) {
@@ -755,6 +767,7 @@ export async function handleFeatureRequest(context) {
         let outcome
         if (!recipient) outcome = { ok: false, error: 'invalid_recipient_phone' }
         else if (type === 'late' && !lateTimes.has(student.id)) outcome = { ok: false, error: 'student_not_late_today' }
+        else if (type === 'absence' && !confirmedAbsenceIds.has(student.id)) outcome = { ok: false, error: 'student_not_absent_today' }
         else outcome = await sendMessage(apiKey, { number: recipient, senderName: account.sender_name, sendAtOption: 'Now', messageBody, allow_duplicate: type !== 'general' })
         await client.query(`INSERT INTO message_logs(school_id,student_id,student_name,recipient,sender_name,message_type,message_body,status,error_detail,sent_by)
           VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, [user.school_id, student.id, student.name, recipient || String(student.phone || ''), account.sender_name, type, messageBody, outcome.ok ? 'sent' : 'failed', outcome.ok ? '' : outcome.error, user.user_id])
