@@ -87,6 +87,20 @@ export type LessonIncident = {
   detectedAt: string
   confirmedAt: string | null
 }
+export type LessonScanPreview = {
+  confirmationToken: string
+  classroomId: string
+  classroom: string
+  teacherId: string
+  teacherName: string
+  identityNumber: string
+  subject: string
+  incidentDate: string
+  weekday: number
+  periodNumber: number
+  startTime: string
+  endTime: string
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`/api${path}`, {
@@ -148,8 +162,12 @@ export const api = {
   saveLessonTimes: (times: LessonTimeSlot[]) =>
     request<{ ok: boolean; saved: number }>('/lesson-flow/times', { method: 'PUT', body: JSON.stringify({ times }) }),
   lessonSchedule: (classroomId: string) => request<LessonSchedule>(`/lesson-flow/schedule?classroomId=${encodeURIComponent(classroomId)}`),
-  scanLessonClass: (code: string) => request<{ incident: LessonIncident; existing: boolean }>('/lesson-flow/scan', { method: 'POST', body: JSON.stringify({ code }) }),
+  scanLessonClass: (code: string) => request<{ incident?: LessonIncident; preview?: LessonScanPreview; existing: boolean }>('/lesson-flow/scan', { method: 'POST', body: JSON.stringify({ code }) }),
+  confirmLessonScan: (confirmationToken: string) => request<{ incident: LessonIncident; existing: boolean }>('/lesson-flow/scan/confirm', { method: 'POST', body: JSON.stringify({ confirmationToken }) }),
+  createManualLessonIncident: (payload: { classroomId: string; periodNumber: number; teacherId: string; incidentDate: string }) =>
+    request<{ incident: LessonIncident; existing: boolean }>('/lesson-flow/incidents/manual', { method: 'POST', body: JSON.stringify(payload) }),
   lessonIncidents: (date?: string) => request<{ incidents: LessonIncident[] }>(`/lesson-flow/incidents${date ? `?date=${encodeURIComponent(date)}` : ''}`),
   confirmLessonIncident: (id: string) => request<{ ok: boolean }>(`/lesson-flow/incidents/${encodeURIComponent(id)}/confirm`, { method: 'POST', body: JSON.stringify({}) }),
   cancelLessonIncident: (id: string, note = '') => request<{ ok: boolean }>(`/lesson-flow/incidents/${encodeURIComponent(id)}/cancel`, { method: 'POST', body: JSON.stringify({ note }) }),
+  deleteLessonIncident: (id: string) => request<{ ok: boolean }>(`/lesson-flow/incidents/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 }

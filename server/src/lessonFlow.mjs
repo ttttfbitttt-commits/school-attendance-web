@@ -3,6 +3,8 @@ import crypto from 'node:crypto'
 const RIYADH_TIME_ZONE = 'Asia/Riyadh'
 const VALID_WEEKDAYS = new Set([1, 2, 3, 4, 5, 6, 7])
 const NAME_STOP_WORDS = new Set(['بن', 'ابن', 'بنت', 'ال'])
+const PENDING_SCAN_TTL_MS = 2 * 60 * 1000
+const pendingScanPreviews = new Map()
 
 function cleanText(value, max = 300) {
   return String(value ?? '').replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max)
@@ -59,6 +61,11 @@ function asPeriod(value) {
   return Number.isInteger(period) && period >= 1 && period <= 12 ? period : null
 }
 
+function weekdayForDate(value) {
+  const day = new Date(`${value}T12:00:00Z`).getUTCDay()
+  return day === 0 ? 1 : day + 1
+}
+
 function riyadhClock() {
   const parts = Object.fromEntries(new Intl.DateTimeFormat('en-US', {
     timeZone: RIYADH_TIME_ZONE,
@@ -103,6 +110,13 @@ function incidentRow(row) {
     cancelNote: row.cancelNote || '',
     detectedAt: row.detectedAt,
     confirmedAt: row.confirmedAt || null,
+  }
+}
+
+function clearExpiredScanPreviews() {
+  const now = Date.now()
+  for (const [token, preview] of pendingScanPreviews) {
+    if (preview.expiresAt <= now) pendingScanPreviews.delete(token)
   }
 }
 
@@ -508,12 +522,115 @@ export async function handleLessonFlowRequest(context) {
         user.school_id, classroom.rows[0].id, clock.date, slot.rows[0].periodNumber,
       ])
       if (existing.rowCount) return { incident: incidentRow(existing.rows[0]), existing: true }
+      clearExpiredScanPreviews()
+      const confirmationToken = crypto.randomBytes(24).toString('base64url')
+      const preview = {
+        confirmationToken,
+        classroomId: classroom.rows[0].id,
+        classroom: classroom.rows[0].name,
+        assignmentId: assignment.rows[0].id,
+        teacherId: assignment.rows[0].teacherId,
+        teacherName: assignment.rows[0].teacherName,
+        identityNumber: assignment.rows[0].identityNumber,
+        subject: assignment.rows[0].subjectName,
+        incidentDate: clock.date,
+        weekday: clock.weekday,
+        periodNumber: Number(slot.rows[0].periodNumber),
+        startTime: slot.rows[0].startTime,
+        endTime: slot.rows[0].endTime,
+      }
+      pendingScanPreviews.set(confirmationToken, {
+        schoolId: user.school_id,
+        userId: user.user_id,
+        expiresAt: Date.now() + PENDING_SCAN_TTL_MS,
+        preview,
+      })
+      return { preview, existing: false }
+    })
+    if (result.error) { json(res, 409, result); return true }
+    json(res, 200, result)
+    return true
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/lesson-flow/scan/confirm') {
+    const input = await body(req)
+    const confirmationToken = String(input.confirmationToken || '')
+    clearExpiredScanPreviews()
+    const pending = pendingScanPreviews.get(confirmationToken)
+    if (!pending || pending.schoolId !== user.school_id || pending.userId !== user.user_id) {
+      json(res, 409, { error: 'scan_confirmation_expired' })
+      return true
+    }
+    const result = await scoped(user.school_id, async client => {
+      const preview = pending.preview
+      const existing = await client.query(`SELECT i.id,c.name AS classroom,i.teacher_id AS "teacherId",i.teacher_name AS "teacherName",
+        i.identity_number AS "identityNumber",i.subject_name AS subject,to_char(i.incident_date,'YYYY-MM-DD') AS "incidentDate",
+        i.weekday,i.period_number AS "periodNumber",to_char(i.start_time,'HH24:MI') AS "startTime",to_char(i.end_time,'HH24:MI') AS "endTime",
+        i.status,i.cancel_note AS "cancelNote",i.detected_at AS "detectedAt",i.confirmed_at AS "confirmedAt"
+        FROM teacher_incidents i JOIN lesson_classrooms c ON c.id=i.classroom_id
+        WHERE i.school_id=$1 AND i.classroom_id=$2 AND i.incident_date=$3 AND i.period_number=$4 AND i.status IN ('draft','confirmed') LIMIT 1`, [
+        user.school_id, preview.classroomId, preview.incidentDate, preview.periodNumber,
+      ])
+      if (existing.rowCount) return { incident: incidentRow(existing.rows[0]), existing: true }
       const inserted = await client.query(`INSERT INTO teacher_incidents(
         school_id,assignment_id,classroom_id,teacher_id,incident_date,weekday,period_number,start_time,end_time,subject_name,teacher_name,identity_number,detected_by)
         VALUES($1,$2,$3,$4,$5,$6,$7,$8::time,$9::time,$10,$11,$12,$13)
-        RETURNING id`, [user.school_id, assignment.rows[0].id, classroom.rows[0].id, assignment.rows[0].teacherId, clock.date,
-        clock.weekday, slot.rows[0].periodNumber, slot.rows[0].startTime, slot.rows[0].endTime, assignment.rows[0].subjectName,
-        assignment.rows[0].teacherName, assignment.rows[0].identityNumber, user.user_id])
+        RETURNING id`, [user.school_id, preview.assignmentId, preview.classroomId, preview.teacherId, preview.incidentDate,
+        preview.weekday, preview.periodNumber, preview.startTime, preview.endTime, preview.subject,
+        preview.teacherName, preview.identityNumber, user.user_id])
+      const incident = await client.query(`SELECT i.id,c.name AS classroom,i.teacher_id AS "teacherId",i.teacher_name AS "teacherName",
+        i.identity_number AS "identityNumber",i.subject_name AS subject,to_char(i.incident_date,'YYYY-MM-DD') AS "incidentDate",
+        i.weekday,i.period_number AS "periodNumber",to_char(i.start_time,'HH24:MI') AS "startTime",to_char(i.end_time,'HH24:MI') AS "endTime",
+        i.status,i.cancel_note AS "cancelNote",i.detected_at AS "detectedAt",i.confirmed_at AS "confirmedAt"
+        FROM teacher_incidents i JOIN lesson_classrooms c ON c.id=i.classroom_id WHERE i.school_id=$1 AND i.id=$2`, [user.school_id, inserted.rows[0].id])
+      return { incident: incidentRow(incident.rows[0]), existing: false }
+    })
+    pendingScanPreviews.delete(confirmationToken)
+    json(res, 200, result)
+    return true
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/lesson-flow/incidents/manual') {
+    const input = await body(req)
+    const classroomId = String(input.classroomId || '')
+    const teacherId = String(input.teacherId || '')
+    const periodNumber = asPeriod(input.periodNumber)
+    const incidentDate = validDate(input.incidentDate)
+    if (!/^[0-9a-f-]{36}$/i.test(classroomId) || !/^[0-9a-f-]{36}$/i.test(teacherId) || !periodNumber || !incidentDate) {
+      json(res, 400, { error: 'invalid_manual_incident' })
+      return true
+    }
+    const weekday = weekdayForDate(incidentDate)
+    const result = await scoped(user.school_id, async client => {
+      const active = await activeImport(client, user.school_id)
+      if (!active) return { error: 'schedule_not_imported' }
+      const [classroom, teacher, slot, assignment] = await Promise.all([
+        client.query('SELECT id,name FROM lesson_classrooms WHERE school_id=$1 AND id=$2 AND active=true', [user.school_id, classroomId]),
+        client.query('SELECT id,full_name AS "teacherName",identity_number AS "identityNumber" FROM lesson_teachers WHERE school_id=$1 AND id=$2 AND active=true', [user.school_id, teacherId]),
+        client.query(`SELECT period_number AS "periodNumber",to_char(starts_at,'HH24:MI') AS "startTime",to_char(ends_at,'HH24:MI') AS "endTime"
+          FROM lesson_time_slots WHERE school_id=$1 AND weekday=$2 AND period_number=$3 LIMIT 1`, [user.school_id, weekday, periodNumber]),
+        client.query(`SELECT id,subject_name AS "subjectName" FROM lesson_schedule_assignments
+          WHERE school_id=$1 AND import_id=$2 AND classroom_id=$3 AND weekday=$4 AND period_number=$5 LIMIT 1`, [user.school_id, active.id, classroomId, weekday, periodNumber]),
+      ])
+      if (!classroom.rowCount) return { error: 'classroom_not_found' }
+      if (!teacher.rowCount) return { error: 'teacher_not_found' }
+      if (!slot.rowCount) return { error: 'lesson_time_not_set' }
+      if (!assignment.rowCount) return { error: 'lesson_not_scheduled' }
+      const existing = await client.query(`SELECT i.id,c.name AS classroom,i.teacher_id AS "teacherId",i.teacher_name AS "teacherName",
+        i.identity_number AS "identityNumber",i.subject_name AS subject,to_char(i.incident_date,'YYYY-MM-DD') AS "incidentDate",
+        i.weekday,i.period_number AS "periodNumber",to_char(i.start_time,'HH24:MI') AS "startTime",to_char(i.end_time,'HH24:MI') AS "endTime",
+        i.status,i.cancel_note AS "cancelNote",i.detected_at AS "detectedAt",i.confirmed_at AS "confirmedAt"
+        FROM teacher_incidents i JOIN lesson_classrooms c ON c.id=i.classroom_id
+        WHERE i.school_id=$1 AND i.classroom_id=$2 AND i.incident_date=$3 AND i.period_number=$4 AND i.status IN ('draft','confirmed') LIMIT 1`, [
+        user.school_id, classroomId, incidentDate, periodNumber,
+      ])
+      if (existing.rowCount) return { incident: incidentRow(existing.rows[0]), existing: true }
+      const inserted = await client.query(`INSERT INTO teacher_incidents(
+        school_id,assignment_id,classroom_id,teacher_id,incident_date,weekday,period_number,start_time,end_time,subject_name,teacher_name,identity_number,detected_by)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8::time,$9::time,$10,$11,$12,$13)
+        RETURNING id`, [user.school_id, assignment.rows[0].id, classroomId, teacherId, incidentDate, weekday, periodNumber,
+        slot.rows[0].startTime, slot.rows[0].endTime, assignment.rows[0].subjectName,
+        teacher.rows[0].teacherName, teacher.rows[0].identityNumber, user.user_id])
       const incident = await client.query(`SELECT i.id,c.name AS classroom,i.teacher_id AS "teacherId",i.teacher_name AS "teacherName",
         i.identity_number AS "identityNumber",i.subject_name AS subject,to_char(i.incident_date,'YYYY-MM-DD') AS "incidentDate",
         i.weekday,i.period_number AS "periodNumber",to_char(i.start_time,'HH24:MI') AS "startTime",to_char(i.end_time,'HH24:MI') AS "endTime",
@@ -523,6 +640,16 @@ export async function handleLessonFlowRequest(context) {
     })
     if (result.error) { json(res, 409, result); return true }
     json(res, 200, result)
+    return true
+  }
+
+  const incidentDelete = /^\/api\/lesson-flow\/incidents\/([0-9a-f-]{36})$/i.exec(url.pathname)
+  if (req.method === 'DELETE' && incidentDelete) {
+    const result = await scoped(user.school_id, async client => client.query(
+      'DELETE FROM teacher_incidents WHERE school_id=$1 AND id=$2 RETURNING id', [user.school_id, incidentDelete[1]],
+    ))
+    if (!result.rowCount) { json(res, 404, { error: 'incident_not_found' }); return true }
+    json(res, 200, { ok: true })
     return true
   }
 

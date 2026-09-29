@@ -21,6 +21,7 @@ import {
   api,
   type LessonFlowOverview,
   type LessonIncident,
+  type LessonScanPreview,
   type LessonSchedule,
   type LessonScheduleAssignment,
   type LessonTimeSlot,
@@ -58,6 +59,11 @@ const sections: Array<{ key: SectionKey; label: string }> = [
 
 function todayRiyadh() {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Riyadh' }).format(new Date())
+}
+
+function weekdayForDate(date: string) {
+  const day = new Date(`${date}T12:00:00Z`).getUTCDay()
+  return day === 0 ? 1 : day + 1
 }
 
 function escapeHtml(value: string | number | null | undefined) {
@@ -298,6 +304,14 @@ export function LessonFlowCenter({ schoolName }: { schoolName: string }) {
   const [incidents, setIncidents] = useState<LessonIncident[]>([])
   const [showIncidents, setShowIncidents] = useState(false)
   const [scanIncident, setScanIncident] = useState<LessonIncident | null>(null)
+  const [scanPreview, setScanPreview] = useState<LessonScanPreview | null>(null)
+  const [showManualObservation, setShowManualObservation] = useState(false)
+  const [manualClassroomId, setManualClassroomId] = useState('')
+  const [manualPeriodNumber, setManualPeriodNumber] = useState('')
+  const [manualTeacherId, setManualTeacherId] = useState('')
+  const [teacherSearch, setTeacherSearch] = useState('')
+  const [showCancellation, setShowCancellation] = useState(false)
+  const [selectedCancellationId, setSelectedCancellationId] = useState('')
   const [cameraOn, setCameraOn] = useState(false)
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
@@ -305,12 +319,21 @@ export function LessonFlowCenter({ schoolName }: { schoolName: string }) {
 
   const teacherOptions = overview?.teachers || []
   const timesForDay = useMemo(() => times.filter(slot => slot.weekday === activeDay).sort((a, b) => a.periodNumber - b.periodNumber), [times, activeDay])
+  const manualWeekday = useMemo(() => weekdayForDate(incidentDate), [incidentDate])
+  const manualPeriods = useMemo(() => times.filter(slot => slot.weekday === manualWeekday).sort((a, b) => a.periodNumber - b.periodNumber), [times, manualWeekday])
+  const manualTeachers = useMemo(() => {
+    const query = compact(teacherSearch)
+    if (!query) return teacherOptions
+    return teacherOptions.filter(teacher => compact(`${teacher.name} ${teacher.identityNumber}`).includes(query))
+  }, [teacherOptions, teacherSearch])
+  const cancellableIncidents = useMemo(() => incidents.filter(incident => incident.status !== 'cancelled'), [incidents])
 
   const loadOverview = async () => {
     const data = await api.lessonOverview()
     setOverview(data)
     if (data.times.length) setTimes(data.times)
     if (!selectedClassroomId && data.classrooms[0]) setSelectedClassroomId(data.classrooms[0].id)
+    if (!manualClassroomId && data.classrooms[0]) setManualClassroomId(data.classrooms[0].id)
   }
 
   const loadIncidents = async (date = incidentDate) => {
@@ -339,7 +362,8 @@ export function LessonFlowCenter({ schoolName }: { schoolName: string }) {
       await loadOverview()
       await loadIncidents()
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'حدث خطأ غير متوقع.')
+      const message = err instanceof Error ? err.message : ''
+      setError(message === 'scan_confirmation_expired' ? 'انتهت مهلة التأكيد. امسح باركود الفصل مرة أخرى.' : (message || 'حدث خطأ غير متوقع.'))
     } finally {
       setBusy('')
     }
@@ -457,9 +481,27 @@ export function LessonFlowCenter({ schoolName }: { schoolName: string }) {
     stopCamera()
     await run('scan', async () => {
       const result = await api.scanLessonClass(code)
+      if (result.existing && result.incident) {
+        setScanPreview(null)
+        setScanIncident(result.incident)
+        setShowIncidents(true)
+        return 'هذه المساءلة موجودة مسبقًا لهذه الحصة.'
+      }
+      if (!result.preview) throw new Error('scan_preview_missing')
+      setScanIncident(null)
+      setScanPreview(result.preview)
+      return 'تمت قراءة الباركود. راجع بيانات المعلم ثم أكد الرصد.'
+    })
+  }
+
+  const confirmScanPreview = async () => {
+    if (!scanPreview) return
+    await run('confirm-camera-scan', async () => {
+      const result = await api.confirmLessonScan(scanPreview.confirmationToken)
+      setScanPreview(null)
       setScanIncident(result.incident)
       setShowIncidents(true)
-      return result.existing ? 'هذه المساءلة موجودة مسبقًا لهذه الحصة.' : 'تم إنشاء مسودة مساءلة للمعلم.'
+      return result.existing ? 'هذه المساءلة موجودة مسبقًا لهذه الحصة.' : 'تمت إضافة مساءلة المعلم إلى السجل.'
     })
   }
 
@@ -487,6 +529,7 @@ export function LessonFlowCenter({ schoolName }: { schoolName: string }) {
 
   const startCamera = async () => {
     setError('')
+    setScanPreview(null)
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } } })
       streamRef.current = stream
@@ -498,7 +541,7 @@ export function LessonFlowCenter({ schoolName }: { schoolName: string }) {
         frameRef.current = window.requestAnimationFrame(scanFrame)
       }, 50)
     } catch {
-      setError('تعذر فتح الكاميرا. استخدم زر رفع صورة للباركود.')
+      setError('تعذر فتح الكاميرا. اسمح للمتصفح باستخدامها ثم أعد المحاولة.')
     }
   }
 
@@ -510,39 +553,56 @@ export function LessonFlowCenter({ schoolName }: { schoolName: string }) {
     setCameraOn(false)
   }
 
-  const scanImage = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0]
-    event.target.value = ''
-    if (!file) return
-    const image = new Image()
-    image.onload = () => {
-      const canvas = document.createElement('canvas')
-      canvas.width = image.naturalWidth
-      canvas.height = image.naturalHeight
-      const context = canvas.getContext('2d')
-      if (!context) return
-      context.drawImage(image, 0, 0)
-      const data = context.getImageData(0, 0, canvas.width, canvas.height)
-      const result = jsQR(data.data, data.width, data.height)
-      if (result?.data) void handleScanCode(result.data)
-      else setError('لم أستطع قراءة الباركود من الصورة.')
-      URL.revokeObjectURL(image.src)
+  const createManualIncident = async () => {
+    if (!manualClassroomId || !manualPeriodNumber || !manualTeacherId) {
+      setError('اختر الفصل والحصة واسم المعلم أولاً.')
+      return
     }
-    image.src = URL.createObjectURL(file)
+    await run('manual-incident', async () => {
+      const result = await api.createManualLessonIncident({
+        classroomId: manualClassroomId,
+        periodNumber: Number(manualPeriodNumber),
+        teacherId: manualTeacherId,
+        incidentDate,
+      })
+      setScanIncident(result.incident)
+      setShowIncidents(true)
+      setShowManualObservation(false)
+      return result.existing ? 'توجد مساءلة قائمة بالفعل لهذا الفصل والحصة والتاريخ.' : 'تم إنشاء مساءلة للمعلم المختار.'
+    })
+  }
+
+  const openCancellation = async () => {
+    setError('')
+    try {
+      await loadIncidents()
+      setShowCancellation(true)
+      setSelectedCancellationId('')
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'تعذر تحميل سجل المساءلات.')
+    }
+  }
+
+  const deleteSelectedIncident = async () => {
+    const incident = cancellableIncidents.find(item => item.id === selectedCancellationId)
+    if (!incident) {
+      setError('اختر مساءلة من السجل أولاً.')
+      return
+    }
+    if (!window.confirm(`سيتم حذف مساءلة ${incident.teacherName} للفصل ${incident.classroom} والحصة ${incident.periodNumber}. لا يمكن التراجع عن هذا الإجراء.`)) return
+    await run('delete-incident', async () => {
+      await api.deleteLessonIncident(incident.id)
+      setShowCancellation(false)
+      setSelectedCancellationId('')
+      if (scanIncident?.id === incident.id) setScanIncident(null)
+      return 'تم حذف المساءلة من السجل.'
+    })
   }
 
   const confirmIncident = async (incident: LessonIncident) => {
     await run('confirm-incident', async () => {
       await api.confirmLessonIncident(incident.id)
       return 'تم اعتماد المساءلة.'
-    })
-  }
-
-  const cancelIncident = async (incident: LessonIncident) => {
-    if (!window.confirm('سيتم إلغاء هذه المساءلة ولن تبقى محتسبة كمساءلة مفتوحة.')) return
-    await run('cancel-incident', async () => {
-      await api.cancelLessonIncident(incident.id)
-      return 'تم إلغاء المساءلة.'
     })
   }
 
@@ -650,9 +710,51 @@ export function LessonFlowCenter({ schoolName }: { schoolName: string }) {
             <div><span className="panel-kicker">تصوير الباركود</span><h3>توجيه مساءلة حسب الحصة الحالية</h3></div>
             <div className="feature-actions">
               <button type="button" className="primary-button" onClick={() => void startCamera()} disabled={cameraOn || !!busy}><Camera size={16} /> فتح الكاميرا</button>
-              <label className="secondary-button lesson-file-button"><Upload size={16} /> رفع صورة<input type="file" accept="image/*" capture="environment" onChange={scanImage} /></label>
+              <button type="button" className="secondary-button" onClick={() => setShowManualObservation(value => !value)} disabled={!!busy}><Search size={16} /> رصد المعلم المنتظر</button>
+              <button type="button" className="secondary-button" onClick={() => void openCancellation()} disabled={!!busy}><XCircle size={16} /> إلغاء مساءلة</button>
             </div>
+            {showManualObservation && <section className="lesson-manual-form">
+              <div className="lesson-section-heading">
+                <div><span className="panel-kicker">رصد يدوي</span><h3>رصد المعلم المنتظر</h3><p>اختر المعلم المطلوب؛ وقت المساءلة يؤخذ من الحصة المختارة ولا يرتبط بوقت الإدخال.</p></div>
+                <button type="button" className="icon-danger-button" onClick={() => setShowManualObservation(false)} aria-label="إغلاق"><XCircle size={18} /></button>
+              </div>
+              <div className="lesson-manual-fields">
+                <label>التاريخ<input type="date" value={incidentDate} onChange={event => setIncidentDate(event.target.value)} /></label>
+                <label>الفصل<select value={manualClassroomId} onChange={event => setManualClassroomId(event.target.value)}><option value="">اختر الفصل</option>{overview?.classrooms.map(classroom => <option key={classroom.id} value={classroom.id}>{classroom.name}</option>)}</select></label>
+                <label>الحصة<select value={manualPeriodNumber} onChange={event => setManualPeriodNumber(event.target.value)}><option value="">اختر الحصة</option>{manualPeriods.map(slot => <option key={slot.periodNumber} value={slot.periodNumber}>الحصة {slot.periodNumber} · {slot.startTime} إلى {slot.endTime}</option>)}</select></label>
+                <label>ابحث عن المعلم<input value={teacherSearch} onChange={event => setTeacherSearch(event.target.value)} placeholder="الاسم أو رقم الهوية" /></label>
+                <label>المعلم<select value={manualTeacherId} onChange={event => setManualTeacherId(event.target.value)}><option value="">اختر المعلم</option>{manualTeachers.map(teacher => <option key={teacher.id} value={teacher.id}>{teacher.name} · {teacher.identityNumber}</option>)}</select></label>
+              </div>
+              {manualPeriodNumber && <p className="lesson-time-hint">وقت المساءلة: {manualPeriods.find(slot => slot.periodNumber === Number(manualPeriodNumber))?.startTime || '—'} إلى {manualPeriods.find(slot => slot.periodNumber === Number(manualPeriodNumber))?.endTime || '—'}</p>}
+              <div className="feature-actions"><button type="button" className="primary-button" onClick={() => void createManualIncident()} disabled={!!busy}><CheckCircle2 size={16} /> تأكيد الرصد وتوجيه المساءلة</button></div>
+            </section>}
+            {showCancellation && <section className="lesson-manual-form lesson-cancellation-form">
+              <div className="lesson-section-heading">
+                <div><span className="panel-kicker">حذف مساءلة</span><h3>إلغاء مساءلة معلم</h3><p>اختر السجل المطلوب حذفه من مساءلات تاريخ {incidentDate}.</p></div>
+                <button type="button" className="icon-danger-button" onClick={() => setShowCancellation(false)} aria-label="إغلاق"><XCircle size={18} /></button>
+              </div>
+              <label className="lesson-cancellation-select">المعلم المرصود<select value={selectedCancellationId} onChange={event => setSelectedCancellationId(event.target.value)}><option value="">اختر المساءلة</option>{cancellableIncidents.map(incident => <option key={incident.id} value={incident.id}>{incident.teacherName} · {incident.classroom} · الحصة {incident.periodNumber} · {incident.startTime} إلى {incident.endTime}</option>)}</select></label>
+              {!cancellableIncidents.length && <p className="lesson-empty">لا توجد مساءلات قابلة للإلغاء في هذا التاريخ.</p>}
+              <div className="feature-actions"><button type="button" className="danger-button" onClick={() => void deleteSelectedIncident()} disabled={!selectedCancellationId || !!busy}><XCircle size={16} /> تأكيد حذف المساءلة</button></div>
+            </section>}
             {cameraOn && <div className="lesson-camera-preview"><video ref={videoRef} muted playsInline /><button type="button" onClick={stopCamera}>إيقاف الكاميرا</button></div>}
+            {scanPreview && <article className="lesson-scan-preview">
+              <div>
+                <span className="panel-kicker">تمت قراءة الباركود</span>
+                <h3>{scanPreview.teacherName}</h3>
+                <p>راجع البيانات قبل إضافة المساءلة إلى السجل.</p>
+              </div>
+              <dl className="lesson-scan-preview-details">
+                <div><dt>الفصل</dt><dd>{scanPreview.classroom}</dd></div>
+                <div><dt>الحصة</dt><dd>{scanPreview.periodNumber}</dd></div>
+                <div><dt>الوقت</dt><dd>{scanPreview.startTime} إلى {scanPreview.endTime}</dd></div>
+                <div><dt>رقم الهوية</dt><dd>{scanPreview.identityNumber}</dd></div>
+              </dl>
+              <div className="feature-actions">
+                <button type="button" className="primary-button" onClick={() => void confirmScanPreview()} disabled={!!busy}><CheckCircle2 size={16} /> تأكيد الرصد</button>
+                <button type="button" className="secondary-button" onClick={() => setScanPreview(null)} disabled={!!busy}><XCircle size={16} /> إلغاء</button>
+              </div>
+            </article>}
             {scanIncident && <article className="lesson-incident-card highlighted">
               <strong>{scanIncident.teacherName}</strong>
               <small>{scanIncident.classroom} · الحصة {scanIncident.periodNumber} · {scanIncident.startTime} إلى {scanIncident.endTime}</small>
@@ -673,7 +775,6 @@ export function LessonFlowCenter({ schoolName }: { schoolName: string }) {
                 <div><strong>{incident.teacherName}</strong><small>{incident.classroom} · {weekdayLabel(incident.weekday)} · الحصة {incident.periodNumber} · {incidentStatus(incident.status)}</small></div>
                 <div className="feature-actions">
                   {incident.status === 'draft' && <button type="button" className="primary-button" onClick={() => void confirmIncident(incident)}><CheckCircle2 size={16} /> اعتماد</button>}
-                  {incident.status !== 'cancelled' && <button type="button" className="secondary-button" onClick={() => void cancelIncident(incident)}><XCircle size={16} /> إلغاء</button>}
                   <button type="button" className="export-btn pdf" onClick={() => printIncident(incident)}><Printer size={16} /> PDF</button>
                 </div>
               </article>)}
