@@ -257,6 +257,12 @@ function scheduleCell(assignments: LessonScheduleAssignment[], weekday: number, 
   return assignments.find(item => item.weekday === weekday && item.periodNumber === periodNumber)
 }
 
+function classroomPrintHeading(name: string) {
+  const normalized = compact(name)
+  const match = /^(.*?)[\s\-–—/]+([0-9٠-٩]+)$/.exec(normalized)
+  return match ? `الصف: ${match[1].trim()} · الفصل: ${match[2]}` : `الصف والفصل: ${normalized}`
+}
+
 function scheduleExportRows(schedule: LessonSchedule) {
   return schedule.assignments.map(row => [
     weekdayLabel(row.weekday),
@@ -271,7 +277,8 @@ function scheduleExportRows(schedule: LessonSchedule) {
 function scheduleTableHtml(schedule: LessonSchedule) {
   const periods = [...new Set(schedule.assignments.map(row => row.periodNumber))].sort((a, b) => a - b)
   const days = [...new Set(schedule.assignments.map(row => row.weekday))].sort((a, b) => a - b)
-  return `<h1>جدول فصل ${escapeHtml(schedule.classroom.name)}</h1><table><thead><tr><th>اليوم</th>${periods.map(period => `<th>الحصة ${period}</th>`).join('')}</tr></thead><tbody>${days.map(day => `<tr><th>${escapeHtml(weekdayLabel(day))}</th>${periods.map(period => {
+  const heading = classroomPrintHeading(schedule.classroom.name)
+  return `<div style="margin:0 0 16px;padding:10px 12px;border:1px solid #cbd5e1;border-radius:8px;background:#f8fafc;color:#0c4277;font-size:16px;font-weight:800;text-align:center">${escapeHtml(heading)}</div><table><thead><tr><th>اليوم</th>${periods.map(period => `<th>الحصة ${period}</th>`).join('')}</tr></thead><tbody>${days.map(day => `<tr><th>${escapeHtml(weekdayLabel(day))}</th>${periods.map(period => {
     const cell = scheduleCell(schedule.assignments, day, period)
     return `<td>${cell ? `${escapeHtml(cell.teacherName || cell.rawTeacherName || 'غير مربوط')}<br/><small>${escapeHtml(cell.subjectName || '')}</small>` : '—'}</td>`
   }).join('')}</tr>`).join('')}</tbody></table>`
@@ -464,7 +471,7 @@ export function LessonFlowCenter({ schoolName }: { schoolName: string }) {
 
   const exportSelectedSchedulePdf = () => {
     if (!schedule) return
-    openPrintDocument(`جدول فصل ${schedule.classroom.name}`, `<section class="page">${scheduleTableHtml(schedule)}</section>`, schoolName, 'landscape')
+    openPrintDocument(`جدول ${classroomPrintHeading(schedule.classroom.name)}`, `<section class="page">${scheduleTableHtml(schedule)}</section>`, schoolName, 'landscape')
   }
 
   const exportAllSchedulesPdf = async () => {
