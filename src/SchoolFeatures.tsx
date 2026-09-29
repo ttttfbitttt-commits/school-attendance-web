@@ -302,7 +302,10 @@ function HistoryCounts({ type, students, schoolName }: { type: 'absence' | 'late
   return <section className="panel history-count-panel"><div className="panel-header"><div><span className="panel-kicker">ملخص تراكمي</span><h2>{title}</h2><p>ابحث وحدد الطلاب، أو افتح بطاقة لعرض فئتها.</p></div></div><div className="count-card-grid">{buckets.map(bucket => <button className={`count-card ${bucket.tone}`} type="button" key={bucket.tone} onClick={() => setShownRows(bucket.rows)}><span>{bucket.label.replace('غياب', type === 'late' ? 'تأخر' : 'غياب')}</span><strong>{bucket.rows.length} طالب</strong></button>)}</div><div className="student-picker"><input value={search} onChange={event => setSearch(event.target.value)} placeholder="ابحث باسم الطالب..." />{matches.map(student => <label key={student.id}><input type="checkbox" checked={selected.has(student.id)} onChange={() => setSelected(current => { const next = new Set(current); next.has(student.id) ? next.delete(student.id) : next.add(student.id); return next })} /> {student.name} · {student.grade} · {student.classroom}</label>)}<button type="button" className="primary-button" onClick={() => void load([...selected])} disabled={!selected.size}><CheckCircle2 size={16} /> تأكيد الطلاب المحددين</button><button type="button" className="secondary-button" onClick={() => { setSelected(new Set()); void load() }}>عرض الجميع</button></div><div className="feature-actions"><button type="button" className="export-btn csv" onClick={() => downloadWorkbook(title, [['الطالب','الصف','الفصل','الجوال','عدد الأيام','بعذر','بدون عذر'], ...shownRows.map(row => [row.name,row.grade,row.classroom,row.phone,row.days,row.excusedDays,row.unexcusedDays])], title, schoolName, title)} disabled={!shownRows.length}><Download size={16} /> Excel</button><button type="button" className="export-btn pdf" onClick={() => void printHistories(shownRows)} disabled={!shownRows.length}><Printer size={16} /> PDF لجميع الظاهرين</button></div><div className="daily-list">{shownRows.map(row => <button type="button" className="history-row" key={row.studentId} onClick={() => void open(row)}><span><strong>{row.name}</strong><small>{row.grade} · {row.classroom} · <bdi>{row.phone}</bdi></small></span><strong>{row.days} يومًا</strong></button>)}{!shownRows.length && <p className="report-empty-state">لا توجد بيانات ضمن هذا الاختيار.</p>}</div>{history && <div className="report-modal-overlay"><section className="report-modal"><header className="report-modal-header"><div><span className="panel-kicker">تفاصيل الطالب</span><h2>{history.student.name}</h2><p>{history.student.grade} · {history.student.classroom} · <bdi>{history.student.phone}</bdi></p></div><button type="button" className="modal-close-button" onClick={() => setHistory(null)}>×</button></header><div className="report-modal-actions"><button type="button" className="export-btn csv" onClick={() => downloadWorkbook(`${reportTitle}_${history.student.name}`, [['التاريخ','الحالة', ...(type === 'late' ? ['الوقت'] : [])], ...history.days.map(day => [day.date,statusText(day.status), ...(type === 'late' ? [day.time || '—'] : [])])], reportTitle, schoolName, `${reportTitle} - ${history.student.name}`)}>Excel</button><button type="button" className="export-btn pdf" onClick={() => void printHistories([{ studentId: history.student.studentId, name: history.student.name, grade: history.student.grade, classroom: history.student.classroom, phone: history.student.phone, days: history.days.length, excusedDays: 0, unexcusedDays: 0 }])}>PDF</button></div><div className="absence-detail-list">{history.days.map(day => <article className="absence-day-card" key={day.date}><strong>{day.date}</strong><span>{statusText(day.status)}{type === 'late' && day.time ? ` · ${day.time}` : ''}</span></article>)}</div></section></div>}</section>
 }
 
+type ReportSection = 'pending' | 'phones' | 'absences' | 'absence-history' | 'lates' | 'late-history'
+
 export function ReportsCenter({ students, schoolName }: { students: FeatureStudent[]; schoolName: string }) {
+  const [activeReport, setActiveReport] = useState<ReportSection>('pending')
   const [todayMissingCount, setTodayMissingCount] = useState<number | null>(null)
   const [absenceDate, setAbsenceDate] = useState(today())
   const [lateDate, setLateDate] = useState(today())
@@ -311,15 +314,21 @@ export function ReportsCenter({ students, schoolName }: { students: FeatureStude
   const [notice, setNotice] = useState('')
   const [calculatingAbsences, setCalculatingAbsences] = useState(false)
   const [focusDailyAbsenceLog, setFocusDailyAbsenceLog] = useState(false)
+
   const loadToday = async () => setTodayMissingCount((await api.missingAttendance(today())).count)
   const loadAbsences = async (date = absenceDate) => setAbsences((await api.dailyAbsences(date)).rows as DailyRow[])
   const loadLates = async (date = lateDate) => setLates((await api.dailyLates(date)).rows as DailyRow[])
-  useEffect(() => { void Promise.all([loadToday(), loadAbsences(), loadLates()]).catch(() => setNotice('تعذر تحميل بعض بيانات التقارير.')) }, [])
+
   useEffect(() => {
-    if (!focusDailyAbsenceLog) return
+    void Promise.all([loadToday(), loadAbsences(), loadLates()]).catch(() => setNotice('تعذر تحميل بعض بيانات التقارير.'))
+  }, [])
+
+  useEffect(() => {
+    if (!focusDailyAbsenceLog || activeReport !== 'absences') return
     document.getElementById('daily-absence-log')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
     setFocusDailyAbsenceLog(false)
-  }, [focusDailyAbsenceLog, absences])
+  }, [focusDailyAbsenceLog, activeReport, absences])
+
   const calculate = async () => {
     if (calculatingAbsences || !todayMissingCount) return
     if (!window.confirm(`سيُعتمد غياب ${todayMissingCount} طالبًا لهذا اليوم. هل تريد المتابعة؟`)) return
@@ -331,6 +340,7 @@ export function ReportsCenter({ students, schoolName }: { students: FeatureStude
       setTodayMissingCount(pending.count)
       setAbsenceDate(date)
       setAbsences(daily.rows as DailyRow[])
+      setActiveReport('absences')
       setNotice('تم اعتماد الغياب، وظهرت الأسماء في سجل غياب الطلاب.')
       setFocusDailyAbsenceLog(true)
     } catch {
@@ -339,7 +349,82 @@ export function ReportsCenter({ students, schoolName }: { students: FeatureStude
       setCalculatingAbsences(false)
     }
   }
-  const updateAbsence = async (ids: string[], status: 'unexcused' | 'excused') => { await api.setAbsenceStatus({ studentIds: ids, from: absenceDate, to: absenceDate, status }); await loadAbsences() }
-  const updateLate = async (ids: string[], status: 'unexcused' | 'excused') => { await api.setDailyLateStatus({ date: lateDate, studentIds: ids, status }); await loadLates() }
-  return <section className="feature-page reports-center"><section className="panel feature-intro"><div><span className="panel-kicker">إدارة المدرسة</span><h2>التقارير</h2><p>تابع الغياب والتأخر يوميًا، ثم اعرض الإجماليات والتفاصيل عند الحاجة.</p></div><FileText size={34} /></section><section className="panel"><div className="panel-header"><div><span className="panel-kicker">بيانات الاتصال</span><h2>تقرير هواتف الطلاب</h2></div><div className="feature-actions"><button type="button" className="export-btn csv" onClick={() => downloadWorkbook('تقرير_هواتف_الطلاب', [['اسم الطالب','الصف','الفصل','رقم الجوال'], ...students.map(student => [student.name,student.grade,student.classroom,student.phone])], '\u0647\u0648\u0627\u062a\u0641 \u0627\u0644\u0637\u0644\u0627\u0628', schoolName, '\u062a\u0642\u0631\u064a\u0631 \u0647\u0648\u0627\u062a\u0641 \u0627\u0644\u0637\u0644\u0627\u0628')}><Download size={16} /> Excel</button><button type="button" className="export-btn pdf" onClick={() => openPrintDocument('تقرير هواتف الطلاب', `<section class="page"><h1>تقرير هواتف الطلاب</h1><table><thead><tr><th>الطالب</th><th>الصف</th><th>الفصل</th><th>الجوال</th></tr></thead><tbody>${students.map(student => `<tr><td>${escapeHtml(student.name)}</td><td>${escapeHtml(student.grade)}</td><td>${escapeHtml(student.classroom)}</td><td dir="ltr">${escapeHtml(student.phone)}</td></tr>`).join('')}</tbody></table><p class="meta">${escapeHtml(schoolName)} · ${today()}</p></section>`, schoolName)}><Printer size={16} /> PDF</button></div></div></section><section className="panel daily-report-panel pending-absence-panel"><div className="panel-header"><div><span className="panel-kicker">متابعة مباشرة</span><h2>غياب اليوم</h2><p>عدد الطلاب الذين لم يسجلوا حضورًا أو تأخرًا حتى الآن.</p></div><div className="pending-absence-count" role="status" aria-live="polite" aria-atomic="true"><span>بانتظار الاعتماد</span><strong>{todayMissingCount ?? '—'}</strong></div><button type="button" className="primary-button" onClick={() => void calculate()} disabled={todayMissingCount === null || todayMissingCount === 0 || calculatingAbsences}><CheckCircle2 size={16} /> {calculatingAbsences ? 'جارٍ اعتماد الغياب...' : 'اعتماد غياب الطلاب'}</button></div><p className="pending-absence-hint">ستظهر أسماء الطلاب في سجل «غياب الطلاب» بعد الاعتماد.</p>{todayMissingCount === 0 && <p className="report-empty-state">لا يوجد طالب بانتظار تسجيل الحضور الآن.</p>}</section><DailyList id="daily-absence-log" title="غياب الطلاب" date={absenceDate} onDate={value => { setAbsenceDate(value); void loadAbsences(value) }} rows={absences} onStatus={(ids, status) => void updateAbsence(ids, status)} onAll={status => void updateAbsence(absences.map(row => row.studentId), status)} onExcel={() => exportDaily(`غياب_${absenceDate}`, absences, schoolName)} onPdf={() => printDaily('غياب الطلاب', absences, schoolName, absenceDate)} /><HistoryCounts type="absence" students={students} schoolName={schoolName} /><DailyList title="تأخر الطلاب" date={lateDate} onDate={value => { setLateDate(value); void loadLates(value) }} rows={lates} onStatus={(ids, status) => void updateLate(ids, status)} onAll={status => void updateLate(lates.map(row => row.studentId), status)} onExcel={() => exportDaily(`تأخر_${lateDate}`, lates, schoolName)} onPdf={() => printDaily('تأخر الطلاب', lates, schoolName, lateDate)} late /><HistoryCounts type="late" students={students} schoolName={schoolName} />{notice && <div className="notice-box">{notice}</div>}</section>
+
+  const updateAbsence = async (ids: string[], status: 'unexcused' | 'excused') => {
+    await api.setAbsenceStatus({ studentIds: ids, from: absenceDate, to: absenceDate, status })
+    await loadAbsences()
+  }
+  const updateLate = async (ids: string[], status: 'unexcused' | 'excused') => {
+    await api.setDailyLateStatus({ date: lateDate, studentIds: ids, status })
+    await loadLates()
+  }
+  const exportPendingExcel = () => downloadWorkbook(
+    `ملخص_غياب_اليوم_${today()}`,
+    [['التاريخ', 'عدد الطلاب بانتظار الاعتماد'], [today(), todayMissingCount ?? 0]],
+    'غياب اليوم', schoolName, 'ملخص غياب اليوم',
+  )
+  const exportPendingPdf = () => openPrintDocument(
+    'ملخص غياب اليوم',
+    `<section class="page"><h1>ملخص غياب اليوم</h1><table><thead><tr><th>التاريخ</th><th>عدد الطلاب بانتظار الاعتماد</th></tr></thead><tbody><tr><td>${today()}</td><td>${todayMissingCount ?? 0}</td></tr></tbody></table></section>`,
+    schoolName,
+  )
+
+  const tabs: Array<{ id: ReportSection; label: string; count?: number | null }> = [
+    { id: 'pending', label: 'غياب اليوم', count: todayMissingCount },
+    { id: 'absences', label: 'سجل الغياب', count: absences.length },
+    { id: 'absence-history', label: 'أيام الغياب' },
+    { id: 'lates', label: 'سجل التأخر', count: lates.length },
+    { id: 'late-history', label: 'أيام التأخر' },
+    { id: 'phones', label: 'هواتف الطلاب', count: students.length },
+  ]
+
+  return <section className="feature-page reports-center">
+    <section className="panel feature-intro">
+      <div><span className="panel-kicker">إدارة المدرسة</span><h2>التقارير</h2><p>اختر التقرير المطلوب. يظهر قسم واحد في كل مرة، ويمكن تصدير تقاريره إلى Excel أو PDF.</p></div>
+      <FileText size={34} />
+    </section>
+
+    <nav className="report-section-tabs" role="tablist" aria-label="أقسام التقارير">
+      {tabs.map(tab => <button
+        key={tab.id}
+        id={`report-tab-${tab.id}`}
+        className={`report-section-tab${activeReport === tab.id ? ' active' : ''}`}
+        type="button"
+        role="tab"
+        aria-selected={activeReport === tab.id}
+        aria-controls="report-section-content"
+        onClick={() => setActiveReport(tab.id)}
+      ><span>{tab.label}</span>{tab.count !== undefined && <strong>{tab.count ?? '—'}</strong>}</button>)}
+    </nav>
+
+    <div id="report-section-content" className="report-section-content" role="tabpanel" aria-labelledby={`report-tab-${activeReport}`}>
+      {activeReport === 'pending' && <section className="panel daily-report-panel pending-absence-panel">
+        <div className="panel-header">
+          <div><span className="panel-kicker">متابعة مباشرة</span><h2>غياب اليوم</h2><p>عدد الطلاب الذين لم يسجلوا حضورًا أو تأخرًا حتى الآن. لا تُسجل أسماؤهم في الغياب قبل الاعتماد.</p></div>
+          <div className="pending-absence-count" role="status" aria-live="polite" aria-atomic="true"><span>بانتظار الاعتماد</span><strong>{todayMissingCount ?? '—'}</strong></div>
+          <button type="button" className="primary-button" onClick={() => void calculate()} disabled={todayMissingCount === null || todayMissingCount === 0 || calculatingAbsences}><CheckCircle2 size={16} /> {calculatingAbsences ? 'جارٍ اعتماد الغياب...' : 'اعتماد غياب الطلاب'}</button>
+        </div>
+        <p className="pending-absence-hint">بعد الاعتماد تظهر الأسماء في قسم «سجل الغياب».</p>
+        <div className="feature-actions daily-actions">
+          <button className="export-btn csv" type="button" onClick={exportPendingExcel} disabled={todayMissingCount === null}><Download size={16} /> Excel</button>
+          <button className="export-btn pdf" type="button" onClick={exportPendingPdf} disabled={todayMissingCount === null}><Printer size={16} /> PDF</button>
+        </div>
+        {todayMissingCount === 0 && <p className="report-empty-state">لا يوجد طالب بانتظار تسجيل الحضور الآن.</p>}
+      </section>}
+
+      {activeReport === 'phones' && <section className="panel">
+        <div className="panel-header"><div><span className="panel-kicker">بيانات الاتصال</span><h2>تقرير هواتف الطلاب</h2></div><div className="feature-actions">
+          <button type="button" className="export-btn csv" onClick={() => downloadWorkbook('تقرير_هواتف_الطلاب', [['اسم الطالب','الصف','الفصل','رقم الجوال'], ...students.map(student => [student.name,student.grade,student.classroom,student.phone])], 'هواتف الطلاب', schoolName, 'تقرير هواتف الطلاب')}><Download size={16} /> Excel</button>
+          <button type="button" className="export-btn pdf" onClick={() => openPrintDocument('تقرير هواتف الطلاب', `<section class="page"><h1>تقرير هواتف الطلاب</h1><table><thead><tr><th>الطالب</th><th>الصف</th><th>الفصل</th><th>الجوال</th></tr></thead><tbody>${students.map(student => `<tr><td>${escapeHtml(student.name)}</td><td>${escapeHtml(student.grade)}</td><td>${escapeHtml(student.classroom)}</td><td dir="ltr">${escapeHtml(student.phone)}</td></tr>`).join('')}</tbody></table><p class="meta">${escapeHtml(schoolName)} · ${today()}</p></section>`, schoolName)}><Printer size={16} /> PDF</button>
+        </div></div>
+      </section>}
+
+      {activeReport === 'absences' && <DailyList id="daily-absence-log" title="غياب الطلاب" date={absenceDate} onDate={value => { setAbsenceDate(value); void loadAbsences(value) }} rows={absences} onStatus={(ids, status) => void updateAbsence(ids, status)} onAll={status => void updateAbsence(absences.map(row => row.studentId), status)} onExcel={() => exportDaily(`غياب_${absenceDate}`, absences, schoolName)} onPdf={() => printDaily('غياب الطلاب', absences, schoolName, absenceDate)} />}
+      {activeReport === 'absence-history' && <HistoryCounts type="absence" students={students} schoolName={schoolName} />}
+      {activeReport === 'lates' && <DailyList title="تأخر الطلاب" date={lateDate} onDate={value => { setLateDate(value); void loadLates(value) }} rows={lates} onStatus={(ids, status) => void updateLate(ids, status)} onAll={status => void updateLate(lates.map(row => row.studentId), status)} onExcel={() => exportDaily(`تأخر_${lateDate}`, lates, schoolName)} onPdf={() => printDaily('تأخر الطلاب', lates, schoolName, lateDate)} late />}
+      {activeReport === 'late-history' && <HistoryCounts type="late" students={students} schoolName={schoolName} />}
+    </div>
+
+    {notice && <div className="notice-box" role="status">{notice}</div>}
+  </section>
 }
