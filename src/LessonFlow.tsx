@@ -75,7 +75,11 @@ function compact(value: unknown) {
 }
 
 function normalizeHeader(value: unknown) {
-  return compact(value).replace(/[^\p{L}\p{N}]+/gu, '').toLowerCase()
+  return compact(value)
+    .replace(/[أإآٱ]/g, 'ا')
+    .replace(/[ى]/g, 'ي')
+    .replace(/[^\p{L}\p{N}]+/gu, '')
+    .toLowerCase()
 }
 
 function toNumber(value: unknown) {
