@@ -4,6 +4,7 @@ import { URL } from 'node:url'
 import pg from 'pg'
 import { handleFeatureRequest, migrateFeatures } from './features.mjs'
 import { handleLessonFlowRequest, migrateLessonFlow } from './lessonFlow.mjs'
+import { handleTeacherPortalRequest, migrateTeacherPortal } from './teacherPortal.mjs'
 
 const { Pool } = pg
 if (!process.env.DATABASE_URL || !process.env.RUNTIME_DATABASE_URL || !process.env.AUTH_DATABASE_URL) {
@@ -43,9 +44,12 @@ async function body(req) {
 async function auth(req) {
   const token = parseCookies(req)[COOKIE]
   if (!token) return null
-  const { rows } = await authPool.query(`SELECT s.user_id, s.school_id, u.email, u.display_name, m.role
+  const { rows } = await authPool.query(`SELECT s.user_id, s.school_id, u.email, u.display_name, m.role,
+      account.teacher_id,account.must_change_password
     FROM sessions s JOIN users u ON u.id=s.user_id JOIN memberships m ON m.user_id=s.user_id AND m.school_id=s.school_id
-    WHERE s.token_hash=$1 AND s.expires_at > now()`, [tokenHash(token)])
+      LEFT JOIN teacher_login_accounts account ON account.user_id=s.user_id AND account.school_id=s.school_id
+    WHERE s.token_hash=$1 AND s.expires_at > now()
+      AND (m.role <> 'teacher' OR account.active=true)`, [tokenHash(token)])
   return rows[0] || null
 }
 async function createSession(res, userId, schoolId) {
@@ -53,7 +57,16 @@ async function createSession(res, userId, schoolId) {
   await authPool.query('INSERT INTO sessions(token_hash,user_id,school_id,expires_at) VALUES($1,$2,$3,now()+interval \'12 hours\')', [tokenHash(token), userId, schoolId])
   res.setHeader('set-cookie', sessionCookie(token))
 }
-function account(row) { return { email: row.email, displayName: row.display_name, role: row.role, schoolId: row.school_id } }
+function account(row) {
+  return {
+    email: row.email,
+    displayName: row.display_name,
+    role: row.role,
+    schoolId: row.school_id,
+    teacherId: row.teacher_id || undefined,
+    mustChangePassword: Boolean(row.must_change_password),
+  }
+}
 const defaultPreferences = { attendanceMode: 'auto', cutoffTime: '07:30', gradeAliases: {} }
 function schoolProfile(row) {
   const preferences = row.preferences && typeof row.preferences === 'object' ? row.preferences : {}
@@ -113,9 +126,11 @@ async function configureDatabaseRoles() {
   await adminPool.query('GRANT USAGE ON SCHEMA public TO attendance_app, attendance_auth')
   await adminPool.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON schools, students, attendance_logs, almadar_accounts, student_excuses,
     message_logs, absence_records, absence_corrections, lesson_teachers, lesson_classrooms, lesson_schedule_imports,
-    lesson_name_mappings, lesson_time_slots, lesson_schedule_assignments, teacher_incidents TO attendance_app`)
-  await adminPool.query('GRANT SELECT, INSERT ON schools, users, memberships TO attendance_auth')
+    lesson_name_mappings, lesson_time_slots, lesson_schedule_assignments, teacher_incidents, teacher_classroom_student_maps,
+    teacher_lesson_sessions, teacher_lesson_student_records TO attendance_app`)
+  await adminPool.query('GRANT SELECT, INSERT, UPDATE ON schools, users, memberships TO attendance_auth')
   await adminPool.query('GRANT SELECT, INSERT, DELETE ON sessions TO attendance_auth')
+  await adminPool.query('GRANT SELECT, INSERT, UPDATE, DELETE ON teacher_login_accounts TO attendance_auth')
 }
 
 async function enforceTenantRowSecurity() {
@@ -135,6 +150,9 @@ async function enforceTenantRowSecurity() {
     ['lesson_time_slots', 'school_id', 'lesson_time_slots_school_scope'],
     ['lesson_schedule_assignments', 'school_id', 'lesson_schedule_assignments_school_scope'],
     ['teacher_incidents', 'school_id', 'teacher_incidents_school_scope'],
+    ['teacher_classroom_student_maps', 'school_id', 'teacher_classroom_student_maps_school_scope'],
+    ['teacher_lesson_sessions', 'school_id', 'teacher_lesson_sessions_school_scope'],
+    ['teacher_lesson_student_records', 'school_id', 'teacher_lesson_student_records_school_scope'],
   ]
   for (const [table, schoolColumn, policy] of tables) {
     await adminPool.query(`ALTER TABLE ${table} ENABLE ROW LEVEL SECURITY`)
@@ -151,6 +169,7 @@ async function migrateDatabase() {
   await adminPool.query('ALTER TABLE students ADD COLUMN IF NOT EXISTS active boolean NOT NULL DEFAULT true')
   await migrateFeatures(adminPool)
   await migrateLessonFlow(adminPool)
+  await migrateTeacherPortal(adminPool)
   await enforceTenantRowSecurity()
   await configureDatabaseRoles()
 }
@@ -176,15 +195,39 @@ const server = http.createServer(async (req, res) => {
     }
     if (req.method === 'POST' && url.pathname === '/api/auth/login') {
       const { email, password } = await body(req)
-      const user = await authPool.query(`SELECT u.id,u.email,u.display_name,m.school_id,m.role,u.password_hash FROM users u JOIN memberships m ON m.user_id=u.id WHERE u.email=lower($1) ORDER BY m.role='admin' DESC LIMIT 1`, [email || ''])
+      const user = await authPool.query(`SELECT u.id,u.email,u.display_name,m.school_id,m.role,u.password_hash FROM users u JOIN memberships m ON m.user_id=u.id WHERE u.email=lower($1) AND m.role IN ('admin','staff') ORDER BY m.role='admin' DESC LIMIT 1`, [email || ''])
       if (!user.rows[0] || !passwordMatches(String(password || ''), user.rows[0].password_hash)) return json(res, 401, { error: 'invalid_login' })
       await createSession(res, user.rows[0].id, user.rows[0].school_id)
       return json(res, 200, { user: account(user.rows[0]) })
+    }
+    if (req.method === 'POST' && url.pathname === '/api/auth/teacher-login') {
+      const { identityNumber, password, schoolId } = await body(req)
+      const identity = String(identityNumber || '').replace(/\D/g, '').slice(0, 32)
+      const candidates = await authPool.query(`SELECT account.user_id,account.school_id,account.teacher_id,account.must_change_password,account.password_hash,u.email,u.display_name,m.role
+        FROM teacher_login_accounts account JOIN users u ON u.id=account.user_id
+          JOIN memberships m ON m.user_id=account.user_id AND m.school_id=account.school_id
+        WHERE account.identity_number=$1 AND account.active=true AND m.role='teacher'${schoolId ? ' AND account.school_id=$2' : ''}`,
+      schoolId ? [identity, String(schoolId)] : [identity])
+      const matches = candidates.rows.filter(row => passwordMatches(String(password || ''), row.password_hash))
+      if (!matches.length) return json(res, 401, { error: 'invalid_teacher_login' })
+      if (!schoolId && matches.length > 1) {
+        const schools = await Promise.all(matches.map(async row => ({
+          id: row.school_id,
+          name: (await scopedOn(authPool, row.school_id, client => client.query('SELECT name FROM schools WHERE id=$1', [row.school_id]))).rows[0]?.name || 'المدرسة',
+        })))
+        return json(res, 409, { error: 'teacher_school_selection_required', schools })
+      }
+      const teacher = matches[0]
+      await createSession(res, teacher.user_id, teacher.school_id)
+      return json(res, 200, { user: account(teacher) })
     }
     if (req.method === 'POST' && url.pathname === '/api/auth/logout') { const t=parseCookies(req)[COOKIE]; if(t) await authPool.query('DELETE FROM sessions WHERE token_hash=$1',[tokenHash(t)]); res.setHeader('set-cookie',sessionCookie('',0)); return json(res,200,{ok:true}) }
     const user = await auth(req)
     if (!user) return json(res, 401, { error: 'unauthorized' })
     if (req.method === 'GET' && url.pathname === '/api/me') return json(res, 200, { user: account(user) })
+    if (await handleTeacherPortalRequest({ req, res, url, user, pool, authPool, body, json, scoped, todayRiyadh, passwordHash })) return
+    // Teacher accounts are intentionally isolated from the administrative attendance APIs.
+    if (user.role === 'teacher') return json(res, 403, { error: 'teacher_portal_only' })
     if (req.method === 'GET' && url.pathname === '/api/school') {
       const result = await scoped(user.school_id, async c => c.query('SELECT name,principal_name,academic_year,semester,preferences FROM schools WHERE id=$1', [user.school_id]))
       if (!result.rows[0]) return json(res, 404, { error: 'school_not_found' })

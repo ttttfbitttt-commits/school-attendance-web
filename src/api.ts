@@ -1,4 +1,4 @@
-export type Account = { email: string; displayName: string; role: 'admin' | 'staff'; schoolId: string }
+export type Account = { email: string; displayName: string; role: 'admin' | 'staff' | 'teacher'; schoolId: string; teacherId?: string; mustChangePassword?: boolean }
 export type SchoolPreferences = { attendanceMode: 'auto' | 'present' | 'late'; cutoffTime: string; gradeAliases: Record<string, string> }
 export type SchoolProfile = { schoolName: string; principalName: string; academicYear: string; semester: string; preferences: SchoolPreferences }
 export type AlmadarAccount = { configured: boolean; senderName?: string; lastBalance?: string | null; verifiedAt?: string | null; updatedAt?: string | null }
@@ -101,6 +101,20 @@ export type LessonScanPreview = {
   startTime: string
   endTime: string
 }
+export type TeacherPortalScheduleItem = { assignmentId: string; classroomId: string; classroom: string; periodNumber: number; subject: string; startTime: string | null; endTime: string | null }
+export type TeacherPortalDashboard = { schoolName: string; teacher: { name: string; identityNumber: string }; date: string; weekday: number; schedule: TeacherPortalScheduleItem[] }
+export type TeacherNote = 'هرب' | 'نائم' | 'لم يحل الواجب' | 'لم يشارك' | 'مشارك فعال'
+export type TeacherLessonStudent = { id: string; name: string; phone: string; grade: string; classroom: string; status: 'present' | 'absent'; note: TeacherNote | '' }
+export type TeacherLesson = { assignment: { assignmentId: string; classroomId: string; classroom: string; subject: string }; date: string; periodNumber: number; mapping: { grade: string; classroom: string; mappingSource: 'automatic' | 'manual' }; students: TeacherLessonStudent[] }
+export type TeacherLessonReport = {
+  id: string; date: string; weekday: number; periodNumber: number; teacherId: string; teacherName: string; classroom: string; subject: string; grade: string; classroomValue: string; savedAt: string
+  studentsCount: number; presentCount: number; absentCount: number
+  records: Array<{ studentId: string; name: string; grade: string; classroom: string; status: 'present' | 'absent'; note: TeacherNote | '' }>
+}
+export type TeacherAdminOverview = {
+  teachers: Array<{ teacherId: string; name: string; identityNumber: string; assignments: number; accountActive: boolean; accountCreated: boolean; mustChangePassword: boolean }>
+  classroomMappings: Array<{ classroomId: string; classroom: string; grade: string | null; classroomValue: string | null; mappingSource: 'automatic' | 'manual' | null }>
+}
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`/api${path}`, {
@@ -109,13 +123,19 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     ...init,
   })
   const data = await response.json().catch(() => ({}))
-  if (!response.ok) throw new Error(data.error || 'request_failed')
+  if (!response.ok) {
+    const error = new Error(data.error || 'request_failed') as Error & { code?: string; data?: unknown }
+    error.code = data.error || 'request_failed'
+    error.data = data
+    throw error
+  }
   return data as T
 }
 
 export const api = {
   me: () => request<{ user: Account }>('/me'),
   login: (email: string, password: string) => request<{ user: Account }>('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
+  teacherLogin: (identityNumber: string, password: string, schoolId = '') => request<{ user: Account }>('/auth/teacher-login', { method: 'POST', body: JSON.stringify({ identityNumber, password, schoolId: schoolId || undefined }) }),
   register: (displayName: string, schoolName: string, email: string, password: string) => request<{ user: Account }>('/auth/register', { method: 'POST', body: JSON.stringify({ displayName, schoolName, email, password }) }),
   logout: () => request<{ ok: boolean }>('/auth/logout', { method: 'POST' }),
   school: () => request<{ school: SchoolProfile }>('/school'),
@@ -170,4 +190,16 @@ export const api = {
   confirmLessonIncident: (id: string) => request<{ ok: boolean }>(`/lesson-flow/incidents/${encodeURIComponent(id)}/confirm`, { method: 'POST', body: JSON.stringify({}) }),
   cancelLessonIncident: (id: string, note = '') => request<{ ok: boolean }>(`/lesson-flow/incidents/${encodeURIComponent(id)}/cancel`, { method: 'POST', body: JSON.stringify({ note }) }),
   deleteLessonIncident: (id: string) => request<{ ok: boolean }>(`/lesson-flow/incidents/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  teacherDashboard: (date: string) => request<TeacherPortalDashboard>(`/teacher-portal/teacher/dashboard?date=${encodeURIComponent(date)}`),
+  teacherLesson: (classroomId: string, date: string, periodNumber: number) => request<TeacherLesson>(`/teacher-portal/teacher/lesson?classroomId=${encodeURIComponent(classroomId)}&date=${encodeURIComponent(date)}&periodNumber=${periodNumber}`),
+  saveTeacherLesson: (payload: { classroomId: string; date: string; periodNumber: number; students: Array<{ studentId: string; status: 'present' | 'absent'; note: TeacherNote | '' }> }) => request<{ ok: boolean; saved: number }>('/teacher-portal/teacher/lesson', { method: 'PUT', body: JSON.stringify(payload) }),
+  teacherReports: (filters: { date?: string; note?: string } = {}) => request<{ reports: TeacherLessonReport[] }>(`/teacher-portal/teacher/reports?${new URLSearchParams(Object.entries(filters).filter(([, value]) => value).map(([key, value]) => [key, value || '']))}`),
+  changeTeacherPassword: (password: string) => request<{ ok: boolean }>('/teacher-portal/teacher/password', { method: 'POST', body: JSON.stringify({ password }) }),
+  teacherAdminOverview: () => request<TeacherAdminOverview>('/teacher-portal/admin/overview'),
+  teacherMappingOptions: () => request<{ options: Array<{ grade: string; classroom: string; count: number }> }>('/teacher-portal/admin/mapping-options'),
+  saveTeacherClassroomMapping: (payload: { classroomId: string; grade: string; classroom: string }) => request<{ ok: boolean }>('/teacher-portal/admin/classroom-mapping', { method: 'PUT', body: JSON.stringify(payload) }),
+  generateTeacherAccounts: (teacherIds: string[]) => request<{ ok: boolean; created: number; credentials: Array<{ teacherId: string; name: string; identityNumber: string; temporaryPassword: string }> }>('/teacher-portal/admin/accounts/generate', { method: 'POST', body: JSON.stringify({ teacherIds }) }),
+  resetTeacherAccount: (teacherId: string) => request<{ ok: boolean; temporaryPassword: string }>('/teacher-portal/admin/accounts/reset', { method: 'POST', body: JSON.stringify({ teacherId }) }),
+  setTeacherAccountStatus: (teacherId: string, active: boolean) => request<{ ok: boolean }>('/teacher-portal/admin/accounts/status', { method: 'PATCH', body: JSON.stringify({ teacherId, active }) }),
+  teacherAdminReports: (filters: { date?: string; teacherId?: string; note?: string; classroomId?: string } = {}) => request<{ reports: TeacherLessonReport[] }>(`/teacher-portal/admin/reports?${new URLSearchParams(Object.entries(filters).filter(([, value]) => value).map(([key, value]) => [key, value || '']))}`),
 }

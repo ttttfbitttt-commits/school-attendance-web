@@ -38,9 +38,11 @@ import {
 } from 'lucide-react'
 import './App.css'
 import { AuthGate } from './AuthGate'
-import { api, type SchoolProfile } from './api'
+import { api, type Account, type SchoolProfile } from './api'
 import { LessonFlowCenter } from './LessonFlow'
 import { AlmadarSettings, downloadWorkbook, MessageCenter, reportBrandHeader, ReportsCenter } from './SchoolFeatures'
+import { TeacherAdminCenter } from './TeacherAdmin'
+import { TeacherPortal } from './TeacherPortal'
 
 type Student = {
   id: string
@@ -157,7 +159,7 @@ const findHeaderRow = (rows: unknown[][]) => {
   return best.score >= 2 ? best.index : -1
 }
 
-function AttendanceApp({ onLogout }: { onLogout: () => void }) {
+function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: Account }) {
   const [schoolSettings, setSchoolSettings] = useState<SchoolSettings>(() => readSchoolSettings())
   const [schoolSettingsDraft, setSchoolSettingsDraft] = useState<SchoolSettings>(() => readSchoolSettings())
   const [schoolSettingsNotice, setSchoolSettingsNotice] = useState('')
@@ -170,7 +172,7 @@ function AttendanceApp({ onLogout }: { onLogout: () => void }) {
   const [attendanceSearch, setAttendanceSearch] = useState('')
   const [attendanceStudentSearch, setAttendanceStudentSearch] = useState('')
   const [scanInput, setScanInput] = useState('')
-  const [activeNav, setActiveNav] = useState<'dashboard' | 'students' | 'attendance' | 'lessons' | 'reports' | 'messages'>('attendance')
+  const [activeNav, setActiveNav] = useState<'dashboard' | 'students' | 'attendance' | 'lessons' | 'teachers' | 'reports' | 'messages'>('attendance')
   const [manualAttendanceSelection, setManualAttendanceSelection] = useState<Student[]>([])
   const [manualAttendanceSubmitting, setManualAttendanceSubmitting] = useState(false)
   const [isImporting, setIsImporting] = useState(false)
@@ -1357,7 +1359,7 @@ function AttendanceApp({ onLogout }: { onLogout: () => void }) {
     setTimeout(() => URL.revokeObjectURL(url), 600000)
   }
 
-  const pageLabel = activeNav === 'dashboard' ? 'إعدادات المدرسة' : activeNav === 'attendance' ? 'سجل الحضور' : activeNav === 'lessons' ? 'سير الحصص' : activeNav === 'reports' ? 'التقارير' : activeNav === 'messages' ? 'الرسائل' : 'إدارة الطلاب'
+  const pageLabel = activeNav === 'dashboard' ? 'إعدادات المدرسة' : activeNav === 'attendance' ? 'سجل الحضور' : activeNav === 'lessons' ? 'سير الحصص' : activeNav === 'teachers' ? 'المعلمون' : activeNav === 'reports' ? 'التقارير' : activeNav === 'messages' ? 'الرسائل' : 'إدارة الطلاب'
   return (
     <div className="app-shell" dir="rtl">
       {isMobileMenuOpen && (
@@ -1438,6 +1440,17 @@ function AttendanceApp({ onLogout }: { onLogout: () => void }) {
             <Layers size={18} />
             <span>سير الحصص</span>
           </button>
+
+          {account.role === 'admin' && <button
+            className={activeNav === 'teachers' ? 'nav-item active' : 'nav-item'}
+            onClick={() => {
+              setActiveNav('teachers')
+              setIsMobileMenuOpen(false)
+            }}
+          >
+            <Users size={18} />
+            <span>المعلمون</span>
+          </button>}
 
           <button
             className={activeNav === 'reports' ? 'nav-item active' : 'nav-item'}
@@ -1933,6 +1946,8 @@ function AttendanceApp({ onLogout }: { onLogout: () => void }) {
 
         {activeNav === 'lessons' && <LessonFlowCenter schoolName={schoolSettings.schoolName} />}
 
+        {activeNav === 'teachers' && <TeacherAdminCenter schoolName={schoolSettings.schoolName} />}
+
         {activeNav === 'messages' && <MessageCenter students={students} attendance={scanLog} schoolName={schoolSettings.schoolName} />}
 
         {activeNav === 'attendance' && (
@@ -2421,7 +2436,9 @@ function AttendanceApp({ onLogout }: { onLogout: () => void }) {
 }
 
 function App() {
-  return <AuthGate>{(_account, logout) => <AttendanceApp onLogout={logout} />}</AuthGate>
+  return <AuthGate>{(account, logout) => account.role === 'teacher'
+    ? <TeacherPortal account={account} onLogout={logout} />
+    : <AttendanceApp account={account} onLogout={logout} />}</AuthGate>
 }
 
 export default App
