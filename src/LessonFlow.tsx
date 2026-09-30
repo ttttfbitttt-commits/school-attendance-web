@@ -300,7 +300,7 @@ function incidentPrintHtml(incident: LessonIncident, schoolName: string) {
     <table class="fields civil-row"><tbody><tr><th>السجل المدني</th><td><div class="civil-boxes">${civilIdCells}</div></td></tr></tbody></table>
     <table class="fields teacher-table"><thead><tr><th>الاسم</th><th>التخصص</th><th>المستوى / المرتبة</th><th>رقم الوظيفة</th><th>العمل الحالي</th></tr></thead><tbody><tr><td>${escapeHtml(incident.teacherName)}</td><td></td><td></td><td></td><td></td></tr></tbody></table>
     <div class="greeting"><p>المكرم المعلم: ${escapeHtml(incident.teacherName)} وفقه الله</p><p>السلام عليكم ورحمة الله وبركاته</p></div>
-    <div class="case-intro"><span>إنه في يوم ${escapeHtml(weekdayLabel(incident.weekday))}</span><span class="date-line">الموافق ${escapeHtml(hijriPart('day'))} / ${escapeHtml(hijriPart('month'))} / ${escapeHtml(hijriPart('year'))}هـ</span><span>اتضح ما يلي:</span></div>
+    <div class="case-intro"><span>إنه في يوم ${escapeHtml(weekdayLabel(incident.weekday))}</span><span class="date-line">الموافق ${escapeHtml(hijriPart('day'))} / ${escapeHtml(hijriPart('month'))} / ${escapeHtml(hijriPart('year'))}هـ، اتضح ما يلي:</span></div>
     <div class="options">
       <div class="option"><span class="box">&#9744;</span><span>تأخركم من بداية الدوام وحضوركم الساعة ( ................ )</span></div>
       <div class="option"><span class="box">&#9745;</span><span>عدم تواجدكم أثناء الدوام من الساعة ( <b dir="ltr">${escapeHtml(incident.startTime)}</b> ) إلى الساعة ( <b dir="ltr">${escapeHtml(incident.endTime)}</b> )</span></div>
@@ -317,7 +317,6 @@ function incidentPrintHtml(incident: LessonIncident, schoolName: string) {
     <hr class="divider">
     <h2 class="manager-title">رأي قائد المدرسة</h2>
     <div class="manager-options"><div><span class="box">&#9744;</span> عذره مقبول.</div><div><span class="box">&#9744;</span> عذره غير مقبول.</div><div><span class="box">&#9744;</span> ما تراه الإدارة أو إجراء آخر: ....................................................</div></div>
-    <div class="manager-writing-lines"><div></div><div></div></div>
     <div class="manager-signature"><div>مدير المدرسة: ........................</div><div>التوقيع: ........................</div><div>التاريخ: .... / .... / 14هـ</div></div>
     <p class="footnote">ملاحظة: ترفق بطاقة المساءلة مع أصل القرار في حالة عدم قبول العذر لحفظها بملفه بالإدارة بالمدرسة، أصله لملفه بالمدرسة.</p>
     <footer class="source"><span>الدليل الإجرائي لمدارس التعليم العام للعام الدراسي 1436 - 1437 هـ - الإصدار الثالث</span></footer>
