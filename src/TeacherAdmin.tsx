@@ -51,7 +51,8 @@ export function TeacherAdminCenter({ schoolName }: { schoolName: string }) {
   }
   useEffect(() => { void load() }, [])
 
-  const teachers = useMemo(() => (overview?.teachers || []).filter(teacher => `${teacher.name} ${teacher.identityNumber}`.includes(search.trim())).slice(0, 30), [overview, search])
+  const allFilteredTeachers = useMemo(() => (overview?.teachers || []).filter(teacher => `${teacher.name} ${teacher.identityNumber}`.includes(search.trim())), [overview, search])
+  const teachers = useMemo(() => allFilteredTeachers.slice(0, 30), [allFilteredTeachers])
   const unresolvedMappings = useMemo(() => (overview?.classroomMappings || []).filter(mapping => !mapping.grade || !mapping.classroomValue), [overview])
 
   const toggle = (teacherId: string) => setSelected(current => current.includes(teacherId) ? current.filter(id => id !== teacherId) : [...current, teacherId])
@@ -74,6 +75,7 @@ export function TeacherAdminCenter({ schoolName }: { schoolName: string }) {
       const result = await api.resetTeacherAccount(teacherId)
       setCredentials([{ teacherId, name, identityNumber: overview?.teachers.find(teacher => teacher.teacherId === teacherId)?.identityNumber || '', temporaryPassword: result.temporaryPassword }])
       setShowAllCredentials(false)
+      setAccountPanel('credentials')
       setNotice('تم إيقاف الجلسات السابقة وإنشاء كلمة مرور مؤقتة جديدة.')
       await load()
     } catch { setError('تعذر إعادة ضبط الحساب.') } finally { setBusy('') }
@@ -81,6 +83,23 @@ export function TeacherAdminCenter({ schoolName }: { schoolName: string }) {
   const setStatus = async (teacherId: string, active: boolean) => {
     setBusy(`status-${teacherId}`)
     try { await api.setTeacherAccountStatus(teacherId, active); await load() } catch { setError('تعذر تحديث حالة الحساب.') } finally { setBusy('') }
+  }
+  const toggleAll = () => {
+    const ids = allFilteredTeachers.map(teacher => teacher.teacherId)
+    setSelected(current => ids.every(id => current.includes(id)) ? current.filter(id => !ids.includes(id)) : [...new Set([...current, ...ids])])
+  }
+  const bulkReset = async () => {
+    if (!selected.length || !window.confirm(`سيتم تغيير كلمات المرور المؤقتة لـ ${selected.length} معلمًا وإيقاف جلساتهم الحالية. هل تريد المتابعة؟`)) return
+    setBusy('bulk-reset'); setError(''); setNotice('')
+    try {
+      const result = await api.resetTeacherAccounts(selected)
+      setCredentials(result.credentials)
+      setShowAllCredentials(false)
+      setSelected([])
+      setAccountPanel('credentials')
+      setNotice(`تمت إعادة إصدار ${result.reset} كلمة مرور مؤقتة. صدّر الملف قبل إخفاء البيانات.`)
+      await load()
+    } catch { setError('تعذر إعادة إصدار بيانات الدخول المحددة.') } finally { setBusy('') }
   }
   const saveMapping = async (classroomId: string) => {
     const choice = mappingChoice[classroomId]
@@ -119,9 +138,9 @@ export function TeacherAdminCenter({ schoolName }: { schoolName: string }) {
       </div>
 
       {accountPanel === 'accounts' && <section className="teacher-admin-card">
-        <div className="teacher-section-head"><div><span>حسابات مستقلة</span><h3>توليد دخول المعلمين</h3></div><button className="primary-button" onClick={() => void generate()} disabled={busy === 'generate'}><KeyRound size={17} /> {busy === 'generate' ? 'جارٍ الإنشاء…' : selected.length ? `توليد ${selected.length} حساب` : 'توليد الحسابات غير المنشأة'}</button></div>
+        <div className="teacher-section-head"><div><span>حسابات مستقلة</span><h3>توليد دخول المعلمين</h3></div><div className="teacher-report-actions"><button className="outline-button" onClick={() => void bulkReset()} disabled={!selected.length || busy === 'bulk-reset'}><RefreshCw size={17} /> إعادة إصدار المحددين</button><button className="primary-button" onClick={() => void generate()} disabled={busy === 'generate'}><KeyRound size={17} /> {busy === 'generate' ? 'جارٍ الإنشاء…' : selected.length ? `توليد ${selected.length} حساب` : 'توليد الحسابات غير المنشأة'}</button></div></div>
         <p className="teacher-help">الدخول برقم الهوية وكلمة مرور مؤقتة مختلفة لكل معلم. يغيّرها المعلم عند أول دخول.</p>
-        <div className="teacher-admin-tools"><label><Search size={16} /><input value={search} onChange={event => setSearch(event.target.value)} placeholder="ابحث بالاسم أو رقم الهوية" /></label><button className="outline-button" onClick={() => void load()}><RefreshCw size={16} /> تحديث</button></div>
+        <div className="teacher-admin-tools"><label><Search size={16} /><input value={search} onChange={event => setSearch(event.target.value)} placeholder="ابحث بالاسم أو رقم الهوية" /></label><button className="outline-button" onClick={toggleAll}>{allFilteredTeachers.length && allFilteredTeachers.every(teacher => selected.includes(teacher.teacherId)) ? 'إلغاء تحديد النتائج' : `تحديد النتائج (${allFilteredTeachers.length})`}</button><button className="outline-button" onClick={() => void load()}><RefreshCw size={16} /> تحديث</button></div>
         {busy === 'overview' ? <p className="teacher-empty">جارٍ التحميل…</p> : <div className="teacher-account-list">{teachers.map(teacher => <article key={teacher.teacherId}>
           <label className="teacher-check"><input type="checkbox" checked={selected.includes(teacher.teacherId)} onChange={() => toggle(teacher.teacherId)} /></label>
           <div><strong>{teacher.name}</strong><span>هوية: {teacher.identityNumber} · {teacher.assignments} حصة مرتبطة</span></div>

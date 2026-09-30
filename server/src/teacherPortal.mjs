@@ -399,6 +399,27 @@ export async function handleTeacherPortalRequest(context) {
     return true
   }
 
+  if (req.method === 'POST' && url.pathname === '/api/teacher-portal/admin/accounts/bulk-reset') {
+    const input = await body(req)
+    const teacherIds = Array.isArray(input.teacherIds) ? [...new Set(input.teacherIds.filter(validId))] : []
+    if (!teacherIds.length || teacherIds.length > 2000) { json(res, 400, { error: 'invalid_teacher_list' }); return true }
+    const teachers = await scoped(user.school_id, async client => (await client.query(`SELECT id AS "teacherId",full_name AS name,identity_number AS "identityNumber"
+      FROM lesson_teachers WHERE school_id=$1 AND active=true AND id=ANY($2::uuid[])`, [user.school_id, teacherIds])).rows)
+    const credentials = []
+    for (const teacher of teachers) {
+      const password = temporaryPassword()
+      const hash = passwordHash(password)
+      const changed = await authPool.query(`UPDATE teacher_login_accounts SET password_hash=$1,must_change_password=true,active=true,updated_at=now()
+        WHERE school_id=$2 AND teacher_id=$3 RETURNING user_id`, [hash, user.school_id, teacher.teacherId])
+      if (!changed.rowCount) continue
+      await authPool.query('UPDATE users SET password_hash=$1 WHERE id=$2', [hash, changed.rows[0].user_id])
+      await authPool.query('DELETE FROM sessions WHERE user_id=$1 AND school_id=$2', [changed.rows[0].user_id, user.school_id])
+      credentials.push({ teacherId: teacher.teacherId, name: teacher.name, identityNumber: teacher.identityNumber, temporaryPassword: password })
+    }
+    json(res, 200, { ok: true, credentials, reset: credentials.length })
+    return true
+  }
+
   if (req.method === 'PATCH' && url.pathname === '/api/teacher-portal/admin/accounts/status') {
     const input = await body(req)
     const teacherId = String(input.teacherId || '')
