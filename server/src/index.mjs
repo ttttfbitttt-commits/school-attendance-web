@@ -3,6 +3,7 @@ import crypto from 'node:crypto'
 import { URL } from 'node:url'
 import pg from 'pg'
 import { handleFeatureRequest, migrateFeatures } from './features.mjs'
+import { migrateEmailVerification, requestSchoolRegistration, verifySchoolRegistration } from './emailVerification.mjs'
 import { handleLessonFlowRequest, migrateLessonFlow } from './lessonFlow.mjs'
 import { handleTeacherPortalRequest, migrateTeacherPortal } from './teacherPortal.mjs'
 
@@ -131,6 +132,7 @@ async function configureDatabaseRoles() {
   await adminPool.query('GRANT SELECT, INSERT, UPDATE ON schools, users, memberships TO attendance_auth')
   await adminPool.query('GRANT SELECT, INSERT, DELETE ON sessions TO attendance_auth')
   await adminPool.query('GRANT SELECT, INSERT, UPDATE, DELETE ON teacher_login_accounts TO attendance_auth')
+  await adminPool.query('GRANT SELECT, INSERT, UPDATE, DELETE ON pending_school_registrations TO attendance_auth')
 }
 
 async function enforceTenantRowSecurity() {
@@ -168,6 +170,7 @@ async function migrateDatabase() {
   await adminPool.query("ALTER TABLE schools ADD COLUMN IF NOT EXISTS preferences jsonb NOT NULL DEFAULT '{}'::jsonb")
   await adminPool.query('ALTER TABLE students ADD COLUMN IF NOT EXISTS active boolean NOT NULL DEFAULT true')
   await migrateFeatures(adminPool)
+  await migrateEmailVerification(adminPool)
   await migrateLessonFlow(adminPool)
   await migrateTeacherPortal(adminPool)
   await enforceTenantRowSecurity()
@@ -178,21 +181,8 @@ const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, `http://${req.headers.host}`)
     if (req.method === 'GET' && url.pathname === '/api/health') return json(res, 200, { ok: true })
-    if (req.method === 'POST' && url.pathname === '/api/auth/register') {
-      const { email, password, displayName, schoolName } = await body(req)
-      if (!/^\S+@\S+\.\S+$/.test(email || '') || String(password || '').length < 12 || !String(schoolName || '').trim()) return json(res, 400, { error: 'invalid_registration' })
-      try {
-        const schoolId = crypto.randomUUID()
-        const registration = await scopedOn(authPool, schoolId, async client => {
-          const school = await client.query('INSERT INTO schools(id,name,principal_name,academic_year,semester) VALUES($1,$2,$3,$4,$5) RETURNING id,name', [schoolId, schoolName.trim(), String(displayName || '').trim() || schoolName.trim(), '1448 / 1449', 'الفصل الأول'])
-          const user = await client.query('INSERT INTO users(email,password_hash,display_name) VALUES(lower($1),$2,$3) RETURNING id,email,display_name', [email, passwordHash(password), String(displayName || '').trim() || schoolName.trim()])
-          await client.query('INSERT INTO memberships(school_id,user_id,role) VALUES($1,$2,\'admin\')', [school.rows[0].id, user.rows[0].id])
-          return { school: school.rows[0], user: user.rows[0] }
-        })
-        await createSession(res, registration.user.id, registration.school.id)
-        return json(res, 201, { user: { ...registration.user, role: 'admin', schoolId: registration.school.id }, school: registration.school })
-      } catch (e) { return json(res, e.code === '23505' ? 409 : 500, { error: 'registration_failed' }) }
-    }
+    if (req.method === 'POST' && url.pathname === '/api/auth/register') return requestSchoolRegistration({ req, res, authPool, body, json, passwordHash })
+    if (req.method === 'POST' && url.pathname === '/api/auth/verify-email') return verifySchoolRegistration({ req, res, authPool, body, json, scopedOn, createSession })
     if (req.method === 'POST' && url.pathname === '/api/auth/login') {
       const { email, password } = await body(req)
       const user = await authPool.query(`SELECT u.id,u.email,u.display_name,m.school_id,m.role,u.password_hash FROM users u JOIN memberships m ON m.user_id=u.id WHERE u.email=lower($1) AND m.role IN ('admin','staff') ORDER BY m.role='admin' DESC LIMIT 1`, [email || ''])

@@ -26,6 +26,9 @@ services:
       APP_DB_PASSWORD: ${APP_DB_PASSWORD:?Set APP_DB_PASSWORD in .env}
       AUTH_DB_PASSWORD: ${AUTH_DB_PASSWORD:?Set AUTH_DB_PASSWORD in .env}
       ALMADAR_ENCRYPTION_KEY: ${ALMADAR_ENCRYPTION_KEY}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-no-reply@7asr2030.com}
+      PUBLIC_APP_URL: ${PUBLIC_APP_URL:-https://7asr2030.com}
     depends_on:
       db:
         condition: service_healthy
