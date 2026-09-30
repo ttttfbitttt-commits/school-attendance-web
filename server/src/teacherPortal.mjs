@@ -35,6 +35,29 @@ function temporaryPassword() {
   return Array.from(bytes, byte => alphabet[byte % alphabet.length]).join('')
 }
 
+function credentialEncryptionKey() {
+  const raw = process.env.TEACHER_CREDENTIAL_ENCRYPTION_KEY || process.env.ALMADAR_ENCRYPTION_KEY || ''
+  const key = Buffer.from(String(raw), 'base64url')
+  return key.length === 32 ? key : null
+}
+function encryptTemporaryPassword(value) {
+  const key = credentialEncryptionKey()
+  if (!key) throw new Error('teacher_credential_encryption_not_configured')
+  const iv = crypto.randomBytes(12)
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, iv)
+  const ciphertext = Buffer.concat([cipher.update(String(value), 'utf8'), cipher.final()])
+  return Buffer.concat([iv, cipher.getAuthTag(), ciphertext]).toString('base64url')
+}
+function decryptTemporaryPassword(value) {
+  const key = credentialEncryptionKey()
+  if (!key) throw new Error('teacher_credential_encryption_not_configured')
+  const packed = Buffer.from(String(value || ''), 'base64url')
+  if (packed.length < 29) return null
+  const decipher = crypto.createDecipheriv('aes-256-gcm', key, packed.subarray(0, 12))
+  decipher.setAuthTag(packed.subarray(12, 28))
+  return Buffer.concat([decipher.update(packed.subarray(28)), decipher.final()]).toString('utf8')
+}
+
 async function activeImport(client, schoolId) {
   return (await client.query('SELECT id FROM lesson_schedule_imports WHERE school_id=$1 AND is_active=true LIMIT 1', [schoolId])).rows[0] || null
 }
@@ -117,6 +140,7 @@ export async function migrateTeacherPortal(adminPool) {
       user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       identity_number text NOT NULL,
       password_hash text NOT NULL,
+      temporary_password_encrypted text,
       active boolean NOT NULL DEFAULT true,
       must_change_password boolean NOT NULL DEFAULT true,
       created_at timestamptz NOT NULL DEFAULT now(),
@@ -125,6 +149,7 @@ export async function migrateTeacherPortal(adminPool) {
       UNIQUE (school_id,identity_number),
       UNIQUE (school_id,user_id)
     );
+    ALTER TABLE teacher_login_accounts ADD COLUMN IF NOT EXISTS temporary_password_encrypted text;
     CREATE INDEX IF NOT EXISTS teacher_login_accounts_identity ON teacher_login_accounts(identity_number) WHERE active=true;
 
     CREATE TABLE IF NOT EXISTS teacher_classroom_student_maps (
@@ -189,7 +214,7 @@ export async function handleTeacherPortalRequest(context) {
     const password = String(input.password || '')
     if (password.length < 8 || password.length > 200) { json(res, 400, { error: 'invalid_teacher_password' }); return true }
     const hash = passwordHash(password)
-    await authPool.query(`UPDATE teacher_login_accounts SET password_hash=$1,must_change_password=false,updated_at=now()
+    await authPool.query(`UPDATE teacher_login_accounts SET password_hash=$1,must_change_password=false,temporary_password_encrypted=NULL,updated_at=now()
       WHERE school_id=$2 AND teacher_id=$3 AND user_id=$4 AND active=true`, [hash, user.school_id, user.teacher_id, user.user_id])
     await authPool.query('UPDATE users SET password_hash=$1 WHERE id=$2', [hash, user.user_id])
     json(res, 200, { ok: true })
@@ -318,7 +343,8 @@ export async function handleTeacherPortalRequest(context) {
         ON a.school_id=t.school_id AND a.teacher_id=t.id AND a.import_id=(SELECT id FROM lesson_schedule_imports WHERE school_id=t.school_id AND is_active=true LIMIT 1)
       WHERE t.school_id=$1 AND t.active=true GROUP BY t.id,t.full_name,t.identity_number ORDER BY t.full_name`, [user.school_id])).rows)
     const accountRows = (await authPool.query(`SELECT teacher_id AS "teacherId",user_id AS "userId",active AS "accountActive",
-      must_change_password AS "mustChangePassword" FROM teacher_login_accounts WHERE school_id=$1`, [user.school_id])).rows
+      must_change_password AS "mustChangePassword",(temporary_password_encrypted IS NOT NULL) AS "credentialsAvailable"
+      FROM teacher_login_accounts WHERE school_id=$1`, [user.school_id])).rows
     const accounts = new Map(accountRows.map(row => [row.teacherId, row]))
     const mappings = await scoped(user.school_id, async client => {
       const classrooms = (await client.query('SELECT id FROM lesson_classrooms WHERE school_id=$1 AND active=true', [user.school_id])).rows
@@ -329,6 +355,20 @@ export async function handleTeacherPortalRequest(context) {
         WHERE c.school_id=$1 AND c.active=true ORDER BY c.name`, [user.school_id])).rows
     })
     json(res, 200, { teachers: teachers.map(row => teacherAccountSummary({ ...row, ...(accounts.get(row.teacherId) || {}) })), classroomMappings: mappings })
+    return true
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/teacher-portal/admin/credentials') {
+    const accountRows = (await authPool.query(`SELECT teacher_id AS "teacherId",identity_number AS "identityNumber",temporary_password_encrypted AS encrypted
+      FROM teacher_login_accounts WHERE school_id=$1 AND active=true AND temporary_password_encrypted IS NOT NULL`, [user.school_id])).rows
+    const teacherRows = await scoped(user.school_id, async client => (await client.query(`SELECT id,full_name AS name
+      FROM lesson_teachers WHERE school_id=$1 AND active=true`, [user.school_id])).rows)
+    const names = new Map(teacherRows.map(row => [row.id, row.name]))
+    const credentials = accountRows.flatMap(row => {
+      const password = decryptTemporaryPassword(row.encrypted)
+      return password && names.has(row.teacherId) ? [{ teacherId: row.teacherId, name: names.get(row.teacherId), identityNumber: row.identityNumber, temporaryPassword: password }] : []
+    }).sort((first, second) => first.name.localeCompare(second.name, 'ar'))
+    json(res, 200, { credentials })
     return true
   }
 
@@ -371,13 +411,14 @@ export async function handleTeacherPortalRequest(context) {
       if (existing.rowCount) continue
       const password = temporaryPassword()
       const hash = passwordHash(password)
+      const encryptedPassword = encryptTemporaryPassword(password)
       const email = `teacher-${user.school_id}-${teacher.teacherId}@local.invalid`
       const savedUser = await authPool.query(`INSERT INTO users(email,password_hash,display_name) VALUES($1,$2,$3)
         ON CONFLICT(email) DO UPDATE SET password_hash=EXCLUDED.password_hash,display_name=EXCLUDED.display_name RETURNING id`, [email, hash, teacher.name])
       await authPool.query(`INSERT INTO memberships(school_id,user_id,role) VALUES($1,$2,'teacher')
         ON CONFLICT(school_id,user_id) DO UPDATE SET role='teacher'`, [user.school_id, savedUser.rows[0].id])
-      await authPool.query(`INSERT INTO teacher_login_accounts(school_id,teacher_id,user_id,identity_number,password_hash,active,must_change_password)
-        VALUES($1,$2,$3,$4,$5,true,true)`, [user.school_id, teacher.teacherId, savedUser.rows[0].id, teacher.identityNumber, hash])
+      await authPool.query(`INSERT INTO teacher_login_accounts(school_id,teacher_id,user_id,identity_number,password_hash,temporary_password_encrypted,active,must_change_password)
+        VALUES($1,$2,$3,$4,$5,$6,true,true)`, [user.school_id, teacher.teacherId, savedUser.rows[0].id, teacher.identityNumber, hash, encryptedPassword])
       credentials.push({ teacherId: teacher.teacherId, name: teacher.name, identityNumber: teacher.identityNumber, temporaryPassword: password })
     }
     json(res, 200, { ok: true, credentials, created: credentials.length })
@@ -390,8 +431,9 @@ export async function handleTeacherPortalRequest(context) {
     if (!validId(teacherId)) { json(res, 400, { error: 'invalid_teacher' }); return true }
     const password = temporaryPassword()
     const hash = passwordHash(password)
-    const changed = await authPool.query(`UPDATE teacher_login_accounts SET password_hash=$1,must_change_password=true,active=true,updated_at=now()
-      WHERE school_id=$2 AND teacher_id=$3 RETURNING user_id`, [hash, user.school_id, teacherId])
+    const encryptedPassword = encryptTemporaryPassword(password)
+    const changed = await authPool.query(`UPDATE teacher_login_accounts SET password_hash=$1,temporary_password_encrypted=$2,must_change_password=true,active=true,updated_at=now()
+      WHERE school_id=$3 AND teacher_id=$4 RETURNING user_id`, [hash, encryptedPassword, user.school_id, teacherId])
     if (!changed.rowCount) { json(res, 404, { error: 'teacher_account_not_found' }); return true }
     await authPool.query('UPDATE users SET password_hash=$1 WHERE id=$2', [hash, changed.rows[0].user_id])
     await authPool.query('DELETE FROM sessions WHERE user_id=$1 AND school_id=$2', [changed.rows[0].user_id, user.school_id])
@@ -409,8 +451,9 @@ export async function handleTeacherPortalRequest(context) {
     for (const teacher of teachers) {
       const password = temporaryPassword()
       const hash = passwordHash(password)
-      const changed = await authPool.query(`UPDATE teacher_login_accounts SET password_hash=$1,must_change_password=true,active=true,updated_at=now()
-        WHERE school_id=$2 AND teacher_id=$3 RETURNING user_id`, [hash, user.school_id, teacher.teacherId])
+      const encryptedPassword = encryptTemporaryPassword(password)
+      const changed = await authPool.query(`UPDATE teacher_login_accounts SET password_hash=$1,temporary_password_encrypted=$2,must_change_password=true,active=true,updated_at=now()
+        WHERE school_id=$3 AND teacher_id=$4 RETURNING user_id`, [hash, encryptedPassword, user.school_id, teacher.teacherId])
       if (!changed.rowCount) continue
       await authPool.query('UPDATE users SET password_hash=$1 WHERE id=$2', [hash, changed.rows[0].user_id])
       await authPool.query('DELETE FROM sessions WHERE user_id=$1 AND school_id=$2', [changed.rows[0].user_id, user.school_id])

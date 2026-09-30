@@ -279,6 +279,7 @@ const server = http.createServer(async (req, res) => {
   } catch (error) {
     console.error(error)
     if (error instanceof Error && error.message === 'almadar_encryption_not_configured') return json(res, 503, { error: 'almadar_encryption_not_configured' })
+    if (error instanceof Error && error.message === 'teacher_credential_encryption_not_configured') return json(res, 503, { error: 'teacher_credential_encryption_not_configured' })
     return json(res, 500, { error: 'server_error' })
   }
 })
