@@ -1489,7 +1489,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
 
           <div className="help-box">
             <span>تحتاج مساعدة؟</span>
-            <small>تواصل مع الدعم الفني</small>
+            <small>تواصل مع وكيل المدرسة</small>
           </div>
         </div>
         <button className="nav-item" type="button" onClick={onLogout}>
