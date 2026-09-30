@@ -196,6 +196,7 @@ export const api = {
   teacherReports: (filters: { date?: string; note?: string } = {}) => request<{ reports: TeacherLessonReport[] }>(`/teacher-portal/teacher/reports?${new URLSearchParams(Object.entries(filters).filter(([, value]) => value).map(([key, value]) => [key, value || '']))}`),
   changeTeacherPassword: (password: string) => request<{ ok: boolean }>('/teacher-portal/teacher/password', { method: 'POST', body: JSON.stringify({ password }) }),
   teacherAdminOverview: () => request<TeacherAdminOverview>('/teacher-portal/admin/overview'),
+  teacherAdminCredentials: () => request<{ credentials: Array<{ teacherId: string; name: string; identityNumber: string; temporaryPassword: string }> }>('/teacher-portal/admin/credentials'),
   teacherMappingOptions: () => request<{ options: Array<{ grade: string; classroom: string; count: number }> }>('/teacher-portal/admin/mapping-options'),
   saveTeacherClassroomMapping: (payload: { classroomId: string; grade: string; classroom: string }) => request<{ ok: boolean }>('/teacher-portal/admin/classroom-mapping', { method: 'PUT', body: JSON.stringify(payload) }),
   generateTeacherAccounts: (teacherIds: string[]) => request<{ ok: boolean; created: number; credentials: Array<{ teacherId: string; name: string; identityNumber: string; temporaryPassword: string }> }>('/teacher-portal/admin/accounts/generate', { method: 'POST', body: JSON.stringify({ teacherIds }) }),

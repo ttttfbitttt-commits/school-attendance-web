@@ -122,7 +122,18 @@ export function TeacherAdminCenter({ schoolName }: { schoolName: string }) {
     ...credentials.map(credential => [credential.name, credential.identityNumber, credential.temporaryPassword]),
   ], 'بيانات الدخول', schoolName, 'بيانات الدخول المؤقتة للمعلمين')
 
-  const togglePanel = (panel: Exclude<AccountPanel, null>) => setAccountPanel(current => current === panel ? null : panel)
+  const togglePanel = (panel: Exclude<AccountPanel, null>) => {
+    const opening = accountPanel !== panel
+    setAccountPanel(opening ? panel : null)
+    if (opening && panel === 'credentials') {
+      setBusy('credentials')
+      setError('')
+      void api.teacherAdminCredentials()
+        .then(({ credentials: savedCredentials }) => setCredentials(savedCredentials))
+        .catch(() => setError('تعذر تحميل بيانات الدخول المؤقتة.'))
+        .finally(() => setBusy(''))
+    }
+  }
   const accountCount = overview?.teachers.length || 0
   const activeAccounts = (overview?.teachers || []).filter(teacher => teacher.accountCreated && teacher.accountActive).length
 
@@ -150,7 +161,7 @@ export function TeacherAdminCenter({ schoolName }: { schoolName: string }) {
         </article>)}</div>}
       </section>}
 
-      {accountPanel === 'credentials' && <section className="teacher-credentials"><div><ShieldCheck size={22} /><div><h3>بيانات دخول تسلّم مرة واحدة</h3><p>كلمات المرور المؤقتة متاحة في هذه الجلسة فقط، لذا صدّر الملف قبل إخفائها أو تحديث الصفحة.</p></div><button onClick={() => setCredentials([])}>إخفاء البيانات</button></div>{credentials.length ? <><div className="teacher-export-actions"><button className="outline-button" onClick={() => openPrintDocument('بيانات الدخول المؤقتة للمعلمين', credentialsHtml(credentials), schoolName)}><Printer size={17} /> PDF</button><button className="outline-button" onClick={exportCredentials}><FileDown size={17} /> Excel</button></div><div className="teacher-credential-list">{credentials.slice(0, showAllCredentials ? credentials.length : 12).map(credential => <p key={credential.teacherId}><strong>{credential.name}</strong> — رقم الهوية: <b dir="ltr">{credential.identityNumber}</b> — كلمة المرور المؤقتة: <b dir="ltr">{credential.temporaryPassword}</b></p>)}</div>{credentials.length > 12 && <button className="outline-button teacher-show-more" onClick={() => setShowAllCredentials(current => !current)}>{showAllCredentials ? 'عرض مختصر' : `عرض جميع البيانات (${credentials.length})`}</button>}</> : <p className="teacher-empty">لا توجد بيانات دخول مؤقتة في هذه الجلسة. تظهر بعد إنشاء الحساب أو إعادة ضبطه فقط.</p>}</section>}
+      {accountPanel === 'credentials' && <section className="teacher-credentials"><div><ShieldCheck size={22} /><div><h3>بيانات دخول تسلّم مرة واحدة</h3><p>تبقى كلمات المرور المؤقتة متاحة حتى يغيّرها المعلم. صدّرها وسلّمها له بأمان.</p></div><button onClick={() => setCredentials([])}>إخفاء البيانات</button></div>{busy === 'credentials' ? <p className="teacher-empty">جارٍ تحميل بيانات الدخول…</p> : credentials.length ? <><div className="teacher-export-actions"><button className="outline-button" onClick={() => openPrintDocument('بيانات الدخول المؤقتة للمعلمين', credentialsHtml(credentials), schoolName)}><Printer size={17} /> PDF</button><button className="outline-button" onClick={exportCredentials}><FileDown size={17} /> Excel</button></div><div className="teacher-credential-list">{credentials.slice(0, showAllCredentials ? credentials.length : 12).map(credential => <p key={credential.teacherId}><strong>{credential.name}</strong> — رقم الهوية: <b dir="ltr">{credential.identityNumber}</b> — كلمة المرور المؤقتة: <b dir="ltr">{credential.temporaryPassword}</b></p>)}</div>{credentials.length > 12 && <button className="outline-button teacher-show-more" onClick={() => setShowAllCredentials(current => !current)}>{showAllCredentials ? 'عرض مختصر' : `عرض جميع البيانات (${credentials.length})`}</button>}</> : <p className="teacher-empty">لا توجد كلمات مرور مؤقتة متاحة. ربما غيّر المعلم كلمة مروره أو لم يُنشأ حسابه بعد.</p>}</section>}
 
       {accountPanel === 'mappings' && <section className="teacher-admin-card teacher-mapping-card">{classroomMappings.length ? <><div className="teacher-section-head"><div><span>مطابقة الفصول</span><h3>مطابقة طلاب الفصول</h3></div></div><p className="teacher-help">اختر مجموعة الطلاب المناسبة لكل فصل ليظهر للمعلم طلاب فصله فقط. يظهر الربط المحفوظ في القائمة.</p><div className="teacher-mapping-list">{classroomMappings.map(mapping => <article key={mapping.classroomId}><strong>{mapping.classroom}</strong><select value={mappingChoice[mapping.classroomId] ?? (mapping.grade && mapping.classroomValue ? `${mapping.grade}|||${mapping.classroomValue}` : '')} onChange={event => setMappingChoice(current => ({ ...current, [mapping.classroomId]: event.target.value }))}><option value="">اختر الصف والفصل</option>{options.map(option => <option key={`${option.grade}-${option.classroom}`} value={`${option.grade}|||${option.classroom}`}>{option.grade} — الفصل {option.classroom} ({option.count} طالب)</option>)}</select><button className="primary-button" onClick={() => void saveMapping(mapping.classroomId)} disabled={busy === `map-${mapping.classroomId}`}>حفظ الربط</button></article>)}</div></> : <p className="teacher-empty">لا توجد فصول مستوردة لربطها ببيانات الطلاب.</p>}</section>}
     </>}
