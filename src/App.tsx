@@ -9,6 +9,7 @@ import {
   Camera,
   Check,
   CheckCircle2,
+  ChevronDown,
   Clock3,
   Download,
   ExternalLink,
@@ -169,6 +170,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
   })
   const [notice, setNotice] = useState('جاهز لإدارة الطلاب وحصر الحضور الذكي')
   const [search, setSearch] = useState('')
+  const [expandedStudentGroup, setExpandedStudentGroup] = useState('')
   const [attendanceSearch, setAttendanceSearch] = useState('')
   const [attendanceStudentSearch, setAttendanceStudentSearch] = useState('')
   const [scanInput, setScanInput] = useState('')
@@ -406,6 +408,20 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
 
   /** إرجاع اسم الصف المعدَّل إن وُجد، وإلا الاسم الأصلي من الملف */
   const gradeLabel = (grade: string) => gradeAliases[grade]?.trim() || grade
+
+  const studentGroups = useMemo(() => {
+    const groups = new Map<string, { grade: string; classroom: string; students: Student[] }>()
+    filteredStudents.forEach((student) => {
+      const key = JSON.stringify([student.grade, student.classroom])
+      const group = groups.get(key) ?? { grade: student.grade, classroom: student.classroom, students: [] }
+      group.students.push(student)
+      groups.set(key, group)
+    })
+    return Array.from(groups, ([key, group]) => ({ key, ...group })).sort((left, right) =>
+      left.grade.localeCompare(right.grade, 'ar', { numeric: true }) ||
+      left.classroom.localeCompare(right.classroom, 'ar', { numeric: true })
+    )
+  }, [filteredStudents])
 
   const stats = useMemo(() => {
     const grades = new Set(students.map((student) => student.grade).filter(Boolean))
@@ -1747,46 +1763,46 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
                 </div>
               </div>
 
-              {filteredStudents.length ? (
-                <div className="table-wrap">
-                  <table className="responsive-data-table">
-                    <thead>
-                      <tr>
-                        <th>رقم الطالب</th>
-                        <th>اسم الطالب</th>
-                        <th>الصف</th>
-                        <th>الفصل</th>
-                        <th>الجوال</th>
-                        <th>باركود</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {filteredStudents.map((student) => (
-                        <tr key={`${student.id}-${student.sheet}`}>
-                          <td data-label="رقم الطالب">{student.id}</td>
-                          <td data-label="اسم الطالب">{student.name}</td>
-                          <td data-label="الصف">{gradeLabel(student.grade) || '—'}</td>
-                          <td data-label="الفصل">{student.classroom || '—'}</td>
-                          <td data-label="الجوال">{student.phone || '—'}</td>
-                          <td data-label="باركود">
-                            {student.qr ? (
-                              <img src={student.qr} alt={`QR ${student.name}`} className="qr-thumb" />
-                            ) : (
-                              <span className="qr-empty">غير منشأ</span>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+              {studentGroups.length ? (
+                <div className="student-group-grid">
+                  {studentGroups.map((group, index) => {
+                    const expanded = expandedStudentGroup === group.key
+                    const listId = `student-group-list-${index}`
+                    return (
+                      <article className={`student-group-card${expanded ? ' expanded' : ''}`} key={group.key}>
+                        <button
+                          className="student-group-toggle"
+                          type="button"
+                          aria-expanded={expanded}
+                          aria-controls={listId}
+                          onClick={() => setExpandedStudentGroup(expanded ? '' : group.key)}
+                        >
+                          <span className="student-group-grade">{gradeLabel(group.grade) || 'صف غير محدد'}</span>
+                          <strong>{group.classroom ? `الفصل ${group.classroom}` : 'فصل غير محدد'}</strong>
+                          <span className="student-group-count">{group.students.length} طالب</span>
+                          <ChevronDown size={18} aria-hidden="true" />
+                        </button>
+                        {expanded && (
+                          <ul className="student-group-students" id={listId}>
+                            {group.students.map((student) => (
+                              <li key={`${student.id}-${student.sheet}`}>
+                                <span>{student.name}</span>
+                                <small>{student.id}</small>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
+                      </article>
+                    )
+                  })}
                 </div>
               ) : (
                 <div className="empty-state">
                   <div className="empty-icon">
                     <FolderOpen size={28} />
                   </div>
-                  <h4>لا توجد بيانات طلاب بعد</h4>
-                  <p>قم برفع ملف Excel الخاص بالطلاب لبدء الاستيراد.</p>
+                  <h4>{students.length ? 'لا توجد نتائج مطابقة' : 'لا توجد بيانات طلاب بعد'}</h4>
+                  <p>{students.length ? 'جرّب البحث باسم أو رقم أو صف مختلف.' : 'قم برفع ملف Excel الخاص بالطلاب لبدء الاستيراد.'}</p>
                 </div>
               )}
             </section>

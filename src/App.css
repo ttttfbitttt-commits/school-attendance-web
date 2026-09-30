@@ -804,6 +804,20 @@ input {
   border-radius: 16px;
 }
 
+.student-group-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(min(100%,240px),1fr)); gap:12px; margin-top:14px; }
+.student-group-card { overflow:hidden; border:1px solid var(--line); border-radius:10px; background:var(--card); }
+.student-group-card.expanded { border-color:#8dbce2; }
+.student-group-toggle { width:100%; display:grid; grid-template-columns:1fr auto; gap:5px 10px; padding:15px; text-align:right; border:0; background:#fff; color:var(--ink); cursor:pointer; font:inherit; }
+.student-group-toggle:hover,.student-group-card.expanded .student-group-toggle { background:#f5faff; }
+.student-group-toggle>svg { grid-column:2; grid-row:1 / span 3; align-self:center; color:var(--blue); transition:transform .18s; }
+.student-group-card.expanded .student-group-toggle>svg { transform:rotate(180deg); }
+.student-group-grade,.student-group-count { color:var(--muted); font-size:12px; }
+.student-group-toggle strong { color:var(--blue-dark); font-size:15px; }
+.student-group-students { max-height:300px; overflow:auto; margin:0; padding:0 15px 10px; list-style:none; }
+.student-group-students li { display:flex; align-items:baseline; justify-content:space-between; gap:12px; padding:9px 0; border-top:1px solid var(--line); }
+.student-group-students li span { overflow-wrap:anywhere; }
+.student-group-students li small { flex:none; color:var(--muted); direction:ltr; }
+
 table {
   width: 100%;
   border-collapse: collapse;
