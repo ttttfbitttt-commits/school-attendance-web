@@ -26,7 +26,7 @@ import {
   type LessonScheduleAssignment,
   type LessonTimeSlot,
 } from './api'
-import { downloadWorkbook, openPrintDocument } from './SchoolFeatures'
+import { downloadWorkbook, openOfficialFormDocument, openPrintDocument } from './SchoolFeatures'
 
 const jsQR = ((jsQRNs as unknown as { default?: unknown }).default || jsQRNs) as (data: Uint8ClampedArray, width: number, height: number) => { data: string } | null
 
@@ -284,30 +284,48 @@ function scheduleTableHtml(schedule: LessonSchedule) {
   }).join('')}</tr>`).join('')}</tbody></table>`
 }
 
-function incidentPrintHtml(incident: LessonIncident) {
-  const lesson = periodLabel(incident.periodNumber)
-  const teacherResponseLines = Array.from({ length: 5 }, () => '<div style="height:20px;border-bottom:1px dotted #64748b"></div>').join('')
-  return `<section class="page"><h1>مساءلة تأخر / انصراف مبكر</h1>
-    <div style="margin:0 0 8px;text-align:left;color:#b91c1c;font-weight:800;font-size:12px;line-height:1.5">نموذج رقم (18)<br/>رمز النموذج: م ع - 02</div>
-    <table><tbody>
-      <tr><th>اسم المعلم</th><td>${escapeHtml(incident.teacherName)}</td><th>السجل المدني</th><td dir="ltr">${escapeHtml(incident.identityNumber)}</td></tr>
-      <tr><th>الحصة</th><td>${escapeHtml(lesson)}</td><th>الفصل</th><td>${escapeHtml(incident.classroom)}</td></tr>
-      <tr><th>اليوم</th><td>${escapeHtml(weekdayLabel(incident.weekday))}</td><th>التاريخ</th><td>${escapeHtml(incident.incidentDate)}</td></tr>
-    </tbody></table>
-    <p style="margin:16px 0 8px;line-height:1.8">نفيدكم بعدم تواجدكم أثناء الدوام من الساعة <strong dir="ltr">${escapeHtml(incident.startTime)}</strong> إلى الساعة <strong dir="ltr">${escapeHtml(incident.endTime)}</strong> في <strong>${escapeHtml(lesson)}</strong>${incident.subject ? ` لمقرر ${escapeHtml(incident.subject)}` : ''}.</p>
-    <p style="margin:0;line-height:1.7">عليه نأمل منكم توضيح أسباب ذلك في أقرب وقت.</p>
-    <div style="margin-top:18px;display:grid;grid-template-columns:1fr 1fr;gap:20px"><p style="margin:0">قائد المدرسة: ........................</p><p style="margin:0">التوقيع: ........................</p></div>
-    <hr style="margin:18px 0 12px" />
-    <h2 style="margin:0 0 6px;font-size:20px">إفادة المعلم</h2>
-    <p style="margin:0 0 5px;line-height:1.6">أفيدكم بأن:</p>
-    <div style="margin-top:4px">${teacherResponseLines}</div>
-    <div style="margin-top:12px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;font-size:12px"><p style="margin:0;white-space:nowrap">الاسم: ........................</p><p style="margin:0;white-space:nowrap">التوقيع: ........................</p><p style="margin:0;white-space:nowrap">التاريخ: ........................</p></div>
-    <hr style="margin:16px 0 10px" />
-    <h2 style="margin:0 0 4px;font-size:20px">رأي مدير المدرسة</h2>
-    <div style="line-height:1.55;font-size:12px"><p style="margin:3px 0">□ عذر مقبول.</p><p style="margin:3px 0">□ عذر غير مقبول، ويُتخذ الإجراء النظامي.</p><p style="margin:3px 0">□ ملاحظات أو إجراء آخر: ........................................................................</p></div>
-    <div style="margin-top:10px;display:grid;grid-template-columns:1.2fr 1fr 1fr;gap:12px;font-size:12px"><p style="margin:0;white-space:nowrap">مدير المدرسة: ........................</p><p style="margin:0;white-space:nowrap">التوقيع: ........................</p><p style="margin:0;white-space:nowrap">التاريخ: ........................</p></div>
-    <p style="margin:12px 0 0;padding-top:8px;border-top:1px solid #94a3b8;color:#475569;font-size:10px;line-height:1.6"><strong>ملاحظة:</strong> ترفق بطاقة المساءلة مع أصل القرار في حالة عدم قبول العذر لحفظها في ملف الإدارة بالمدرسة.</p>
-  </section>`
+function incidentPrintHtml(incident: LessonIncident, schoolName: string) {
+  const identityNumber = Array.from(String(incident.identityNumber || '').replace(/\s/g, ''))
+  const civilIdCells = Array.from({ length: Math.max(10, identityNumber.length) }, (_, index) => `<span>${escapeHtml(identityNumber[index] || '')}</span>`).join('')
+  const date = new Date(`${incident.incidentDate}T12:00:00+03:00`)
+  const dateParts = new Intl.DateTimeFormat('en-u-ca-islamic-umalqura-nu-latn', {
+    day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'Asia/Riyadh',
+  }).formatToParts(date)
+  const hijriPart = (type: string) => dateParts.find(part => part.type === type)?.value || ''
+  const logoUrl = `${window.location.origin}/moe-logo.png`
+  return `<main class="sheet">
+    <header class="top">
+      <div class="meta"><p>الرقــــم: ........................</p><p>التــــاري خ: .... / .... / ........</p><p>المشفوعات: ........................</p></div>
+      <div class="ministry"><img src="${logoUrl}" alt="شعار وزارة التعليم"><strong>وزارة التعليم</strong><small>Ministry of Education</small></div>
+      <div class="state"><div class="country">المملكة العربية السعودية</div><div>وزارة التعليم</div><div class="school">مدرسة</div></div>
+    </header>
+    <div class="form-code">نموذج رقم (18)<br><span class="code">رمز النموذج: (و.م.ع.ن - 02 - 02)</span></div>
+    <h1 class="form-title">تنبيه عن تأخر / انصراف</h1>
+    <table class="fields school-row"><tbody><tr><th>المدرسة</th><td>${escapeHtml(schoolName)}</td></tr></tbody></table>
+    <table class="fields civil-row"><tbody><tr><th>السجل المدني</th><td><div class="civil-boxes">${civilIdCells}</div></td></tr></tbody></table>
+    <table class="fields teacher-table"><thead><tr><th>الاسم</th><th>التخصص</th><th>المستوى / المرتبة</th><th>رقم الوظيفة</th><th>العمل الحالي</th></tr></thead><tbody><tr><td>${escapeHtml(incident.teacherName)}</td><td></td><td></td><td></td><td></td></tr></tbody></table>
+    <div class="greeting"><p>المكرم المعلم: ${escapeHtml(incident.teacherName)} وفقه الله</p><p>السلام عليكم ورحمة الله وبركاته</p></div>
+    <div class="case-intro"><span>إنه في يوم ${escapeHtml(weekdayLabel(incident.weekday))}</span><span class="date-line">الموافق ${escapeHtml(hijriPart('day'))} / ${escapeHtml(hijriPart('month'))} / ${escapeHtml(hijriPart('year'))}هـ</span><span>اتضح ما يلي:</span></div>
+    <div class="options">
+      <div class="option"><span class="box">&#9744;</span><span>تأخركم من بداية الدوام وحضوركم الساعة ( ................ )</span></div>
+      <div class="option"><span class="box">&#9745;</span><span>عدم تواجدكم أثناء الدوام من الساعة ( <b dir="ltr">${escapeHtml(incident.startTime)}</b> ) إلى الساعة ( <b dir="ltr">${escapeHtml(incident.endTime)}</b> )</span></div>
+      <div class="option"><span class="box">&#9744;</span><span>انصرافكم مبكراً قبل نهاية الدوام من الساعة ( .... : .... )</span></div>
+    </div>
+    <p class="request">عليه نأمل توضيح أسباب ذلك مع إرفاق ما يؤيد عذركم. ولكم تحياتي.</p>
+    <div class="signatures"><div>قائد المدرسة: ........................</div><div>التوقيع: ........................</div><div>التاريخ: .... / .... / 14هـ</div></div>
+    <hr class="divider">
+    <h2 class="section-title">المكرم / قائد المدرسة</h2>
+    <p class="reply">السلام عليكم ورحمة الله وبركاته</p>
+    <p class="reply">أفيدكم أن أسباب ذلك ما يلي:</p>
+    <div class="writing-lines"><div></div><div></div><div></div><div></div></div>
+    <div class="reply-signatures"><div>الاسم: ........................</div><div>التوقيع: ........................</div><div>التاريخ: .... / .... / 14هـ</div></div>
+    <hr class="divider">
+    <h2 class="manager-title">رأي قائد المدرسة</h2>
+    <div class="manager-options"><div><span class="box">&#9744;</span> عذره مقبول.</div><div><span class="box">&#9744;</span> عذره غير مقبول.</div><div><span class="box">&#9744;</span> ما تراه الإدارة أو إجراء آخر: ....................................................</div></div>
+    <div class="manager-signature"><div>مدير المدرسة: ........................</div><div>التوقيع: ........................</div><div>التاريخ: .... / .... / 14هـ</div></div>
+    <p class="footnote">ملاحظة: ترفق بطاقة المساءلة مع أصل القرار في حالة عدم قبول العذر لحفظها بملفه بالإدارة بالمدرسة، أصله لملفه بالمدرسة.</p>
+    <footer class="source"><span class="right">الحازمي</span><span>الدليل الإجرائي لمدارس التعليم العام للعام الدراسي 1436 - 1437 هـ - الإصدار الثالث</span></footer>
+  </main>`
 }
 
 export function LessonFlowCenter({ schoolName }: { schoolName: string }) {
@@ -633,7 +651,7 @@ export function LessonFlowCenter({ schoolName }: { schoolName: string }) {
   }
 
   const printIncident = (incident: LessonIncident) => {
-    openPrintDocument('مساءلة تأخر / انصراف مبكر', incidentPrintHtml(incident), schoolName)
+    openOfficialFormDocument('تنبيه عن تأخر / انصراف', incidentPrintHtml(incident, schoolName))
   }
 
   const renderSection = () => {
