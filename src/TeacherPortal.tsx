@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
-import { BookOpenCheck, FileText, KeyRound, LogOut, Printer, Save, UserRound } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import * as jsQRNs from 'jsqr'
+import { BookOpenCheck, Camera, FileText, KeyRound, LogOut, Printer, Save, UserRound, X } from 'lucide-react'
 import { api, type Account, type TeacherLesson, type TeacherLessonReport, type TeacherNote, type TeacherPortalDashboard, type TeacherPortalScheduleItem } from './api'
 import { downloadWorkbook, openPrintDocument } from './SchoolFeatures'
 
@@ -8,6 +9,12 @@ const dayNames = ['', 'الأحد', 'الاثنين', 'الثلاثاء', 'ال�
 const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Riyadh' }).format(new Date())
 const escapeHtml = (value: unknown) => String(value ?? '').replace(/[&<>'"]/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[character] || character))
 const periodLabel = (period: number) => `الحصة ${['', 'الأولى', 'الثانية', 'الثالثة', 'الرابعة', 'الخامسة', 'السادسة', 'السابعة', 'الثامنة', 'التاسعة', 'العاشرة'][period] || period}`
+const jsQR = (jsQRNs as any).default || jsQRNs
+const barcodeCandidates = (value: string) => {
+  const raw = value.trim()
+  const legacy = raw.replace(/\\/g, '/').match(/(?:^|\/)student_barcodes\/([^/]+)\.png$/i)?.[1]
+  return [...new Set([raw, legacy || ''])].filter(Boolean)
+}
 
 type StudentState = { status: 'present' | 'absent'; note: TeacherNote | '' }
 
@@ -32,6 +39,16 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState('')
+  const [cameraOpen, setCameraOpen] = useState(false)
+  const videoRef = useRef<HTMLVideoElement | null>(null)
+  const canvasRef = useRef<HTMLCanvasElement | null>(null)
+  const cameraStreamRef = useRef<MediaStream | null>(null)
+
+  const stopCamera = () => {
+    cameraStreamRef.current?.getTracks().forEach(track => track.stop())
+    cameraStreamRef.current = null
+    setCameraOpen(false)
+  }
 
   const loadDashboard = async () => {
     setBusy('dashboard')
@@ -57,6 +74,59 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
   const updateStudent = (studentId: string, update: Partial<StudentState>) => {
     setStates(current => ({ ...current, [studentId]: { ...current[studentId], ...update } }))
   }
+
+  const startCamera = async () => {
+    if (!navigator.mediaDevices?.getUserMedia) { setError('الكاميرا غير مدعومة في هذا المتصفح. استخدم التحضير اليدوي.'); return }
+    setError('')
+    try {
+      cameraStreamRef.current = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false })
+      setCameraOpen(true)
+    } catch { setError('تعذر فتح الكاميرا. اسمح للمتصفح باستخدامها ثم أعد المحاولة.') }
+  }
+
+  useEffect(() => {
+    if (!cameraOpen || !cameraStreamRef.current || !videoRef.current || !canvasRef.current || !lesson) return
+    const video = videoRef.current
+    const canvas = canvasRef.current
+    const stream = cameraStreamRef.current
+    let cancelled = false
+    let frame = 0
+    const tick = () => {
+      if (cancelled) return
+      if (video.readyState >= HTMLMediaElement.HAVE_ENOUGH_DATA && video.videoWidth && video.videoHeight) {
+        const context = canvas.getContext('2d', { willReadFrequently: true })
+        if (context) {
+          const scale = Math.min(1, 480 / Math.max(video.videoWidth, video.videoHeight))
+          canvas.width = Math.max(1, Math.round(video.videoWidth * scale))
+          canvas.height = Math.max(1, Math.round(video.videoHeight * scale))
+          context.drawImage(video, 0, 0, canvas.width, canvas.height)
+          const result = jsQR(context.getImageData(0, 0, canvas.width, canvas.height).data, canvas.width, canvas.height, { inversionAttempts: 'dontInvert' })
+          if (result) {
+            const student = lesson.students.find(row => barcodeCandidates(result.data).includes(row.id))
+            if (student) {
+              updateStudent(student.id, { status: 'present' })
+              setNotice(`تم رصد حضور الطالب ${student.name} في متابعة هذه الحصة.`)
+              stopCamera()
+              return
+            }
+            setError('هذا الباركود لا يخص طالبًا في الفصل المحدد.')
+          }
+        }
+      }
+      frame = requestAnimationFrame(tick)
+    }
+    const attach = async () => {
+      video.srcObject = stream
+      video.setAttribute('playsinline', 'true')
+      video.muted = true
+      try { await video.play() } catch {}
+      if (!cancelled) frame = requestAnimationFrame(tick)
+    }
+    void attach()
+    return () => { cancelled = true; cancelAnimationFrame(frame) }
+  }, [cameraOpen, lesson])
+
+  useEffect(() => () => { cameraStreamRef.current?.getTracks().forEach(track => track.stop()) }, [])
 
   const saveLesson = async () => {
     if (!lesson || !selected) return
@@ -132,8 +202,9 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
     </section>
 
     {lesson && selected && <section className="teacher-card teacher-roster-card">
-      <div className="teacher-section-head"><div><span>{lesson.mapping.grade} · الفصل {lesson.mapping.classroom}</span><h2>{periodLabel(selected.periodNumber)} — {selected.classroom}</h2></div><button className="primary-button" onClick={() => void saveLesson()} disabled={busy === 'save'}><Save size={17} /> {busy === 'save' ? 'جارٍ الحفظ…' : 'حفظ المتابعة'}</button></div>
+      <div className="teacher-section-head"><div><span>{lesson.mapping.grade} · الفصل {lesson.mapping.classroom}</span><h2>{periodLabel(selected.periodNumber)} — {selected.classroom}</h2></div><div className="teacher-report-actions"><button className="outline-button" onClick={() => void startCamera()} disabled={cameraOpen}><Camera size={17} /> رصد بالباركود</button><button className="primary-button" onClick={() => void saveLesson()} disabled={busy === 'save'}><Save size={17} /> {busy === 'save' ? 'جارٍ الحفظ…' : 'حفظ المتابعة'}</button></div></div>
       <p className="teacher-help">اختيار الحالة والملاحظة هنا خاص بمتابعة المعلم، ولا يغيّر سجل الحضور والغياب الإداري.</p>
+      {cameraOpen && <div className="teacher-camera"><div><strong>وجّه الكاميرا إلى باركود الطالب</strong><button onClick={stopCamera}><X size={17} /> إغلاق الكاميرا</button></div><video ref={videoRef} muted playsInline /><canvas ref={canvasRef} hidden /></div>}
       <div className="teacher-roster-table-wrap"><table className="teacher-roster-table"><thead><tr><th>الطالب</th><th>الحالة</th><th>الملاحظة</th></tr></thead><tbody>
         {lesson.students.map(student => { const state = states[student.id] || { status: 'present' as const, note: '' as const }; return <tr key={student.id}>
           <td><strong>{student.name}</strong><small>{student.grade} · {student.classroom}</small></td>
