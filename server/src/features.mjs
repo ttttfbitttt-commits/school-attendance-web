@@ -726,6 +726,34 @@ export async function handleFeatureRequest(context) {
     return true
   }
 
+  if (req.method === 'GET' && url.pathname === '/api/reports/student-detail') {
+    const range = reportRange(url, todayRiyadh)
+    const studentId = String(url.searchParams.get('studentId') || '').trim()
+    if (!range || !studentId) { json(res, 400, { error: 'invalid_student_report_range' }); return true }
+    const result = await scoped(user.school_id, async client => {
+      const student = await client.query(`SELECT id AS "studentId",name,grade,classroom,phone
+        FROM students WHERE school_id=$1 AND id=$2`, [user.school_id, studentId])
+      if (!student.rowCount) return null
+      const summary = await client.query(`SELECT
+          (SELECT COUNT(DISTINCT absence_date)::int FROM absence_records WHERE school_id=$1 AND student_id=$2 AND absence_date BETWEEN $3 AND $4) AS "schoolAbsenceDays",
+          (SELECT COUNT(DISTINCT attendance_date)::int FROM attendance_logs WHERE school_id=$1 AND student_id=$2 AND status='late' AND attendance_date BETWEEN $3 AND $4) AS "schoolLateDays"`,
+      [user.school_id, studentId, range.from, range.to])
+      const lessons = await client.query(`SELECT
+          to_char(s.session_date,'YYYY-MM-DD') AS date,s.weekday,s.period_number AS "periodNumber",
+          s.subject_name AS subject,s.teacher_name AS "teacherName",s.classroom_name AS classroom,
+          s.grade_value AS grade,s.classroom_value AS "classroomValue",r.attendance_status AS status,r.note
+        FROM teacher_lesson_student_records r
+        JOIN teacher_lesson_sessions s ON s.id=r.lesson_session_id AND s.school_id=r.school_id
+        WHERE r.school_id=$1 AND r.student_id=$2 AND s.session_date BETWEEN $3 AND $4
+        ORDER BY s.subject_name,s.teacher_name,s.classroom_name,s.session_date DESC,s.period_number DESC`,
+      [user.school_id, studentId, range.from, range.to])
+      return { student: student.rows[0], summary: summary.rows[0], lessons: lessons.rows }
+    })
+    if (!result) { json(res, 404, { error: 'student_not_found' }); return true }
+    json(res, 200, { from: range.from, to: range.to, ...result })
+    return true
+  }
+
   if (req.method === 'GET' && url.pathname === '/api/messages') {
     const requestedType = String(url.searchParams.get('type') || '').trim()
     const messageType = ['late', 'absence', 'general', 'test'].includes(requestedType) ? requestedType : ''

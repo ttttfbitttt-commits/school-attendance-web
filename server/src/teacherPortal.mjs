@@ -198,6 +198,7 @@ export async function migrateTeacherPortal(adminPool) {
       FOREIGN KEY (school_id,student_id) REFERENCES students(school_id,id) ON DELETE RESTRICT
     );
     CREATE INDEX IF NOT EXISTS teacher_lesson_student_records_school_note ON teacher_lesson_student_records(school_id,note) WHERE note <> '';
+    CREATE INDEX IF NOT EXISTS teacher_lesson_student_records_school_student ON teacher_lesson_student_records(school_id,student_id,lesson_session_id);
   `)
 }
 
