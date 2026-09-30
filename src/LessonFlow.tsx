@@ -384,7 +384,12 @@ export function LessonFlowCenter({ schoolName }: { schoolName: string }) {
       await loadIncidents()
     } catch (err) {
       const message = err instanceof Error ? err.message : ''
-      setError(message === 'scan_confirmation_expired' ? 'انتهت مهلة التأكيد. امسح باركود الفصل مرة أخرى.' : (message || 'حدث خطأ غير متوقع.'))
+      const userMessage = message === 'scan_confirmation_expired'
+        ? 'انتهت مهلة التأكيد. امسح باركود الفصل مرة أخرى.'
+        : message === 'outside_lesson_time'
+          ? 'لا يمكن رصد المساءلة الآن لأن الوقت الحالي خارج أوقات الحصص المحفوظة لهذا اليوم. راجع تبويب «أوقات الحصص»، أو استخدم «رصد المعلم المنتظر» لتحديد الحصة يدويًا.'
+          : message
+      setError(userMessage || 'حدث خطأ غير متوقع.')
     } finally {
       setBusy('')
     }
