@@ -291,8 +291,8 @@ function incidentPrintHtml(incident: LessonIncident, schoolName: string) {
   return `<main class="sheet">
     <header class="top">
       <div class="meta"><p>الرقــــم: ........................</p><p>التــــاري خ: .... / .... / ........</p><p>المشفوعات: ........................</p></div>
-      <div class="ministry"><img src="${logoUrl}" alt="شعار وزارة التعليم"><strong>وزارة التعليم</strong><small>Ministry of Education</small></div>
-      <div class="state"><div class="country">المملكة العربية السعودية</div><div>وزارة التعليم</div><div class="school">مدرسة</div></div>
+      <div class="ministry"><img src="${logoUrl}" alt="شعار وزارة التعليم"></div>
+      <div class="state"><div class="country">المملكة العربية السعودية</div><div>وزارة التعليم</div><div class="school">مدرسة ${escapeHtml(schoolName)}</div></div>
     </header>
     <div class="form-code">نموذج رقم (18)<br><span class="code">رمز النموذج: (و.م.ع.ن - 02 - 02)</span></div>
     <h1 class="form-title">تنبيه عن تأخر / انصراف</h1>
@@ -319,7 +319,7 @@ function incidentPrintHtml(incident: LessonIncident, schoolName: string) {
     <div class="manager-options"><div><span class="box">&#9744;</span> عذره مقبول.</div><div><span class="box">&#9744;</span> عذره غير مقبول.</div><div><span class="box">&#9744;</span> ما تراه الإدارة أو إجراء آخر: ....................................................</div></div>
     <div class="manager-signature"><div>مدير المدرسة: ........................</div><div>التوقيع: ........................</div><div>التاريخ: .... / .... / 14هـ</div></div>
     <p class="footnote">ملاحظة: ترفق بطاقة المساءلة مع أصل القرار في حالة عدم قبول العذر لحفظها بملفه بالإدارة بالمدرسة، أصله لملفه بالمدرسة.</p>
-    <footer class="source"><span class="right">الحازمي</span><span>الدليل الإجرائي لمدارس التعليم العام للعام الدراسي 1436 - 1437 هـ - الإصدار الثالث</span></footer>
+    <footer class="source"><span>الدليل الإجرائي لمدارس التعليم العام للعام الدراسي 1436 - 1437 هـ - الإصدار الثالث</span></footer>
   </main>`
 }
 
