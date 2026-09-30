@@ -290,7 +290,7 @@ function incidentPrintHtml(incident: LessonIncident, schoolName: string) {
   const logoUrl = `${window.location.origin}/moe-logo.png`
   return `<main class="sheet">
     <header class="top">
-      <div class="meta"><p>الرقــــم: ........................</p><p>التــــاري خ: .... / .... / ........</p><p>المشفوعات: ........................</p></div>
+      <div class="meta"><p>الرقم: ........................</p><p>التاريخ: .... / .... / ........</p><p>المشفوعات: ........................</p></div>
       <div class="ministry"><img src="${logoUrl}" alt="شعار وزارة التعليم"></div>
       <div class="state"><div class="country">المملكة العربية السعودية</div><div>وزارة التعليم</div><div class="school">مدرسة ${escapeHtml(schoolName)}</div></div>
     </header>
@@ -317,6 +317,7 @@ function incidentPrintHtml(incident: LessonIncident, schoolName: string) {
     <hr class="divider">
     <h2 class="manager-title">رأي قائد المدرسة</h2>
     <div class="manager-options"><div><span class="box">&#9744;</span> عذره مقبول.</div><div><span class="box">&#9744;</span> عذره غير مقبول.</div><div><span class="box">&#9744;</span> ما تراه الإدارة أو إجراء آخر: ....................................................</div></div>
+    <div class="manager-writing-lines"><div></div><div></div></div>
     <div class="manager-signature"><div>مدير المدرسة: ........................</div><div>التوقيع: ........................</div><div>التاريخ: .... / .... / 14هـ</div></div>
     <p class="footnote">ملاحظة: ترفق بطاقة المساءلة مع أصل القرار في حالة عدم قبول العذر لحفظها بملفه بالإدارة بالمدرسة، أصله لملفه بالمدرسة.</p>
     <footer class="source"><span>الدليل الإجرائي لمدارس التعليم العام للعام الدراسي 1436 - 1437 هـ - الإصدار الثالث</span></footer>
