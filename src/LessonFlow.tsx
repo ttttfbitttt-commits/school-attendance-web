@@ -248,11 +248,6 @@ function incidentStatus(status: LessonIncident['status']) {
   return 'مسودة'
 }
 
-function periodLabel(periodNumber: number) {
-  const ordinals = ['', 'الأولى', 'الثانية', 'الثالثة', 'الرابعة', 'الخامسة', 'السادسة', 'السابعة', 'الثامنة', 'التاسعة', 'العاشرة', 'الحادية عشرة', 'الثانية عشرة']
-  return ordinals[periodNumber] ? `الحصة ${ordinals[periodNumber]}` : `الحصة ${periodNumber}`
-}
-
 function scheduleCell(assignments: LessonScheduleAssignment[], weekday: number, periodNumber: number) {
   return assignments.find(item => item.weekday === weekday && item.periodNumber === periodNumber)
 }
