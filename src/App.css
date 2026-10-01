@@ -1,3 +1,4 @@
+.teacher-report-menu { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; }.teacher-report-menu button { min-height:145px; display:grid; place-items:center; align-content:center; gap:8px; padding:18px; border:1px solid #d9e5ee; border-radius:15px; background:#fff; color:var(--blue-dark); font:inherit; cursor:pointer; }.teacher-report-menu button:hover { border-color:var(--blue); background:#eef7ff; }.teacher-report-menu svg { color:var(--blue); }.teacher-report-menu strong { font-size:15px; }.teacher-report-menu small { color:var(--muted); font-size:11px; text-align:center; }
 :root {
   --blue: #1476c9;
   --blue-dark: #0c4277;
@@ -25,6 +26,7 @@
   .teacher-tab-placeholder { min-height:240px; }
   .teacher-sheet-setup-head { align-items:flex-start; flex-direction:column; }.teacher-sheet-actions { align-items:stretch; flex-direction:column; }.teacher-sheet-actions .outline-button,.teacher-sheet-copy { width:100%; justify-content:center; }.teacher-sheet-column-row { grid-template-columns:1fr 1fr; }.teacher-sheet-column-row input:first-child,.teacher-sheet-column-row input[placeholder] { grid-column:1 / 3; }.teacher-sheet-column-row .icon-button { justify-self:start; }
   .teacher-sheet-menu,.teacher-sheet-selectors { grid-template-columns:1fr; }.teacher-sheet-menu button { min-height:120px; }
+  .teacher-report-menu { grid-template-columns:1fr; }.teacher-report-menu button { min-height:105px; }
 }
 
 .teacher-credential-table-wrap { max-height:390px; overflow:auto; border:1px solid #dce9e3; border-radius:10px; }
