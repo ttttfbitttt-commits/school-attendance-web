@@ -25,7 +25,7 @@ const sheetTemplates: Array<{ label: string; columns: TeacherSheetColumn[] }> = 
   { label: 'كشف اختبارات 4', columns: [1, 2, 3, 4].map(number => ({ id: `test-${number}`, label: `اختبار ${number}`, type: 'score' as const, maxScore: 10, choices: [] })) },
 ]
 
-const sheetTypeLabels: Record<TeacherSheetType, string> = { followup: 'المتابعة', homework: 'الواجبات', tests: 'الاختبارات' }
+const sheetTypeLabels: Record<TeacherSheetOpenType, string> = { followup: 'المتابعة', homework: 'الواجبات', tests: 'الاختبارات', combined: 'الكشف المدمج' }
 
 function TeacherSheetsSetup({ sheets, onSaved }: { sheets: TeacherSheetSubject[]; onSaved: (config: TeacherSheetConfig) => void }) {
   const [subjectIndex, setSubjectIndex] = useState(0)
