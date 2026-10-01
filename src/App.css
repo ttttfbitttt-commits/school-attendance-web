@@ -27,6 +27,7 @@
   .teacher-sheet-setup-head { align-items:flex-start; flex-direction:column; }.teacher-sheet-actions { align-items:stretch; flex-direction:column; }.teacher-sheet-actions .outline-button,.teacher-sheet-copy { width:100%; justify-content:center; }.teacher-sheet-column-row { grid-template-columns:1fr 1fr; }.teacher-sheet-column-row input:first-child,.teacher-sheet-column-row input[placeholder] { grid-column:1 / 3; }.teacher-sheet-column-row .icon-button { justify-self:start; }
   .teacher-sheet-menu,.teacher-sheet-selectors { grid-template-columns:1fr; }.teacher-sheet-menu button { min-height:120px; }
   .teacher-report-menu { grid-template-columns:1fr; }.teacher-report-menu button { min-height:105px; }
+  .teacher-sheet-roster .teacher-roster-table-wrap { overflow-x:auto; }.teacher-sheet-roster .teacher-roster-table { min-width:760px; }.teacher-sheet-roster .teacher-roster-table thead { display:table-header-group; }.teacher-sheet-roster .teacher-roster-table th,.teacher-sheet-roster .teacher-roster-table td { display:table-cell; width:auto; padding:8px; }.teacher-sheet-roster .teacher-roster-table tr { display:table-row; padding:0; }.teacher-sheet-roster .teacher-roster-table td::before { display:none; }
 }
 
 .teacher-credential-table-wrap { max-height:390px; overflow:auto; border:1px solid #dce9e3; border-radius:10px; }
