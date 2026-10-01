@@ -11,6 +11,7 @@ const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Riyadh' }
 const periodLabel = (period: number) => `الحصة ${['', 'الأولى', 'الثانية', 'الثالثة', 'الرابعة', 'الخامسة', 'السادسة', 'السابعة', 'الثامنة', 'التاسعة', 'العاشرة'][period] || period}`
 const weekdayForDate = (value: string) => { const day = new Date(`${value}T12:00:00Z`).getUTCDay(); return day === 0 ? 1 : day + 1 }
 const dateForWeekday = (value: string, weekday: number) => { const date = new Date(`${value}T12:00:00Z`); date.setUTCDate(date.getUTCDate() + weekday - weekdayForDate(value)); return date.toISOString().slice(0, 10) }
+const displaySheetValue = (value: string | number | boolean | undefined) => value === true ? '✓' : value === false ? '✗' : value ?? ''
 
 type StudentState = { status: 'present' | 'absent'; note: TeacherNote | ''; sheetValues: Record<string, string | number | boolean> }
 type TeacherTab = 'home' | 'sheets' | 'reports' | 'password'
@@ -62,6 +63,10 @@ function TeacherSheetStart({ sheets, schedule, onOpen }: { sheets: TeacherSheetC
   </div>
 }
 
+function TeacherSheetRoster({ lesson, selected, states, updateSheetValue, exportSheet, printSheet, saveLesson, busy }: { lesson: TeacherLesson; selected: TeacherPortalScheduleItem; states: Record<string, StudentState>; updateSheetValue: (studentId: string, columnId: string, value: string | number | boolean) => void; exportSheet: () => void; printSheet: () => void; saveLesson: () => void; busy: string }) {
+  return <section className="teacher-card teacher-roster-card teacher-sheet-roster"><div className="teacher-section-head"><div><span>{lesson.assignment.subject} · {lesson.mapping.grade} · الفصل {lesson.mapping.classroom}</span><h2>كشف {lesson.assignment.subject} — {selected.classroom}</h2></div><div className="teacher-report-actions"><button className="outline-button" onClick={exportSheet}><FileSpreadsheet size={16} /> Excel</button><button className="outline-button" onClick={printSheet}><Printer size={16} /> PDF</button><button className="primary-button" onClick={saveLesson} disabled={busy === 'save'}><Save size={17} /> {busy === 'save' ? 'جارٍ الحفظ…' : 'حفظ الكشف'}</button></div></div><div className="teacher-roster-table-wrap"><table className="teacher-roster-table"><thead><tr><th>الطالب</th>{lesson.sheetConfig?.columns.map(column => <th key={column.id}>{column.label}{column.type === 'score' && column.maxScore !== null ? ` / ${column.maxScore}` : ''}</th>)}</tr></thead><tbody>{lesson.students.map(student => { const state = states[student.id] || { status: 'present' as const, note: '' as const, sheetValues: {} }; return <tr key={student.id}><td><strong>{student.name}</strong><small>{student.grade} · {student.classroom}</small></td>{lesson.sheetConfig?.columns.map(column => <td key={column.id} className="teacher-sheet-cell">{column.type === 'score' && <input type="number" min="0" max={column.maxScore ?? undefined} value={String(state.sheetValues[column.id] ?? '')} onChange={event => updateSheetValue(student.id, column.id, event.target.value)} aria-label={`${column.label} لـ ${student.name}`} />}{column.type === 'text' && <input value={String(state.sheetValues[column.id] ?? '')} onChange={event => updateSheetValue(student.id, column.id, event.target.value)} aria-label={`${column.label} لـ ${student.name}`} />}{column.type === 'choice' && <select value={String(state.sheetValues[column.id] ?? '')} onChange={event => updateSheetValue(student.id, column.id, event.target.value)} aria-label={`${column.label} لـ ${student.name}`}><option value="">اختر</option>{column.choices.map(choice => <option key={choice} value={choice}>{choice}</option>)}</select>}{column.type === 'boolean' && <input type="checkbox" checked={state.sheetValues[column.id] === true} onChange={event => updateSheetValue(student.id, column.id, event.target.checked)} aria-label={`${column.label} لـ ${student.name}`} />}</td>)}</tr> })}</tbody></table></div><div className="teacher-roster-save-bottom"><button className="outline-button" onClick={exportSheet}><FileSpreadsheet size={16} /> Excel</button><button className="outline-button" onClick={printSheet}><Printer size={16} /> PDF</button><button className="primary-button" onClick={saveLesson} disabled={busy === 'save'}><Save size={17} /> {busy === 'save' ? 'جارٍ الحفظ…' : 'حفظ الكشف'}</button></div></section>
+}
+
 function TeacherReportsTab() {
   const [date, setDate] = useState(today())
   const [reports, setReports] = useState<TeacherLessonReport[]>([])
@@ -92,6 +97,7 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
   const [sheets, setSheets] = useState<TeacherSheetConfig[]>([])
   const [sheetMode, setSheetMode] = useState<'menu' | 'setup' | 'start'>('menu')
   const [activeLessonDate, setActiveLessonDate] = useState(date)
+  const [sheetOnlyView, setSheetOnlyView] = useState(false)
 
   const loadDashboard = async () => {
     setBusy('dashboard')
@@ -102,7 +108,7 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
   useEffect(() => { void loadDashboard() }, [date])
   useEffect(() => { void api.teacherSheets().then(result => setSheets(result.sheets)).catch(() => setSheets([])) }, [])
 
-  const openLesson = async (item: TeacherPortalScheduleItem) => {
+  const openLesson = async (item: TeacherPortalScheduleItem, sheetOnly = false) => {
     setBusy(`lesson-${item.assignmentId}`)
     setError('')
     const targetDate = dateForWeekday(date, item.weekday)
@@ -111,7 +117,8 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
       setLesson(next)
       setSelected(item)
       setActiveLessonDate(targetDate)
-      setActiveTab('home')
+      setSheetOnlyView(sheetOnly)
+      setActiveTab(sheetOnly ? 'sheets' : 'home')
       setSheetMode('menu')
       setStates(Object.fromEntries(next.students.map(student => [student.id, { status: student.status, note: student.note, sheetValues: student.sheetValues }])))
     } catch {
@@ -133,7 +140,7 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
     const columns = lesson.sheetConfig?.columns || []
     const rows = [['الطالب', 'الحالة', 'الملاحظة', ...columns.map(column => column.label)], ...lesson.students.map(student => {
       const state = states[student.id] || { status: 'present' as const, note: '', sheetValues: {} }
-      return [student.name, state.status === 'present' ? 'حاضر' : 'غائب', state.note || '', ...columns.map(column => state.sheetValues[column.id] ?? '')]
+      return sheetOnlyView ? [student.name, ...columns.map(column => displaySheetValue(state.sheetValues[column.id]))] : [student.name, state.status === 'present' ? 'حاضر' : 'غائب', state.note || '', ...columns.map(column => displaySheetValue(state.sheetValues[column.id]))]
     })]
     const workbook = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(rows), 'الكشف')
@@ -146,11 +153,11 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
     const escape = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character] || character))
     const rows = lesson.students.map(student => {
       const state = states[student.id] || { status: 'present' as const, note: '', sheetValues: {} }
-      return `<tr><td>${escape(student.name)}</td><td>${state.status === 'present' ? 'حاضر' : 'غائب'}</td><td>${escape(state.note || '')}</td>${columns.map(column => `<td>${escape(state.sheetValues[column.id] ?? '')}</td>`).join('')}</tr>`
+      return sheetOnlyView ? `<tr><td>${escape(student.name)}</td>${columns.map(column => `<td>${escape(displaySheetValue(state.sheetValues[column.id]))}</td>`).join('')}</tr>` : `<tr><td>${escape(student.name)}</td><td>${state.status === 'present' ? 'حاضر' : 'غائب'}</td><td>${escape(state.note || '')}</td>${columns.map(column => `<td>${escape(displaySheetValue(state.sheetValues[column.id]))}</td>`).join('')}</tr>`
     }).join('')
     const popup = window.open('', '_blank')
     if (!popup) return
-    popup.document.write(`<html dir="rtl"><head><title>كشف ${escape(lesson.assignment.subject)}</title><style>body{font-family:Arial,sans-serif;padding:18px}table{width:100%;border-collapse:collapse;direction:rtl}th,td{border:1px solid #94a3b8;padding:7px;text-align:right}th{background:#e2e8f0}@media print{@page{size:A4 landscape;margin:10mm}}</style></head><body><h2>كشف ${escape(lesson.assignment.subject)} - ${escape(selected.classroom)}</h2><p>${escape(formatHijriDate(date))}</p><table><thead><tr><th>الطالب</th><th>الحالة</th><th>الملاحظة</th>${columns.map(column => `<th>${escape(column.label)}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table><script>window.onload=()=>window.print()</script></body></html>`)
+    popup.document.write(`<html dir="rtl"><head><title>كشف ${escape(lesson.assignment.subject)}</title><style>body{font-family:Arial,sans-serif;padding:18px}table{width:100%;border-collapse:collapse;direction:rtl}th,td{border:1px solid #94a3b8;padding:7px;text-align:right}th{background:#e2e8f0}@media print{@page{size:A4 landscape;margin:10mm}}</style></head><body><h2>كشف ${escape(lesson.assignment.subject)} - ${escape(selected.classroom)}</h2><p>${escape(formatHijriDate(activeLessonDate))}</p><table><thead><tr><th>الطالب</th>${sheetOnlyView ? '' : '<th>الحالة</th><th>الملاحظة</th>'}${columns.map(column => `<th>${escape(column.label)}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table><script>window.onload=()=>window.print()</script></body></html>`)
     popup.document.close()
   }
 
@@ -201,7 +208,6 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
     <div className="teacher-workspace">
     <header className="teacher-topbar">
       <div><span>بوابة المعلم</span><h1>{dashboard?.schoolName || 'نظام حصر الطلاب'}</h1></div>
-      <button className="outline-button teacher-topbar-logout" onClick={onLogout}><LogOut size={17} /> تسجيل الخروج</button>
     </header>
     <section className="teacher-welcome">
       <div><UserRound size={27} /><div><strong>{dashboard?.teacher.name || account.displayName}</strong><small>يعرض هذا الحساب جدولك وطلاب فصولك فقط.</small></div></div>
@@ -240,7 +246,7 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
       <div className="teacher-roster-save-bottom"><button className="outline-button" onClick={exportSheet}><FileSpreadsheet size={16} /> Excel</button><button className="outline-button" onClick={printSheet}><Printer size={16} /> PDF</button><button className="primary-button" onClick={() => void saveLesson()} disabled={busy === 'save'}><Save size={17} /> {busy === 'save' ? 'جارٍ الحفظ…' : 'حفظ المتابعة'}</button></div>
     </section>}
     </>}
-    {activeTab === 'sheets' && <section className="teacher-card"><div className="teacher-section-head"><div><span>إدارة الكشوف</span><h2>الكشوف</h2><p>جهز كشف كل مادة مرة واحدة، أو ابدأ المتابعة مباشرة.</p></div><FileSpreadsheet size={30} /></div>{sheetMode === 'menu' && <div className="teacher-sheet-menu"><button type="button" onClick={() => setSheetMode('setup')}><FileSpreadsheet size={30} /><strong>إعداد الكشوف</strong><small>أنشئ الأعمدة والدرجات لكل مادة</small></button><button type="button" onClick={() => setSheetMode('start')}><BookOpenCheck size={30} /><strong>بدء المتابعة</strong><small>اختر المادة والفصل والكشف ثم افتح الطلاب</small></button></div>}{sheetMode === 'setup' && <><button type="button" className="outline-button teacher-sheet-back" onClick={() => setSheetMode('menu')}>العودة إلى الكشوف</button><TeacherSheetsSetup sheets={sheets} onSaved={config => setSheets(current => current.map(sheet => sheet.subject === config.subject ? config : sheet))} /></>}{sheetMode === 'start' && <><button type="button" className="outline-button teacher-sheet-back" onClick={() => setSheetMode('menu')}>العودة إلى الكشوف</button><TeacherSheetStart sheets={sheets} schedule={dashboard?.weekSchedule || []} onOpen={item => void openLesson(item)} /></>}</section>}
+    {activeTab === 'sheets' && <section className="teacher-card"><div className="teacher-section-head"><div><span>إدارة الكشوف</span><h2>الكشوف</h2><p>جهز كشف كل مادة مرة واحدة، أو ابدأ المتابعة مباشرة.</p></div><FileSpreadsheet size={30} /></div>{sheetMode === 'menu' && <div className="teacher-sheet-menu"><button type="button" onClick={() => setSheetMode('setup')}><FileSpreadsheet size={30} /><strong>إعداد الكشوف</strong><small>أنشئ الأعمدة والدرجات لكل مادة</small></button><button type="button" onClick={() => setSheetMode('start')}><BookOpenCheck size={30} /><strong>بدء المتابعة</strong><small>اختر المادة والفصل والكشف ثم افتح الطلاب</small></button></div>}{sheetMode === 'setup' && <><button type="button" className="outline-button teacher-sheet-back" onClick={() => setSheetMode('menu')}>العودة إلى الكشوف</button><TeacherSheetsSetup sheets={sheets} onSaved={config => setSheets(current => current.map(sheet => sheet.subject === config.subject ? config : sheet))} /></>}{sheetMode === 'start' && <><button type="button" className="outline-button teacher-sheet-back" onClick={() => setSheetMode('menu')}>العودة إلى الكشوف</button><TeacherSheetStart sheets={sheets} schedule={dashboard?.weekSchedule || []} onOpen={item => void openLesson(item, true)} /></>}{sheetOnlyView && lesson && selected && <TeacherSheetRoster lesson={lesson} selected={selected} states={states} updateSheetValue={updateSheetValue} exportSheet={exportSheet} printSheet={printSheet} saveLesson={saveLesson} busy={busy} />}</section>}
     {activeTab === 'reports' && <TeacherReportsTab />}
     </div>
   </main>
