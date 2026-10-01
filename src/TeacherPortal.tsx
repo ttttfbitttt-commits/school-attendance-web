@@ -44,6 +44,20 @@ function TeacherSheetsSetup({ sheets, onSaved }: { sheets: TeacherSheetConfig[];
   </div>
 }
 
+function TeacherSheetStart({ sheets, schedule, onOpen }: { sheets: TeacherSheetConfig[]; schedule: TeacherPortalScheduleItem[]; onOpen: (item: TeacherPortalScheduleItem) => void }) {
+  const [subject, setSubject] = useState(sheets[0]?.subject || '')
+  const [classroomId, setClassroomId] = useState('')
+  const classrooms = schedule.filter(item => item.subject === subject)
+  const config = sheets.find(sheet => sheet.subject === subject)
+  useEffect(() => { setClassroomId(classrooms[0]?.classroomId || '') }, [subject, schedule.length])
+  const selected = classrooms.find(item => item.classroomId === classroomId)
+  return <div className="teacher-sheet-start">
+    <div className="teacher-sheet-selectors"><label>المادة<select value={subject} onChange={event => setSubject(event.target.value)}><option value="">اختر المادة</option>{sheets.map(sheet => <option key={sheet.subject} value={sheet.subject}>{sheet.subject}</option>)}</select></label><label>الفصل<select value={classroomId} onChange={event => setClassroomId(event.target.value)} disabled={!classrooms.length}><option value="">اختر الفصل</option>{classrooms.map(item => <option key={item.classroomId} value={item.classroomId}>{item.classroom}</option>)}</select></label><label>نوع الكشف<select value={config?.subject || ''} disabled><option value={config?.subject || ''}>{config?.version ? 'الكشف المعتمد للمادة' : 'لم يتم إعداد كشف بعد'}</option></select></label></div>
+    {!classrooms.length && subject && <p className="teacher-empty">لا توجد حصة لهذه المادة في جدول اليوم.</p>}
+    {selected && <button type="button" className="primary-button" onClick={() => onOpen(selected)}><BookOpenCheck size={17} /> فتح كشف {selected.subject} · {selected.classroom}</button>}
+  </div>
+}
+
 export function TeacherPortal({ account, onLogout }: { account: Account; onLogout: () => void }) {
   const [date, setDate] = useState(today())
   const [dashboard, setDashboard] = useState<TeacherPortalDashboard | null>(null)
@@ -58,6 +72,7 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
   const [activeTab, setActiveTab] = useState<TeacherTab>('home')
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [sheets, setSheets] = useState<TeacherSheetConfig[]>([])
+  const [sheetMode, setSheetMode] = useState<'menu' | 'setup' | 'start'>('menu')
 
   const loadDashboard = async () => {
     setBusy('dashboard')
@@ -170,7 +185,7 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
       <div className="teacher-roster-save-bottom"><button className="primary-button" onClick={() => void saveLesson()} disabled={busy === 'save'}><Save size={17} /> {busy === 'save' ? 'جارٍ الحفظ…' : 'حفظ المتابعة'}</button></div>
     </section>}
     </>}
-    {activeTab === 'sheets' && <section className="teacher-card"><div className="teacher-section-head"><div><span>إدارة الكشوف</span><h2>الكشوف</h2><p>جهز كشف كل مادة مرة واحدة، وسيطبق على جميع فصولها.</p></div><FileSpreadsheet size={30} /></div><TeacherSheetsSetup sheets={sheets} onSaved={config => setSheets(current => current.map(sheet => sheet.subject === config.subject ? config : sheet))} /></section>}
+    {activeTab === 'sheets' && <section className="teacher-card"><div className="teacher-section-head"><div><span>إدارة الكشوف</span><h2>الكشوف</h2><p>جهز كشف كل مادة مرة واحدة، أو ابدأ المتابعة مباشرة.</p></div><FileSpreadsheet size={30} /></div>{sheetMode === 'menu' && <div className="teacher-sheet-menu"><button type="button" onClick={() => setSheetMode('setup')}><FileSpreadsheet size={30} /><strong>إعداد الكشوف</strong><small>أنشئ الأعمدة والدرجات لكل مادة</small></button><button type="button" onClick={() => setSheetMode('start')}><BookOpenCheck size={30} /><strong>بدء المتابعة</strong><small>اختر المادة والفصل والكشف ثم افتح الطلاب</small></button></div>}{sheetMode === 'setup' && <><button type="button" className="outline-button teacher-sheet-back" onClick={() => setSheetMode('menu')}>العودة إلى الكشوف</button><TeacherSheetsSetup sheets={sheets} onSaved={config => setSheets(current => current.map(sheet => sheet.subject === config.subject ? config : sheet))} /></>}{sheetMode === 'start' && <><button type="button" className="outline-button teacher-sheet-back" onClick={() => setSheetMode('menu')}>العودة إلى الكشوف</button><TeacherSheetStart sheets={sheets} schedule={dashboard?.schedule || []} onOpen={item => void openLesson(item)} /></>}</section>}
     {activeTab === 'reports' && <section className="teacher-card teacher-tab-placeholder"><BarChart3 size={30} /><h2>التقارير</h2><p>ستظهر هنا تقارير الطلاب والمواد والفصول مع خيارات الطباعة والتصدير.</p></section>}
     </div>
   </main>
