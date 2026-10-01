@@ -25,6 +25,7 @@ import {
   type LessonSchedule,
   type LessonScheduleAssignment,
   type LessonTimeSlot,
+  type TeacherDayAbsence,
 } from './api'
 import { downloadWorkbook, openOfficialFormDocument, openPrintDocument } from './SchoolFeatures'
 
@@ -344,6 +345,11 @@ export function LessonFlowCenter({ schoolName }: { schoolName: string }) {
   const [manualPeriodNumber, setManualPeriodNumber] = useState('')
   const [manualTeacherId, setManualTeacherId] = useState('')
   const [teacherSearch, setTeacherSearch] = useState('')
+  const [teacherDayAbsences, setTeacherDayAbsences] = useState<TeacherDayAbsence[]>([])
+  const [showTeacherAbsenceForm, setShowTeacherAbsenceForm] = useState(false)
+  const [teacherAbsenceSearch, setTeacherAbsenceSearch] = useState('')
+  const [selectedAbsentTeacherIds, setSelectedAbsentTeacherIds] = useState<Set<string>>(new Set())
+  const [pendingAbsentTeacherIds, setPendingAbsentTeacherIds] = useState<string[] | null>(null)
   const [showCancellation, setShowCancellation] = useState(false)
   const [selectedCancellationId, setSelectedCancellationId] = useState('')
   const [cameraOn, setCameraOn] = useState(false)
@@ -360,6 +366,14 @@ export function LessonFlowCenter({ schoolName }: { schoolName: string }) {
     if (!query) return teacherOptions
     return teacherOptions.filter(teacher => compact(`${teacher.name} ${teacher.identityNumber}`).includes(query))
   }, [teacherOptions, teacherSearch])
+  const teacherAbsenceMatches = useMemo(() => {
+    const query = compact(teacherAbsenceSearch)
+    if (!query) return []
+    const alreadyAbsent = new Set(teacherDayAbsences.map(item => item.teacherId))
+    return teacherOptions.filter(teacher => !alreadyAbsent.has(teacher.id) && compact(`${teacher.name} ${teacher.identityNumber}`).includes(query)).slice(0, 8)
+  }, [teacherOptions, teacherAbsenceSearch, teacherDayAbsences])
+  const selectedAbsentTeachers = useMemo(() => teacherOptions.filter(teacher => selectedAbsentTeacherIds.has(teacher.id)), [teacherOptions, selectedAbsentTeacherIds])
+  const pendingAbsentTeachers = useMemo(() => teacherOptions.filter(teacher => pendingAbsentTeacherIds?.includes(teacher.id)), [teacherOptions, pendingAbsentTeacherIds])
   const cancellableIncidents = useMemo(() => incidents.filter(incident => incident.status !== 'cancelled'), [incidents])
 
   const loadOverview = async () => {
@@ -375,9 +389,15 @@ export function LessonFlowCenter({ schoolName }: { schoolName: string }) {
     setIncidents(data.incidents)
   }
 
+  const loadTeacherDayAbsences = async () => {
+    const data = await api.teacherDayAbsences()
+    setTeacherDayAbsences(data.teachers)
+  }
+
   useEffect(() => {
     void loadOverview().catch(err => setError(err.message || 'تعذر تحميل سير الحصص.'))
     void loadIncidents().catch(() => undefined)
+    void loadTeacherDayAbsences().catch(() => undefined)
     return () => stopCamera()
   }, [])
 
@@ -395,10 +415,22 @@ export function LessonFlowCenter({ schoolName }: { schoolName: string }) {
       setNotice(message)
       await loadOverview()
       await loadIncidents()
+      await loadTeacherDayAbsences()
     } catch (err) {
       const message = err instanceof Error ? err.message : ''
+      const apiError = err as Error & { data?: { classroomId?: string; periodNumber?: number; date?: string } }
+      if (message === 'teacher_absent_today' && apiError.data?.classroomId) {
+        setManualClassroomId(apiError.data.classroomId)
+        setManualPeriodNumber(String(apiError.data.periodNumber || ''))
+        setIncidentDate(apiError.data.date || todayRiyadh())
+        setManualTeacherId('')
+        setTeacherSearch('')
+        setShowManualObservation(true)
+      }
       const userMessage = message === 'scan_confirmation_expired'
         ? 'انتهت مهلة التأكيد. امسح باركود الفصل مرة أخرى.'
+        : message === 'teacher_absent_today'
+          ? 'المعلم المجدول مسجل غائباً اليوم. توجّه إلى رصد المعلم المنتظر واختر المعلم الذي يغطي الحصة.'
         : message === 'outside_lesson_time'
           ? 'لا يمكن رصد المساءلة الآن لأن الوقت الحالي خارج أوقات الحصص المحفوظة لهذا اليوم. راجع تبويب «أوقات الحصص»، أو استخدم «رصد المعلم المنتظر» لتحديد الحصة يدويًا.'
           : message
@@ -611,6 +643,41 @@ export function LessonFlowCenter({ schoolName }: { schoolName: string }) {
     })
   }
 
+  const toggleAbsentTeacherSelection = (teacherId: string) => setSelectedAbsentTeacherIds(current => {
+    const next = new Set(current)
+    if (next.has(teacherId)) next.delete(teacherId)
+    else next.add(teacherId)
+    return next
+  })
+
+  const reviewTeacherDayAbsences = () => {
+    if (!selectedAbsentTeachers.length) {
+      setError('ابحث واختر معلماً واحداً على الأقل.')
+      return
+    }
+    setError('')
+    setPendingAbsentTeacherIds(selectedAbsentTeachers.map(teacher => teacher.id))
+  }
+
+  const saveTeacherDayAbsences = async () => {
+    if (!pendingAbsentTeacherIds?.length) return
+    await run('teacher-day-absences', async () => {
+      const result = await api.addTeacherDayAbsences(pendingAbsentTeacherIds)
+      setPendingAbsentTeacherIds(null)
+      setSelectedAbsentTeacherIds(new Set())
+      setTeacherAbsenceSearch('')
+      return result.added ? `تم تسجيل غياب ${result.added} معلم لهذا اليوم.` : 'المعلمون المحددون مسجلون غائبين لهذا اليوم مسبقاً.'
+    })
+  }
+
+  const removeTeacherDayAbsence = async (teacher: TeacherDayAbsence) => {
+    if (!window.confirm(`هل حضر ${teacher.name} وتريد إزالة تسجيل غيابه لهذا اليوم؟`)) return
+    await run(`remove-day-absence-${teacher.teacherId}`, async () => {
+      const result = await api.removeTeacherDayAbsence(teacher.teacherId)
+      return result.removed ? `تمت إزالة ${teacher.name} من سجل الغياب لهذا اليوم.` : 'لم يعد هذا المعلم مسجلاً غائباً لهذا اليوم.'
+    })
+  }
+
   const openCancellation = async () => {
     setError('')
     try {
@@ -749,9 +816,22 @@ export function LessonFlowCenter({ schoolName }: { schoolName: string }) {
             <div><span className="panel-kicker">تصوير الباركود</span><h3>توجيه مساءلة حسب الحصة الحالية</h3></div>
             <div className="feature-actions">
               <button type="button" className="primary-button" onClick={() => void startCamera()} disabled={cameraOn || !!busy}><Camera size={16} /> فتح الكاميرا</button>
+              <button type="button" className="secondary-button" onClick={() => { setShowTeacherAbsenceForm(value => !value); setPendingAbsentTeacherIds(null); setError('') }} disabled={!!busy}>تسجيل غياب معلم اليوم</button>
               <button type="button" className="secondary-button" onClick={() => setShowManualObservation(value => !value)} disabled={!!busy}><Search size={16} /> رصد المعلم المنتظر</button>
               <button type="button" className="secondary-button" onClick={() => void openCancellation()} disabled={!!busy}><XCircle size={16} /> إلغاء مساءلة</button>
             </div>
+            {showTeacherAbsenceForm && <section className="lesson-manual-form teacher-day-absence-form">
+              <div className="lesson-section-heading"><div><span className="panel-kicker">غياب اليوم</span><h3>تسجيل غياب المعلمين لهذا اليوم</h3><p>اختر معلماً أو أكثر. سيظهر تأكيد بالأسماء قبل الحفظ.</p></div><button type="button" className="icon-danger-button" onClick={() => { setShowTeacherAbsenceForm(false); setPendingAbsentTeacherIds(null) }} aria-label="إغلاق"><XCircle size={18} /></button></div>
+              {!pendingAbsentTeacherIds && <>
+                <label className="teacher-absence-search">ابحث باسم المعلم أو رقم هويته<input value={teacherAbsenceSearch} onChange={event => setTeacherAbsenceSearch(event.target.value)} placeholder="ابدأ بكتابة اسم المعلم..." /></label>
+                {teacherAbsenceMatches.length > 0 && <div className="teacher-absence-suggestions">{teacherAbsenceMatches.map(teacher => <label key={teacher.id}><input type="checkbox" checked={selectedAbsentTeacherIds.has(teacher.id)} onChange={() => toggleAbsentTeacherSelection(teacher.id)} /><span>{teacher.name}<small>{teacher.identityNumber}</small></span></label>)}</div>}
+                {teacherAbsenceSearch.trim() && !teacherAbsenceMatches.length && <p className="lesson-empty">لا توجد أسماء مطابقة غير مسجلة غائبة اليوم.</p>}
+                {selectedAbsentTeachers.length > 0 && <p className="lesson-time-hint">المحددون: {selectedAbsentTeachers.map(teacher => teacher.name).join('، ')}</p>}
+                <div className="feature-actions"><button type="button" className="primary-button" onClick={reviewTeacherDayAbsences} disabled={!selectedAbsentTeachers.length || !!busy}><CheckCircle2 size={16} /> مراجعة الأسماء</button></div>
+              </>}
+              {pendingAbsentTeacherIds && <div className="teacher-absence-confirm"><strong>تأكيد تسجيل الغياب طوال اليوم</strong><p>سيُمنع توجيه مساءلة للمعلمين التاليين عند مسح فصولهم، ويمكن إزالة أي اسم إذا حضر.</p><ul>{pendingAbsentTeachers.map(teacher => <li key={teacher.id}>{teacher.name} · {teacher.identityNumber}</li>)}</ul><div className="feature-actions"><button type="button" className="primary-button" onClick={() => void saveTeacherDayAbsences()} disabled={!!busy}>{busy === 'teacher-day-absences' ? 'جارٍ الحفظ…' : 'تأكيد تسجيل الغياب'}</button><button type="button" className="secondary-button" onClick={() => setPendingAbsentTeacherIds(null)} disabled={!!busy}>إلغاء</button></div></div>}
+              {teacherDayAbsences.length > 0 && <div className="teacher-day-absence-list"><h4>المعلمون المسجلون غائبين اليوم · {teacherDayAbsences[0].date}</h4>{teacherDayAbsences.map(teacher => <div key={teacher.teacherId}><span><strong>{teacher.name}</strong><small>{teacher.identityNumber}</small></span><button type="button" className="outline-button" onClick={() => void removeTeacherDayAbsence(teacher)} disabled={!!busy}>حضر المعلم · إزالة من السجل</button></div>)}</div>}
+            </section>}
             {showManualObservation && <section className="lesson-manual-form">
               <div className="lesson-section-heading">
                 <div><span className="panel-kicker">رصد يدوي</span><h3>رصد المعلم المنتظر</h3><p>اختر المعلم المطلوب؛ وقت المساءلة يؤخذ من الحصة المختارة ولا يرتبط بوقت الإدخال.</p></div>

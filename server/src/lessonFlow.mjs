@@ -288,12 +288,24 @@ export async function migrateLessonFlow(pool) {
       cancelled_by uuid REFERENCES users(id) ON DELETE SET NULL,
       cancelled_at timestamptz
     );
+    CREATE TABLE IF NOT EXISTS teacher_day_absences (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      school_id uuid NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+      teacher_id uuid NOT NULL REFERENCES lesson_teachers(id) ON DELETE CASCADE,
+      teacher_name text NOT NULL,
+      identity_number text NOT NULL,
+      absence_date date NOT NULL,
+      recorded_by uuid REFERENCES users(id) ON DELETE SET NULL,
+      recorded_at timestamptz NOT NULL DEFAULT now(),
+      UNIQUE (school_id,teacher_id,absence_date)
+    );
     CREATE UNIQUE INDEX IF NOT EXISTS teacher_incidents_one_open_per_lesson
       ON teacher_incidents(school_id,classroom_id,incident_date,period_number)
       WHERE status IN ('draft','confirmed');
     CREATE INDEX IF NOT EXISTS lesson_teachers_school_name ON lesson_teachers(school_id,normalized_name);
     CREATE INDEX IF NOT EXISTS lesson_assignments_active_lookup ON lesson_schedule_assignments(school_id,import_id,classroom_id,weekday,period_number);
     CREATE INDEX IF NOT EXISTS teacher_incidents_school_date ON teacher_incidents(school_id,incident_date DESC,detected_at DESC);
+    CREATE INDEX IF NOT EXISTS teacher_day_absences_school_date ON teacher_day_absences(school_id,absence_date,teacher_id);
   `)
 }
 
@@ -307,6 +319,48 @@ export async function handleLessonFlowRequest(context) {
   if (req.method === 'GET' && url.pathname === '/api/lesson-flow/overview') {
     const result = await scoped(user.school_id, client => overview(client, user.school_id))
     json(res, 200, result)
+    return true
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/lesson-flow/teacher-day-absences') {
+    const date = riyadhClock().date
+    const result = await scoped(user.school_id, async client => (await client.query(`SELECT teacher_id AS "teacherId",teacher_name AS name,
+        identity_number AS "identityNumber",to_char(absence_date,'YYYY-MM-DD') AS date
+      FROM teacher_day_absences WHERE school_id=$1 AND absence_date=$2 ORDER BY teacher_name`, [user.school_id, date])).rows)
+    json(res, 200, { date, teachers: result })
+    return true
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/lesson-flow/teacher-day-absences') {
+    const input = await body(req)
+    const teacherIds = Array.isArray(input.teacherIds) ? [...new Set(input.teacherIds.map(value => String(value || '')).filter(validId))].slice(0, 200) : []
+    if (!teacherIds.length) { json(res, 400, { error: 'teacher_selection_required' }); return true }
+    const date = riyadhClock().date
+    const result = await scoped(user.school_id, async client => {
+      const teachers = await client.query(`SELECT id,full_name AS name,identity_number AS "identityNumber"
+        FROM lesson_teachers WHERE school_id=$1 AND active=true AND id=ANY($2::uuid[])`, [user.school_id, teacherIds])
+      if (teachers.rowCount !== teacherIds.length) return { error: 'teacher_not_found' }
+      const saved = await client.query(`INSERT INTO teacher_day_absences(school_id,teacher_id,teacher_name,identity_number,absence_date,recorded_by)
+        SELECT $1,id,full_name,identity_number,$3,$4 FROM lesson_teachers
+        WHERE school_id=$1 AND active=true AND id=ANY($2::uuid[])
+        ON CONFLICT(school_id,teacher_id,absence_date) DO NOTHING RETURNING teacher_id`, [user.school_id, teacherIds, date, user.user_id])
+      const current = await client.query(`SELECT teacher_id AS "teacherId",teacher_name AS name,identity_number AS "identityNumber",
+          to_char(absence_date,'YYYY-MM-DD') AS date FROM teacher_day_absences
+        WHERE school_id=$1 AND absence_date=$2 ORDER BY teacher_name`, [user.school_id, date])
+      return { added: saved.rowCount, teachers: current.rows }
+    })
+    if (result.error) { json(res, 404, { error: result.error }); return true }
+    json(res, 200, { date, ...result })
+    return true
+  }
+
+  if (req.method === 'DELETE' && url.pathname === '/api/lesson-flow/teacher-day-absences') {
+    const teacherId = String(url.searchParams.get('teacherId') || '')
+    if (!validId(teacherId)) { json(res, 400, { error: 'invalid_teacher' }); return true }
+    const date = riyadhClock().date
+    const result = await scoped(user.school_id, async client => client.query(
+      'DELETE FROM teacher_day_absences WHERE school_id=$1 AND teacher_id=$2 AND absence_date=$3', [user.school_id, teacherId, date]))
+    json(res, 200, { ok: true, removed: result.rowCount })
     return true
   }
 
@@ -513,6 +567,12 @@ export async function handleLessonFlowRequest(context) {
       ])
       if (!assignment.rowCount) return { error: 'lesson_not_scheduled', classroom: classroom.rows[0], clock, slot: slot.rows[0] }
       if (!assignment.rows[0].teacherId) return { error: 'teacher_mapping_needed', classroom: classroom.rows[0], clock, slot: slot.rows[0], rawTeacherName: assignment.rows[0].rawTeacherName }
+      const absentTeacher = await client.query(`SELECT 1 FROM teacher_day_absences
+        WHERE school_id=$1 AND teacher_id=$2 AND absence_date=$3`, [user.school_id, assignment.rows[0].teacherId, clock.date])
+      if (absentTeacher.rowCount) return {
+        error: 'teacher_absent_today', classroomId: classroom.rows[0].id, classroom: classroom.rows[0].name,
+        date: clock.date, periodNumber: Number(slot.rows[0].periodNumber),
+      }
       const existing = await client.query(`SELECT i.id,c.name AS classroom,i.teacher_id AS "teacherId",i.teacher_name AS "teacherName",
         i.identity_number AS "identityNumber",i.subject_name AS subject,to_char(i.incident_date,'YYYY-MM-DD') AS "incidentDate",
         i.weekday,i.period_number AS "periodNumber",to_char(i.start_time,'HH24:MI') AS "startTime",to_char(i.end_time,'HH24:MI') AS "endTime",
@@ -614,6 +674,8 @@ export async function handleLessonFlowRequest(context) {
       ])
       if (!classroom.rowCount) return { error: 'classroom_not_found' }
       if (!teacher.rowCount) return { error: 'teacher_not_found' }
+      const absentTeacher = await client.query('SELECT 1 FROM teacher_day_absences WHERE school_id=$1 AND teacher_id=$2 AND absence_date=$3', [user.school_id, teacherId, incidentDate])
+      if (absentTeacher.rowCount) return { error: 'teacher_absent_today' }
       if (!slot.rowCount) return { error: 'lesson_time_not_set' }
       if (!assignment.rowCount) return { error: 'lesson_not_scheduled' }
       const existing = await client.query(`SELECT i.id,c.name AS classroom,i.teacher_id AS "teacherId",i.teacher_name AS "teacherName",

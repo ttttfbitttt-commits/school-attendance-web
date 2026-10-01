@@ -94,6 +94,7 @@ export type LessonIncident = {
   detectedAt: string
   confirmedAt: string | null
 }
+export type TeacherDayAbsence = { teacherId: string; name: string; identityNumber: string; date: string }
 export type LessonScanPreview = {
   confirmationToken: string
   classroomId: string
@@ -112,6 +113,7 @@ export type TeacherPortalScheduleItem = { assignmentId: string; classroomId: str
 export type TeacherPortalDashboard = { schoolName: string; teacher: { name: string; identityNumber: string }; date: string; weekday: number; schedule: TeacherPortalScheduleItem[] }
 export type TeacherNote = 'هرب' | 'نائم' | 'لم يحل الواجب' | 'لم يشارك' | 'مشارك فعال'
 export type TeacherLessonStudent = { id: string; name: string; phone: string; grade: string; classroom: string; status: 'present' | 'absent'; note: TeacherNote | '' }
+export type TeacherDayAbsence = { teacherId: string; name: string; identityNumber: string; date: string }
 export type TeacherLesson = { assignment: { assignmentId: string; classroomId: string; classroom: string; subject: string }; date: string; periodNumber: number; mapping: { grade: string; classroom: string; mappingSource: 'automatic' | 'manual' }; students: TeacherLessonStudent[] }
 export type TeacherLessonReport = {
   id: string; date: string; weekday: number; periodNumber: number; teacherId: string; teacherName: string; classroom: string; subject: string; grade: string; classroomValue: string; savedAt: string
@@ -178,6 +180,12 @@ export const api = {
   messages: (type?: MessageLog['type']) => request<{ messages: MessageLog[] }>(`/messages${type ? `?type=${encodeURIComponent(type)}` : ''}`),
   sendMessages: (payload: { studentIds: string[]; type: 'late' | 'absence' | 'general'; message?: string }) => request<{ ok: boolean; sent: number; failed: number }>('/messages/send', { method: 'POST', body: JSON.stringify(payload) }),
   lessonOverview: () => request<LessonFlowOverview>('/lesson-flow/overview'),
+  teacherDayAbsences: () => request<{ date: string; teachers: TeacherDayAbsence[] }>('/lesson-flow/teacher-day-absences'),
+  addTeacherDayAbsences: (teacherIds: string[]) => request<{ date: string; added: number; teachers: TeacherDayAbsence[] }>('/lesson-flow/teacher-day-absences', { method: 'POST', body: JSON.stringify({ teacherIds }) }),
+  removeTeacherDayAbsence: (teacherId: string) => request<{ ok: boolean; removed: number }>(`/lesson-flow/teacher-day-absences?teacherId=${encodeURIComponent(teacherId)}`, { method: 'DELETE' }),
+  teacherDayAbsences: () => request<{ date: string; teachers: TeacherDayAbsence[] }>('/lesson-flow/teacher-day-absences'),
+  addTeacherDayAbsences: (teacherIds: string[]) => request<{ date: string; added: number; teachers: TeacherDayAbsence[] }>('/lesson-flow/teacher-day-absences', { method: 'POST', body: JSON.stringify({ teacherIds }) }),
+  removeTeacherDayAbsence: (teacherId: string) => request<{ ok: boolean; removed: number }>(`/lesson-flow/teacher-day-absences?teacherId=${encodeURIComponent(teacherId)}`, { method: 'DELETE' }),
   importLessonTeachers: (teachers: Array<{ name: string; identityNumber: string; phone?: string }>) =>
     request<{ ok: boolean; imported: number; exactResolved: number }>('/lesson-flow/teachers', { method: 'POST', body: JSON.stringify({ teachers }) }),
   importLessonSchedule: (payload: {

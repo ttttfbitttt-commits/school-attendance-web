@@ -4388,6 +4388,22 @@ tbody td {
   font: inherit;
 }
 
+.teacher-absence-search { display:grid; gap:6px; color:#163a60; font-size:13px; font-weight:800; }
+.teacher-absence-search input { width:100%; min-height:42px; border:1px solid #cbd9e6; border-radius:10px; padding:8px 10px; background:#fff; color:#08213c; font:inherit; }
+.teacher-absence-suggestions { display:grid; max-height:250px; overflow:auto; border:1px solid #dbe7f3; border-radius:10px; background:#fff; }
+.teacher-absence-suggestions label { display:flex; align-items:center; gap:10px; padding:10px 12px; border-bottom:1px solid #edf2f7; cursor:pointer; }
+.teacher-absence-suggestions input { width:18px; height:18px; accent-color:var(--blue); }
+.teacher-absence-suggestions span,.teacher-absence-suggestions small { display:block; }
+.teacher-absence-suggestions small { margin-top:3px; color:var(--muted); font-size:11px; }
+.teacher-absence-confirm { padding:12px; border:1px solid #f2d28c; border-radius:10px; background:#fff9e9; }
+.teacher-absence-confirm>p { margin:5px 0 8px; }
+.teacher-absence-confirm ul { display:grid; gap:5px; margin:0; padding-right:20px; }
+.teacher-day-absence-list { display:grid; gap:8px; border-top:1px solid #dbe7f3; padding-top:12px; }
+.teacher-day-absence-list h4 { margin:0; color:#163a60; }
+.teacher-day-absence-list>div { display:flex; justify-content:space-between; align-items:center; gap:10px; padding:9px 10px; border:1px solid #dbe5ee; border-radius:9px; background:#fff; }
+.teacher-day-absence-list span,.teacher-day-absence-list small { display:block; }
+.teacher-day-absence-list small { margin-top:3px; color:var(--muted); font-size:11px; }
+
 .lesson-time-hint {
   color: #0d5fa4 !important;
   font-weight: 800;
