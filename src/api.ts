@@ -117,6 +117,7 @@ export type TeacherSheetType = 'followup' | 'homework' | 'tests'
 export type TeacherSheetOpenType = TeacherSheetType | 'combined'
 export type TeacherSheetConfig = { id?: string; subject: string; sheetType: TeacherSheetType; version: number; columns: TeacherSheetColumn[]; createdAt?: string }
 export type TeacherSheetSubject = { subject: string; configs: TeacherSheetConfig[] }
+export type TeacherSheetReport = { subject: string; sheetType: TeacherSheetType; version: number; columns: TeacherSheetColumn[]; classroomId: string; classroom: string; grade: string; students: Array<{ id: string; name: string; phone: string; grade: string; classroom: string; values: Record<string, string | number | boolean> }> }
 export type TeacherLessonStudent = { id: string; name: string; phone: string; grade: string; classroom: string; status: 'present' | 'absent'; note: TeacherNote | ''; sheetValues: Record<string, string | number | boolean> }
 export type TeacherLesson = { assignment: { assignmentId: string; classroomId: string; classroom: string; subject: string }; date: string; periodNumber: number; mapping: { grade: string; classroom: string; mappingSource: 'automatic' | 'manual' }; sheetConfig: TeacherSheetConfig | null; sheetConfigs: TeacherSheetConfig[]; students: TeacherLessonStudent[] }
 export type TeacherLessonReport = {
@@ -216,6 +217,7 @@ export const api = {
   teacherSheets: () => request<{ sheets: TeacherSheetSubject[] }>('/teacher-portal/teacher/sheets'),
   saveTeacherSheetConfig: (subjectName: string, sheetType: TeacherSheetType, columns: TeacherSheetColumn[]) => request<{ config: TeacherSheetConfig }>('/teacher-portal/teacher/sheets/config', { method: 'PUT', body: JSON.stringify({ subjectName, sheetType, columns }) }),
   deleteTeacherSheetConfig: (subjectName: string, sheetType: TeacherSheetType) => request<{ ok: boolean }>(`/teacher-portal/teacher/sheets/config?subjectName=${encodeURIComponent(subjectName)}&sheetType=${sheetType}`, { method: 'DELETE' }),
+  teacherSheetReport: (subjectName: string, classroomId: string, sheetType: TeacherSheetType) => request<TeacherSheetReport>(`/teacher-portal/teacher/sheet-report?subjectName=${encodeURIComponent(subjectName)}&classroomId=${encodeURIComponent(classroomId)}&sheetType=${sheetType}`),
   teacherAdminOverview: () => request<TeacherAdminOverview>('/teacher-portal/admin/overview'),
   teacherAdminCredentials: () => request<{ credentials: Array<{ teacherId: string; name: string; identityNumber: string; temporaryPassword: string }> }>('/teacher-portal/admin/credentials'),
   teacherMappingOptions: () => request<{ options: Array<{ grade: string; classroom: string; count: number }> }>('/teacher-portal/admin/mapping-options'),

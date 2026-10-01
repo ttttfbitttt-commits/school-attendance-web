@@ -348,6 +348,34 @@ export async function handleTeacherPortalRequest(context) {
     return true
   }
 
+  if (req.method === 'GET' && url.pathname === '/api/teacher-portal/teacher/sheet-report') {
+    if (!teacherOnly()) { json(res, 403, { error: 'forbidden' }); return true }
+    const subject = clean(url.searchParams.get('subjectName'), 200)
+    const classroomId = String(url.searchParams.get('classroomId') || '')
+    const sheetType = validSheetType(url.searchParams.get('sheetType'))
+    if (!subject || !validId(classroomId) || !sheetType) { json(res, 400, { error: 'invalid_sheet_report' }); return true }
+    const result = await scoped(user.school_id, async client => {
+      const active = await activeImport(client, user.school_id)
+      if (!active) return { error: 'schedule_not_imported' }
+      const assignments = (await client.query(`SELECT a.id FROM lesson_schedule_assignments a
+        WHERE a.school_id=$1 AND a.import_id=$2 AND a.teacher_id=$3 AND a.subject_name=$4 AND a.classroom_id=$5`, [user.school_id, active.id, user.teacher_id, subject, classroomId])).rows
+      if (!assignments.length) return { error: 'lesson_not_assigned' }
+      const config = (await client.query(`SELECT id,subject_name AS subject,sheet_type AS "sheetType",version,columns
+        FROM teacher_sheet_configs WHERE school_id=$1 AND teacher_id=$2 AND subject_name=$3 AND sheet_type=$4 AND active=true ORDER BY version DESC LIMIT 1`, [user.school_id, user.teacher_id, subject, sheetType])).rows[0]
+      if (!config) return { error: 'sheet_not_configured' }
+      const roster = await rosterForClassroom(client, user.school_id, classroomId)
+      const entries = (await client.query(`SELECT e.student_id AS "studentId",e.values,e.updated_at AS "updatedAt"
+        FROM teacher_sheet_entries e WHERE e.school_id=$1 AND e.config_id=$2 AND e.assignment_id=ANY($3::uuid[])
+        ORDER BY e.updated_at DESC`, [user.school_id, config.id, assignments.map(row => row.id)])).rows
+      const values = new Map()
+      for (const entry of entries) if (!values.has(entry.studentId)) values.set(entry.studentId, entry.values || {})
+      return { subject, sheetType, version: Number(config.version), columns: config.columns, classroomId, classroom: roster.mapping?.classroom || '', grade: roster.mapping?.grade || '', students: roster.students.map(student => ({ ...student, values: values.get(student.id) || {} })) }
+    })
+    if (result.error) { json(res, result.error === 'sheet_not_configured' ? 404 : 409, result); return true }
+    json(res, 200, result)
+    return true
+  }
+
   if (req.method === 'GET' && url.pathname === '/api/teacher-portal/teacher/dashboard') {
     if (!teacherOnly()) { json(res, 403, { error: 'forbidden' }); return true }
     const date = validDate(url.searchParams.get('date')) || new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Riyadh' }).format(new Date())
