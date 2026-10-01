@@ -155,6 +155,7 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
     } catch { setError('تعذر تغيير كلمة المرور.') } finally { setBusy('') }
   }
 
+  const scheduleItems = showWeekSchedule ? dashboard?.weekSchedule || [] : dashboard?.schedule || []
 
   return <main className="teacher-portal" dir="rtl">
     <header className="teacher-topbar">
@@ -177,8 +178,8 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
 
     <section className="teacher-card">
       <div className="teacher-section-head"><div><span>{showWeekSchedule ? 'الجدول الكامل' : 'جدول اليوم'}</span><h2>{dayNames[dashboard?.weekday || 0]} · {formatHijriDate(date)}</h2></div><div className="teacher-report-actions"><button type="button" className="outline-button" onClick={() => setShowWeekSchedule(current => !current)}>{showWeekSchedule ? 'عرض حصص اليوم' : 'عرض الجدول الكامل'}</button><BookOpenCheck size={26} /></div></div>
-      {busy === 'dashboard' ? <p className="teacher-empty">جارٍ تحميل الجدول…</p> : !(showWeekSchedule ? dashboard?.weekSchedule : dashboard?.schedule)?.length ? <p className="teacher-empty">لا توجد حصص مسندة لك.</p> : <div className="teacher-schedule-grid">
-        {(showWeekSchedule ? dashboard?.weekSchedule : dashboard?.schedule || []).map(item => <button key={item.assignmentId} className={`teacher-schedule-card ${selected?.assignmentId === item.assignmentId ? 'selected' : ''}`} onClick={() => void openLesson(item)}>
+      {busy === 'dashboard' ? <p className="teacher-empty">جارٍ تحميل الجدول…</p> : !scheduleItems.length ? <p className="teacher-empty">لا توجد حصص مسندة لك.</p> : <div className="teacher-schedule-grid">
+        {scheduleItems.map(item => <button key={item.assignmentId} className={`teacher-schedule-card ${selected?.assignmentId === item.assignmentId ? 'selected' : ''}`} onClick={() => void openLesson(item)}>
           <strong>{dayNames[item.weekday]} · {periodLabel(item.periodNumber)}</strong><span>{item.classroom}</span><small>{item.subject || 'بدون مادة محددة'}{item.startTime && item.endTime ? ` · ${item.startTime}–${item.endTime}` : ''}</small>
         </button>)}
       </div>}
