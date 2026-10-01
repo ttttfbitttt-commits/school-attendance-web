@@ -82,16 +82,7 @@ export function AuthGate({ children }: { children: (account: Account, logout: ()
   }
 
   function logout() {
-    const previousRole = account?.role
-    void api.logout().catch(() => {}).finally(() => {
-      setAccount(null)
-      setMode(previousRole === 'teacher' ? 'teacher' : 'admin')
-      setRegistering(false)
-      setRegistrationSent(false)
-      setSchoolChoices([])
-      setSelectedSchoolId('')
-      setError('')
-    })
+    void api.logout().catch(() => {}).finally(() => setAccount(null))
   }
 
   if (loading) return <div className="auth-loading">جارٍ الاتصال بالنظام الآمن…</div>

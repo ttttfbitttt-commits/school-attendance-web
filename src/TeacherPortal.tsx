@@ -68,7 +68,6 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
   const [busy, setBusy] = useState('')
   const [sheets, setSheets] = useState<TeacherSheetConfig[]>([])
   const [showSheets, setShowSheets] = useState(false)
-  const [showWeekSchedule, setShowWeekSchedule] = useState(false)
   const [activeLessonDate, setActiveLessonDate] = useState(date)
 
   const loadDashboard = async () => {
@@ -176,9 +175,9 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
     {showSheets && <TeacherSheetWizard sheets={sheets} onClose={() => setShowSheets(false)} onSaved={config => setSheets(current => current.map(sheet => sheet.subject === config.subject ? config : sheet))} />}
 
     <section className="teacher-card">
-      <div className="teacher-section-head"><div><span>{showWeekSchedule ? 'الجدول الكامل' : 'جدول اليوم'}</span><h2>{dayNames[dashboard?.weekday || 0]} · {formatHijriDate(date)}</h2></div><div className="teacher-report-actions"><button type="button" className="outline-button" onClick={() => setShowWeekSchedule(current => !current)}>{showWeekSchedule ? 'عرض حصص اليوم' : 'عرض الجدول الكامل'}</button><BookOpenCheck size={26} /></div></div>
-      {busy === 'dashboard' ? <p className="teacher-empty">جارٍ تحميل الجدول…</p> : !(showWeekSchedule ? dashboard?.weekSchedule : dashboard?.schedule)?.length ? <p className="teacher-empty">لا توجد حصص مسندة لك.</p> : <div className="teacher-schedule-grid">
-        {(showWeekSchedule ? dashboard?.weekSchedule : dashboard?.schedule || []).map(item => <button key={item.assignmentId} className={`teacher-schedule-card ${selected?.assignmentId === item.assignmentId ? 'selected' : ''}`} onClick={() => void openLesson(item)}>
+      <div className="teacher-section-head"><div><span>الجدول الكامل</span><h2>{formatHijriDate(date)}</h2></div><BookOpenCheck size={26} /></div>
+      {busy === 'dashboard' ? <p className="teacher-empty">جارٍ تحميل الجدول…</p> : !dashboard?.weekSchedule.length ? <p className="teacher-empty">لا توجد حصص مسندة لك.</p> : <div className="teacher-schedule-grid">
+        {dashboard.weekSchedule.map(item => <button key={item.assignmentId} className={`teacher-schedule-card ${selected?.assignmentId === item.assignmentId ? 'selected' : ''}`} onClick={() => void openLesson(item)}>
           <strong>{dayNames[item.weekday]} · {periodLabel(item.periodNumber)}</strong><span>{item.classroom}</span><small>{item.subject || 'بدون مادة محددة'}{item.startTime && item.endTime ? ` · ${item.startTime}–${item.endTime}` : ''}</small>
         </button>)}
       </div>}
