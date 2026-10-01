@@ -111,6 +111,8 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
       setLesson(next)
       setSelected(item)
       setActiveLessonDate(targetDate)
+      setActiveTab('home')
+      setSheetMode('menu')
       setStates(Object.fromEntries(next.students.map(student => [student.id, { status: student.status, note: student.note, sheetValues: student.sheetValues }])))
     } catch {
       setError('تعذر فتح طلاب الفصل. اطلب من الإدارة مطابقة الصف والفصل مع بيانات الطلاب أولًا.')
