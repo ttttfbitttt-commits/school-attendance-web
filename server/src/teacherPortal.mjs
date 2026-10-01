@@ -126,6 +126,9 @@ async function reportRows(client, schoolId, filters = {}, teacherId = null) {
   if (teacherId) clauses.push(`s.teacher_id=${add(teacherId)}`)
   if (filters.teacherId && validId(filters.teacherId)) clauses.push(`s.teacher_id=${add(filters.teacherId)}`)
   if (filters.date && validDate(filters.date)) clauses.push(`s.session_date=${add(filters.date)}::date`)
+  if (filters.from && validDate(filters.from)) clauses.push(`s.session_date>=${add(filters.from)}::date`)
+  if (filters.to && validDate(filters.to)) clauses.push(`s.session_date<=${add(filters.to)}::date`)
+  if (filters.studentId) clauses.push(`EXISTS (SELECT 1 FROM teacher_lesson_student_records student_filter WHERE student_filter.lesson_session_id=s.id AND student_filter.student_id=${add(filters.studentId)})`)
   if (filters.classroomId && validId(filters.classroomId)) clauses.push(`s.classroom_id=${add(filters.classroomId)}`)
   if (filters.note && NOTE_OPTIONS.has(filters.note)) clauses.push(`EXISTS (SELECT 1 FROM teacher_lesson_student_records filter_record WHERE filter_record.lesson_session_id=s.id AND filter_record.note=${add(filters.note)})`)
   const sessions = (await client.query(`SELECT s.id,to_char(s.session_date,'YYYY-MM-DD') AS date,s.weekday,
