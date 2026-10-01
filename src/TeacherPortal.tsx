@@ -1,18 +1,15 @@
 import { useEffect, useState } from 'react'
-import { BookOpenCheck, Check, FileSpreadsheet, KeyRound, LogOut, Plus, Printer, Save, Trash2, UserRound } from 'lucide-react'
+import { BookOpenCheck, Check, KeyRound, LogOut, Plus, Save, Trash2, UserRound } from 'lucide-react'
 import { api, type Account, type TeacherLesson, type TeacherNote, type TeacherPortalDashboard, type TeacherPortalScheduleItem, type TeacherSheetColumn, type TeacherSheetConfig } from './api'
 import { HijriDatePicker } from './HijriDatePicker'
 import { formatHijriDate } from './dateUtils'
-import * as XLSX from 'xlsx'
 
 const notes: TeacherNote[] = ['هروب من الحصة', 'نائم أثناء الدرس', 'لم يحل الواجب', 'لم يشارك', 'مشارك فعال', 'لم يحضر الكتاب أو المذكرة', 'استخدام الجوال أثناء الحصة']
 const dayNames = ['', 'الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت']
 const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Riyadh' }).format(new Date())
 const periodLabel = (period: number) => `الحصة ${['', 'الأولى', 'الثانية', 'الثالثة', 'الرابعة', 'الخامسة', 'السادسة', 'السابعة', 'الثامنة', 'التاسعة', 'العاشرة'][period] || period}`
-const weekdayForDate = (value: string) => { const day = new Date(`${value}T12:00:00Z`).getUTCDay(); return day === 0 ? 1 : day + 1 }
-const dateForWeekday = (value: string, weekday: number) => { const date = new Date(`${value}T12:00:00Z`); date.setUTCDate(date.getUTCDate() + weekday - weekdayForDate(value)); return date.toISOString().slice(0, 10) }
 
-type StudentState = { status: 'present' | 'absent'; note: TeacherNote | ''; sheetValues: Record<string, string | number | boolean> }
+type StudentState = { status: 'present' | 'absent'; note: TeacherNote | '' }
 
 const sheetTemplates: Array<{ label: string; columns: TeacherSheetColumn[] }> = [
   { label: 'متابعة', columns: [{ id: 'follow-up', label: 'المتابعة', type: 'choice', maxScore: null, choices: ['ممتاز', 'جيد', 'يحتاج متابعة'] }] },
@@ -68,7 +65,6 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
   const [busy, setBusy] = useState('')
   const [sheets, setSheets] = useState<TeacherSheetConfig[]>([])
   const [showSheets, setShowSheets] = useState(false)
-  const [activeLessonDate, setActiveLessonDate] = useState(date)
 
   const loadDashboard = async () => {
     setBusy('dashboard')
@@ -82,13 +78,11 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
   const openLesson = async (item: TeacherPortalScheduleItem) => {
     setBusy(`lesson-${item.assignmentId}`)
     setError('')
-    const targetDate = dateForWeekday(date, item.weekday)
     try {
-      const next = await api.teacherLesson(item.classroomId, targetDate, item.periodNumber)
+      const next = await api.teacherLesson(item.classroomId, date, item.periodNumber)
       setLesson(next)
       setSelected(item)
-      setActiveLessonDate(targetDate)
-      setStates(Object.fromEntries(next.students.map(student => [student.id, { status: student.status, note: student.note, sheetValues: student.sheetValues }])))
+      setStates(Object.fromEntries(next.students.map(student => [student.id, { status: student.status, note: student.note }])))
     } catch {
       setError('تعذر فتح طلاب الفصل. اطلب من الإدارة مطابقة الصف والفصل مع بيانات الطلاب أولًا.')
     } finally { setBusy('') }
@@ -96,34 +90,6 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
 
   const updateStudent = (studentId: string, update: Partial<StudentState>) => {
     setStates(current => ({ ...current, [studentId]: { ...current[studentId], ...update } }))
-  }
-  const updateSheetValue = (studentId: string, columnId: string, value: string | number | boolean) => setStates(current => {
-    const state = current[studentId] || { status: 'present' as const, note: '' as const, sheetValues: {} }
-    return { ...current, [studentId]: { ...state, sheetValues: { ...state.sheetValues, [columnId]: value } } }
-  })
-  const exportSheet = () => {
-    if (!lesson || !selected) return
-    const columns = lesson.sheetConfig?.columns || []
-    const rows = [['الطالب', 'الحالة', 'الملاحظة', ...columns.map(column => column.label)], ...lesson.students.map(student => {
-      const state = states[student.id] || { status: 'present' as const, note: '', sheetValues: {} }
-      return [student.name, state.status === 'present' ? 'حاضر' : 'غائب', state.note || '', ...columns.map(column => state.sheetValues[column.id] ?? '')]
-    })]
-    const workbook = XLSX.utils.book_new()
-    XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(rows), 'الكشف')
-    XLSX.writeFile(workbook, `كشف-${lesson.assignment.subject}-${activeLessonDate}.xlsx`)
-  }
-  const printSheet = () => {
-    if (!lesson || !selected) return
-    const columns = lesson.sheetConfig?.columns || []
-    const escape = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character] || character))
-    const rows = lesson.students.map(student => {
-      const state = states[student.id] || { status: 'present' as const, note: '', sheetValues: {} }
-      return `<tr><td>${escape(student.name)}</td><td>${state.status === 'present' ? 'حاضر' : 'غائب'}</td><td>${escape(state.note || '')}</td>${columns.map(column => `<td>${escape(state.sheetValues[column.id] ?? '')}</td>`).join('')}</tr>`
-    }).join('')
-    const popup = window.open('', '_blank')
-    if (!popup) return
-    popup.document.write(`<html dir="rtl"><head><title>كشف ${escape(lesson.assignment.subject)}</title><style>body{font-family:Arial,sans-serif;padding:24px}h1{font-size:20px}p{color:#475569}table{width:100%;border-collapse:collapse;direction:rtl}th,td{border:1px solid #94a3b8;padding:8px;text-align:right}th{background:#e2e8f0}@media print{@page{size:landscape;margin:10mm}}</style></head><body><h1>كشف ${escape(lesson.assignment.subject)} - ${escape(selected.classroom)}</h1><p>${escape(dayNames[selected.weekday])} · ${escape(formatHijriDate(activeLessonDate))}</p><table><thead><tr><th>الطالب</th><th>الحالة</th><th>الملاحظة</th>${columns.map(column => `<th>${escape(column.label)}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table><script>window.onload=()=>window.print()</script></body></html>`)
-    popup.document.close()
   }
 
   const saveLesson = async () => {
@@ -134,9 +100,9 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
     try {
       const result = await api.saveTeacherLesson({
         classroomId: selected.classroomId,
-        date: activeLessonDate,
+        date,
         periodNumber: selected.periodNumber,
-        students: lesson.students.map(student => ({ studentId: student.id, ...(states[student.id] || { status: 'present', note: '', sheetValues: {} }) })),
+        students: lesson.students.map(student => ({ studentId: student.id, ...(states[student.id] || { status: 'present', note: '' }) })),
       })
       setNotice(`تم حفظ متابعة ${result.saved} طالبًا. يُسجّل الحاضر بلا ملاحظة كمشارك فعال.`)
     } catch { setError('تعذر حفظ المتابعة. تحقق من اتصالك ثم أعد المحاولة.') } finally { setBusy('') }
@@ -175,26 +141,25 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
     {showSheets && <TeacherSheetWizard sheets={sheets} onClose={() => setShowSheets(false)} onSaved={config => setSheets(current => current.map(sheet => sheet.subject === config.subject ? config : sheet))} />}
 
     <section className="teacher-card">
-      <div className="teacher-section-head"><div><span>الجدول الكامل</span><h2>{formatHijriDate(date)}</h2></div><BookOpenCheck size={26} /></div>
-      {busy === 'dashboard' ? <p className="teacher-empty">جارٍ تحميل الجدول…</p> : !dashboard?.weekSchedule.length ? <p className="teacher-empty">لا توجد حصص مسندة لك.</p> : <div className="teacher-schedule-grid">
-        {dashboard.weekSchedule.map(item => <button key={item.assignmentId} className={`teacher-schedule-card ${selected?.assignmentId === item.assignmentId ? 'selected' : ''}`} onClick={() => void openLesson(item)}>
-          <strong>{dayNames[item.weekday]} · {periodLabel(item.periodNumber)}</strong><span>{item.classroom}</span><small>{item.subject || 'بدون مادة محددة'}{item.startTime && item.endTime ? ` · ${item.startTime}–${item.endTime}` : ''}</small>
+      <div className="teacher-section-head"><div><span>جدول اليوم</span><h2>{dayNames[dashboard?.weekday || 0]} · {formatHijriDate(date)}</h2></div><BookOpenCheck size={26} /></div>
+      {busy === 'dashboard' ? <p className="teacher-empty">جارٍ تحميل الجدول…</p> : !dashboard?.schedule.length ? <p className="teacher-empty">لا توجد حصص مسندة لك في هذا اليوم.</p> : <div className="teacher-schedule-grid">
+        {dashboard.schedule.map(item => <button key={item.assignmentId} className={`teacher-schedule-card ${selected?.assignmentId === item.assignmentId ? 'selected' : ''}`} onClick={() => void openLesson(item)}>
+          <strong>{periodLabel(item.periodNumber)}</strong><span>{item.classroom}</span><small>{item.subject || 'بدون مادة محددة'}{item.startTime && item.endTime ? ` · ${item.startTime}–${item.endTime}` : ''}</small>
         </button>)}
       </div>}
     </section>
 
     {lesson && selected && <section className="teacher-card teacher-roster-card">
-      <div className="teacher-section-head"><div><span>{lesson.assignment.subject} · {lesson.mapping.grade} · الفصل {lesson.mapping.classroom}</span><h2>{dayNames[selected.weekday]} · {periodLabel(selected.periodNumber)} — {selected.classroom}</h2></div><div className="teacher-report-actions"><button className="outline-button" onClick={exportSheet}><FileSpreadsheet size={16} /> Excel</button><button className="outline-button" onClick={printSheet}><Printer size={16} /> PDF</button><button className="primary-button" onClick={() => void saveLesson()} disabled={busy === 'save'}><Save size={17} /> {busy === 'save' ? 'جارٍ الحفظ…' : 'حفظ الكشف'}</button></div></div>
+      <div className="teacher-section-head"><div><span>{lesson.mapping.grade} · الفصل {lesson.mapping.classroom}</span><h2>{periodLabel(selected.periodNumber)} — {selected.classroom}</h2></div><div className="teacher-report-actions"><button className="primary-button" onClick={() => void saveLesson()} disabled={busy === 'save'}><Save size={17} /> {busy === 'save' ? 'جارٍ الحفظ…' : 'حفظ المتابعة'}</button></div></div>
       <p className="teacher-help">اختيار الحالة والملاحظة هنا خاص بمتابعة المعلم، ولا يغيّر سجل الحضور والغياب الإداري.</p>
-      <div className="teacher-roster-table-wrap"><table className="teacher-roster-table"><thead><tr><th>الطالب</th><th>الحالة</th><th>الملاحظة</th>{lesson.sheetConfig?.columns.map(column => <th key={column.id}>{column.label}{column.type === 'score' && column.maxScore !== null ? ` / ${column.maxScore}` : ''}</th>)}</tr></thead><tbody>
+      <div className="teacher-roster-table-wrap"><table className="teacher-roster-table"><thead><tr><th>الطالب</th><th>الحالة</th><th>الملاحظة</th></tr></thead><tbody>
         {lesson.students.map(student => { const state = states[student.id] || { status: 'present' as const, note: '' as const }; return <tr key={student.id}>
           <td><strong>{student.name}</strong><small>{student.grade} · {student.classroom}</small></td>
           <td><div className="teacher-status-toggle"><button className={state.status === 'present' ? 'active present' : ''} onClick={() => updateStudent(student.id, { status: 'present' })}>حاضر</button><button className={state.status === 'absent' ? 'active absent' : ''} onClick={() => updateStudent(student.id, { status: 'absent', note: '' })}>غائب</button></div></td>
           <td><select value={state.note} disabled={state.status === 'absent'} onChange={event => updateStudent(student.id, { note: event.target.value as TeacherNote | '' })}><option value="">مشارك فعال عند الحفظ</option>{notes.map(note => <option key={note} value={note}>{note}</option>)}</select></td>
-          {lesson.sheetConfig?.columns.map(column => <td key={column.id} className="teacher-sheet-cell">{column.type === 'score' && <input type="number" min="0" max={column.maxScore ?? undefined} value={state.sheetValues[column.id] ?? ''} onChange={event => updateSheetValue(student.id, column.id, event.target.value)} aria-label={`${column.label} لـ ${student.name}`} />}{column.type === 'text' && <input value={String(state.sheetValues[column.id] ?? '')} onChange={event => updateSheetValue(student.id, column.id, event.target.value)} aria-label={`${column.label} لـ ${student.name}`} />}{column.type === 'choice' && <select value={String(state.sheetValues[column.id] ?? '')} onChange={event => updateSheetValue(student.id, column.id, event.target.value)} aria-label={`${column.label} لـ ${student.name}`}><option value="">اختر</option>{column.choices.map(choice => <option key={choice} value={choice}>{choice}</option>)}</select>}{column.type === 'boolean' && <input type="checkbox" checked={state.sheetValues[column.id] === true} onChange={event => updateSheetValue(student.id, column.id, event.target.checked)} aria-label={`${column.label} لـ ${student.name}`} />}</td>)}
         </tr> })}
       </tbody></table></div>
-      <div className="teacher-roster-save-bottom"><button className="outline-button" onClick={exportSheet}><FileSpreadsheet size={16} /> Excel</button><button className="outline-button" onClick={printSheet}><Printer size={16} /> PDF</button><button className="primary-button" onClick={() => void saveLesson()} disabled={busy === 'save'}><Save size={17} /> {busy === 'save' ? 'جارٍ الحفظ…' : 'حفظ الكشف'}</button></div>
+      <div className="teacher-roster-save-bottom"><button className="primary-button" onClick={() => void saveLesson()} disabled={busy === 'save'}><Save size={17} /> {busy === 'save' ? 'جارٍ الحفظ…' : 'حفظ المتابعة'}</button></div>
     </section>}
   </main>
 }

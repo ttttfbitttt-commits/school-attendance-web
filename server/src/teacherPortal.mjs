@@ -34,19 +34,6 @@ function cleanSheetColumns(value) {
   })
   return columns.every(Boolean) ? columns : null
 }
-function cleanSheetValues(columns, value) {
-  const source = value && typeof value === 'object' && !Array.isArray(value) ? value : {}
-  return Object.fromEntries(columns.map(column => {
-    const raw = source[column.id]
-    if (column.type === 'score') {
-      const score = raw === '' || raw === null || raw === undefined ? '' : Number(raw)
-      return [column.id, score === '' || !Number.isFinite(score) ? '' : Math.max(0, Math.min(column.maxScore ?? 1000, score))]
-    }
-    if (column.type === 'boolean') return [column.id, raw === true]
-    if (column.type === 'choice') return [column.id, column.choices.includes(String(raw || '')) ? String(raw) : '']
-    return [column.id, clean(raw, 1000)]
-  }))
-}
 function classKey(value) {
   return clean(value, 200)
     .normalize('NFKC')
@@ -337,13 +324,12 @@ export async function handleTeacherPortalRequest(context) {
       const active = await activeImport(client, user.school_id)
       if (!teacher.rowCount || !school.rowCount) return { missing: true }
       const schedule = active ? (await client.query(`SELECT a.id AS "assignmentId",a.classroom_id AS "classroomId",c.name AS classroom,
-          a.weekday,a.period_number AS "periodNumber",a.subject_name AS subject,to_char(t.starts_at,'HH24:MI') AS "startTime",to_char(t.ends_at,'HH24:MI') AS "endTime"
+          a.period_number AS "periodNumber",a.subject_name AS subject,to_char(t.starts_at,'HH24:MI') AS "startTime",to_char(t.ends_at,'HH24:MI') AS "endTime"
         FROM lesson_schedule_assignments a JOIN lesson_classrooms c ON c.id=a.classroom_id AND c.school_id=a.school_id
           LEFT JOIN lesson_time_slots t ON t.school_id=a.school_id AND t.weekday=a.weekday AND t.period_number=a.period_number
-        WHERE a.school_id=$1 AND a.import_id=$2 AND a.teacher_id=$3
-        ORDER BY a.weekday,a.period_number,c.name`, [user.school_id, active.id, user.teacher_id])).rows : []
-      const normalizedSchedule = schedule.map(row => ({ ...row, weekday: Number(row.weekday), periodNumber: Number(row.periodNumber) }))
-      return { schoolName: school.rows[0].name, teacher: teacher.rows[0], date, weekday, schedule: normalizedSchedule.filter(row => row.weekday === weekday), weekSchedule: normalizedSchedule }
+        WHERE a.school_id=$1 AND a.import_id=$2 AND a.teacher_id=$3 AND a.weekday=$4
+        ORDER BY a.period_number,c.name`, [user.school_id, active.id, user.teacher_id, weekday])).rows : []
+      return { schoolName: school.rows[0].name, teacher: teacher.rows[0], date, weekday, schedule: schedule.map(row => ({ ...row, periodNumber: Number(row.periodNumber) })) }
     })
     if (result.missing) { json(res, 404, { error: 'teacher_account_not_ready' }); return true }
     json(res, 200, result)
@@ -369,17 +355,11 @@ export async function handleTeacherPortalRequest(context) {
         const groups = (await client.query(`SELECT grade,classroom,COUNT(*)::int AS count FROM students WHERE school_id=$1 AND active=true GROUP BY grade,classroom ORDER BY grade,classroom`, [user.school_id])).rows
         return { error: 'classroom_student_mapping_needed', classroom: assignment.rows[0].classroom, candidateGroups: groups }
       }
-      const configResult = await client.query(`SELECT id,subject_name AS subject,version,columns,created_at AS "createdAt"
-        FROM teacher_sheet_configs WHERE school_id=$1 AND teacher_id=$2 AND subject_name=$3 ORDER BY version DESC LIMIT 1`, [user.school_id, user.teacher_id, assignment.rows[0].subject || ''])
-      const sheetConfig = configResult.rows[0] ? { ...configResult.rows[0], version: Number(configResult.rows[0].version) } : null
       const saved = await client.query(`SELECT r.student_id AS "studentId",r.attendance_status AS status,r.note FROM teacher_lesson_sessions s
         JOIN teacher_lesson_student_records r ON r.lesson_session_id=s.id
         WHERE s.school_id=$1 AND s.teacher_id=$2 AND s.classroom_id=$3 AND s.session_date=$4 AND s.period_number=$5`, [user.school_id, user.teacher_id, classroomId, date, periodNumber])
       const states = new Map(saved.rows.map(row => [row.studentId, row]))
-      const entries = sheetConfig ? (await client.query(`SELECT student_id AS "studentId",values FROM teacher_sheet_entries
-        WHERE school_id=$1 AND config_id=$2 AND assignment_id=$3 AND entry_date=$4`, [user.school_id, sheetConfig.id, assignment.rows[0].assignmentId, date])).rows : []
-      const values = new Map(entries.map(row => [row.studentId, row.values]))
-      return { assignment: assignment.rows[0], date, periodNumber, mapping: roster.mapping, sheetConfig, students: roster.students.map(student => ({ ...student, status: states.get(student.id)?.status || 'present', note: states.get(student.id)?.note || '', sheetValues: values.get(student.id) || {} })) }
+      return { assignment: assignment.rows[0], date, periodNumber, mapping: roster.mapping, students: roster.students.map(student => ({ ...student, status: states.get(student.id)?.status || 'present', note: states.get(student.id)?.note || '' })) }
     })
     if (result.error) { json(res, result.error === 'classroom_student_mapping_needed' ? 409 : 404, result); return true }
     json(res, 200, result)
@@ -407,9 +387,6 @@ export async function handleTeacherPortalRequest(context) {
       if (!teacher.rowCount || !assignment.rowCount) return { error: 'lesson_not_assigned' }
       const roster = await rosterForClassroom(client, user.school_id, classroomId)
       if (!roster.mapping) return { error: 'classroom_student_mapping_needed' }
-      const sheetConfigResult = await client.query(`SELECT id,columns FROM teacher_sheet_configs
-        WHERE school_id=$1 AND teacher_id=$2 AND subject_name=$3 ORDER BY version DESC LIMIT 1`, [user.school_id, user.teacher_id, assignment.rows[0].subject || ''])
-      const sheetConfig = sheetConfigResult.rows[0] || null
       const allowed = new Map(roster.students.map(student => [student.id, student]))
       const payload = new Map()
       for (const row of submitted) {
@@ -417,9 +394,9 @@ export async function handleTeacherPortalRequest(context) {
         if (!allowed.has(studentId) || payload.has(studentId)) continue
         const status = ATTENDANCE_OPTIONS.has(row?.status) ? row.status : 'present'
         const note = NOTE_OPTIONS.has(row?.note) ? row.note : ''
-        payload.set(studentId, { status, note: status === 'present' ? (note || 'مشارك فعال') : '', sheetValues: sheetConfig ? cleanSheetValues(sheetConfig.columns, row?.sheetValues) : {} })
+        payload.set(studentId, { status, note: status === 'present' ? (note || 'مشارك فعال') : '' })
       }
-      for (const student of roster.students) if (!payload.has(student.id)) payload.set(student.id, { status: 'present', note: 'مشارك فعال', sheetValues: {} })
+      for (const student of roster.students) if (!payload.has(student.id)) payload.set(student.id, { status: 'present', note: 'مشارك فعال' })
       const session = await client.query(`INSERT INTO teacher_lesson_sessions(
           school_id,teacher_id,assignment_id,classroom_id,session_date,weekday,period_number,teacher_name,classroom_name,subject_name,grade_value,classroom_value,saved_by,saved_at)
         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,now())
@@ -435,10 +412,6 @@ export async function handleTeacherPortalRequest(context) {
           VALUES($1,$2,$3,$4,$5,$6,$7,$8,now())
           ON CONFLICT(lesson_session_id,student_id) DO UPDATE SET attendance_status=EXCLUDED.attendance_status,note=EXCLUDED.note,updated_at=now()`,
           [user.school_id, session.rows[0].id, student.id, student.name, student.grade, student.classroom, value.status, value.note])
-        if (sheetConfig) await client.query(`INSERT INTO teacher_sheet_entries(school_id,config_id,teacher_id,assignment_id,classroom_id,entry_date,student_id,values,updated_at)
-          VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb,now())
-          ON CONFLICT(school_id,config_id,assignment_id,entry_date,student_id) DO UPDATE SET values=EXCLUDED.values,updated_at=now()`,
-          [user.school_id, sheetConfig.id, user.teacher_id, assignment.rows[0].id, classroomId, date, student.id, JSON.stringify(value.sheetValues)])
       }
       await client.query('DELETE FROM teacher_lesson_student_records WHERE school_id=$1 AND lesson_session_id=$2 AND student_id <> ALL($3::text[])', [user.school_id, session.rows[0].id, [...payload.keys()]])
       return { saved: payload.size }
