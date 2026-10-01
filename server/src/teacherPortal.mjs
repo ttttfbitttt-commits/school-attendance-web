@@ -2,6 +2,7 @@ import crypto from 'node:crypto'
 
 const NOTE_OPTIONS = new Set(['هروب من الحصة', 'نائم أثناء الدرس', 'لم يحل الواجب', 'لم يشارك', 'مشارك فعال', 'لم يحضر الكتاب أو المذكرة', 'استخدام الجوال أثناء الحصة'])
 const ATTENDANCE_OPTIONS = new Set(['present', 'absent'])
+const SHEET_TYPES = new Set(['followup', 'homework', 'tests'])
 const SHEET_FIELD_TYPES = new Set(['score', 'text', 'choice', 'boolean'])
 
 function clean(value, max = 240) {
@@ -47,6 +48,7 @@ function cleanSheetValues(columns, value) {
     return [column.id, clean(raw, 1000)]
   }))
 }
+function validSheetType(value) { return SHEET_TYPES.has(String(value || '')) ? String(value) : null }
 function classKey(value) {
   return clean(value, 200)
     .normalize('NFKC')
@@ -236,6 +238,10 @@ export async function migrateTeacherPortal(adminPool) {
       created_at timestamptz NOT NULL DEFAULT now(),
       UNIQUE (school_id, teacher_id, subject_name, version)
     );
+    ALTER TABLE teacher_sheet_configs ADD COLUMN IF NOT EXISTS sheet_type text NOT NULL DEFAULT 'followup';
+    UPDATE teacher_sheet_configs SET sheet_type='followup' WHERE sheet_type IS NULL OR sheet_type='custom';
+    ALTER TABLE teacher_sheet_configs DROP CONSTRAINT IF EXISTS teacher_sheet_configs_school_id_teacher_id_subject_name_version_key;
+    CREATE UNIQUE INDEX IF NOT EXISTS teacher_sheet_configs_subject_type_version ON teacher_sheet_configs(school_id,teacher_id,subject_name,sheet_type,version);
     CREATE INDEX IF NOT EXISTS teacher_sheet_configs_current ON teacher_sheet_configs(school_id,teacher_id,subject_name,version DESC);
 
     CREATE TABLE IF NOT EXISTS teacher_sheet_entries (
@@ -293,10 +299,11 @@ export async function handleTeacherPortalRequest(context) {
       const subjects = (await client.query(`SELECT DISTINCT subject_name AS subject
         FROM lesson_schedule_assignments WHERE school_id=$1 AND import_id=$2 AND teacher_id=$3
         AND subject_name IS NOT NULL AND btrim(subject_name) <> '' ORDER BY subject_name`, [user.school_id, active.id, user.teacher_id])).rows
-      const configs = (await client.query(`SELECT DISTINCT ON (subject_name) id,subject_name AS subject,version,columns,created_at AS "createdAt"
-        FROM teacher_sheet_configs WHERE school_id=$1 AND teacher_id=$2 ORDER BY subject_name,version DESC`, [user.school_id, user.teacher_id])).rows
-      const bySubject = new Map(configs.map(config => [config.subject, { ...config, version: Number(config.version) }]))
-      return subjects.map(subject => bySubject.get(subject.subject) || { subject: subject.subject, version: 0, columns: [] })
+      const configs = (await client.query(`SELECT DISTINCT ON (subject_name,sheet_type) id,subject_name AS subject,sheet_type AS "sheetType",version,columns,created_at AS "createdAt"
+        FROM teacher_sheet_configs WHERE school_id=$1 AND teacher_id=$2 ORDER BY subject_name,sheet_type,version DESC`, [user.school_id, user.teacher_id])).rows
+      const bySubject = new Map()
+      for (const config of configs) bySubject.set(config.subject, [...(bySubject.get(config.subject) || []), { ...config, version: Number(config.version) }])
+      return subjects.map(subject => ({ subject: subject.subject, configs: bySubject.get(subject.subject) || [] }))
     })
     json(res, 200, { sheets })
     return true
@@ -306,8 +313,9 @@ export async function handleTeacherPortalRequest(context) {
     if (!teacherOnly()) { json(res, 403, { error: 'forbidden' }); return true }
     const input = await body(req)
     const subject = clean(input.subjectName, 200)
+    const sheetType = validSheetType(input.sheetType)
     const columns = cleanSheetColumns(input.columns)
-    if (!subject || !columns) { json(res, 400, { error: 'invalid_sheet_config' }); return true }
+    if (!subject || !sheetType || !columns) { json(res, 400, { error: 'invalid_sheet_config' }); return true }
     const result = await scoped(user.school_id, async client => {
       const active = await activeImport(client, user.school_id)
       if (!active) return { error: 'schedule_not_imported' }
@@ -315,9 +323,9 @@ export async function handleTeacherPortalRequest(context) {
         WHERE school_id=$1 AND import_id=$2 AND teacher_id=$3 AND subject_name=$4 LIMIT 1`, [user.school_id, active.id, user.teacher_id, subject])
       if (!assigned.rowCount) return { error: 'subject_not_assigned' }
       const version = Number((await client.query(`SELECT COALESCE(MAX(version),0)::int AS version FROM teacher_sheet_configs
-        WHERE school_id=$1 AND teacher_id=$2 AND subject_name=$3`, [user.school_id, user.teacher_id, subject])).rows[0].version) + 1
-      const config = (await client.query(`INSERT INTO teacher_sheet_configs(school_id,teacher_id,subject_name,version,columns)
-        VALUES($1,$2,$3,$4,$5::jsonb) RETURNING id,subject_name AS subject,version,columns,created_at AS "createdAt"`, [user.school_id, user.teacher_id, subject, version, JSON.stringify(columns)])).rows[0]
+        WHERE school_id=$1 AND teacher_id=$2 AND subject_name=$3 AND sheet_type=$4`, [user.school_id, user.teacher_id, subject, sheetType])).rows[0].version) + 1
+      const config = (await client.query(`INSERT INTO teacher_sheet_configs(school_id,teacher_id,subject_name,sheet_type,version,columns)
+        VALUES($1,$2,$3,$4,$5,$6::jsonb) RETURNING id,subject_name AS subject,sheet_type AS "sheetType",version,columns,created_at AS "createdAt"`, [user.school_id, user.teacher_id, subject, sheetType, version, JSON.stringify(columns)])).rows[0]
       return { config: { ...config, version: Number(config.version) } }
     })
     if (result.error) { json(res, result.error === 'subject_not_assigned' ? 403 : 409, result); return true }
@@ -353,6 +361,7 @@ export async function handleTeacherPortalRequest(context) {
     const classroomId = String(url.searchParams.get('classroomId') || '')
     const date = validDate(url.searchParams.get('date'))
     const periodNumber = validPeriod(url.searchParams.get('periodNumber'))
+    const sheetType = validSheetType(url.searchParams.get('sheetType')) || 'followup'
     if (!validId(classroomId) || !date || !periodNumber) { json(res, 400, { error: 'invalid_lesson_request' }); return true }
     const weekday = weekdayForDate(date)
     const result = await scoped(user.school_id, async client => {
@@ -367,8 +376,8 @@ export async function handleTeacherPortalRequest(context) {
         const groups = (await client.query(`SELECT grade,classroom,COUNT(*)::int AS count FROM students WHERE school_id=$1 AND active=true GROUP BY grade,classroom ORDER BY grade,classroom`, [user.school_id])).rows
         return { error: 'classroom_student_mapping_needed', classroom: assignment.rows[0].classroom, candidateGroups: groups }
       }
-      const configResult = await client.query(`SELECT id,subject_name AS subject,version,columns,created_at AS "createdAt"
-        FROM teacher_sheet_configs WHERE school_id=$1 AND teacher_id=$2 AND subject_name=$3 ORDER BY version DESC LIMIT 1`, [user.school_id, user.teacher_id, assignment.rows[0].subject || ''])
+      const configResult = await client.query(`SELECT id,subject_name AS subject,sheet_type AS "sheetType",version,columns,created_at AS "createdAt"
+        FROM teacher_sheet_configs WHERE school_id=$1 AND teacher_id=$2 AND subject_name=$3 AND sheet_type=$4 ORDER BY version DESC LIMIT 1`, [user.school_id, user.teacher_id, assignment.rows[0].subject || '', sheetType])
       const sheetConfig = configResult.rows[0] ? { ...configResult.rows[0], version: Number(configResult.rows[0].version) } : null
       const saved = await client.query(`SELECT r.student_id AS "studentId",r.attendance_status AS status,r.note FROM teacher_lesson_sessions s
         JOIN teacher_lesson_student_records r ON r.lesson_session_id=s.id
@@ -390,6 +399,7 @@ export async function handleTeacherPortalRequest(context) {
     const classroomId = String(input.classroomId || '')
     const date = validDate(input.date)
     const periodNumber = validPeriod(input.periodNumber)
+    const sheetType = validSheetType(input.sheetType) || 'followup'
     const submitted = Array.isArray(input.students) ? input.students : []
     if (!validId(classroomId) || !date || !periodNumber || submitted.length > 1500) { json(res, 400, { error: 'invalid_lesson_save' }); return true }
     const weekday = weekdayForDate(date)
@@ -406,7 +416,7 @@ export async function handleTeacherPortalRequest(context) {
       const roster = await rosterForClassroom(client, user.school_id, classroomId)
       if (!roster.mapping) return { error: 'classroom_student_mapping_needed' }
       const configResult = await client.query(`SELECT id,columns FROM teacher_sheet_configs
-        WHERE school_id=$1 AND teacher_id=$2 AND subject_name=$3 ORDER BY version DESC LIMIT 1`, [user.school_id, user.teacher_id, assignment.rows[0].subject || ''])
+        WHERE school_id=$1 AND teacher_id=$2 AND subject_name=$3 AND sheet_type=$4 ORDER BY version DESC LIMIT 1`, [user.school_id, user.teacher_id, assignment.rows[0].subject || '', sheetType])
       const sheetConfig = configResult.rows[0] || null
       const allowed = new Map(roster.students.map(student => [student.id, student]))
       const payload = new Map()
