@@ -1263,6 +1263,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
       box-shadow: 0 2px 6px rgba(0,0,0,0.1);
     }
     .no-print-bar button:hover { background: #f0f7ff; }
+    .no-print-bar .close-print { background:#fee2e2; color:#991b1b; margin-right:8px; }
     .print-page {
       width: 194mm; height: 281mm; margin: 16px auto; padding: 0;
       background: white; break-after: page; page-break-after: always;
@@ -1306,9 +1307,10 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
       <strong>مركز الطباعة – ${escapeHtml(schoolSettings.schoolName)}</strong>
       <div style="font-size:12px;opacity:0.9;margin-top:2px;">عدد الطلاب: ${students.length} طالب | ${cols === 2 ? '4' : cols === 3 ? '6' : '8'} بطاقات بالورقة</div>
     </div>
-    <button onclick="window.print()">إرسال لأمر الطباعة الآن 🖨️</button>
+    <div><button onclick="window.print()">طباعة / حفظ PDF</button><button class="close-print" onclick="closePrintPreview()">العودة للموقع</button></div>
   </div>
   ${pagesHtml}
+  <script>function closePrintPreview(){var openerWindow=window.opener;window.close();setTimeout(function(){if(window.closed)return;if(openerWindow&&!openerWindow.closed){window.location.replace(openerWindow.location.href);return}if(window.history.length>1){window.history.back();return}window.location.replace('/')},250)}<\/script>
   ${autoprint ? `<script>window.addEventListener('load', function(){ setTimeout(function(){ window.print(); }, 600); });<\/script>` : ''}
 </body>
 </html>`
