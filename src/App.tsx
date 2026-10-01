@@ -39,6 +39,7 @@ import {
 } from 'lucide-react'
 import './App.css'
 import { AuthGate } from './AuthGate'
+import { formatHijriDate, formatHijriDateWithWeekday } from './dateUtils'
 import { api, type Account, type SchoolProfile } from './api'
 import { LessonFlowCenter } from './LessonFlow'
 import { AlmadarSettings, downloadWorkbook, MessageCenter, reportBrandHeader, ReportsCenter } from './SchoolFeatures'
@@ -1084,10 +1085,10 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
         compareText(a.name, b.name) ||
         compareText(a.time, b.time),
     )
-    const headers = ['رقم الطالب', 'التاريخ', 'الوقت', 'اسم الطالب', 'الصف', 'الفصل', 'رقم الهاتف', 'الحالة']
+    const headers = ['رقم الطالب', 'التاريخ الهجري', 'الوقت', 'اسم الطالب', 'الصف', 'الفصل', 'رقم الهاتف', 'الحالة']
     const rows = attendanceRows.map((record) => [
         record.studentId,
-        reportDate,
+        formatHijriDate(reportDate),
         record.time,
         record.name,
         record.grade,
@@ -1096,7 +1097,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
         record.status === 'late' ? 'متأخر' : 'حاضر',
       ])
 
-    downloadWorkbook(`تقرير_الحضور_${reportDate}`, [headers, ...rows], 'الحضور', schoolSettings.schoolName, 'تقرير الحضور اليومي')
+    downloadWorkbook(`تقرير_الحضور_${formatHijriDate(reportDate)}`, [headers, ...rows], 'الحضور', schoolSettings.schoolName, 'تقرير الحضور اليومي')
     setNotice(`تم تصدير ${attendanceRows.length} سجل حضور بصيغة Excel بنجاح.`)
   }
 
@@ -1108,6 +1109,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
     }
 
     const todayStr = getTodayDateStr()
+    const todayHijri = formatHijriDate(todayStr)
     const dayName = ARABIC_DAYS[new Date().getDay()]
     const presentCount = scanLog.filter((s) => s.status === 'present').length
     const lateCount = scanLog.filter((s) => s.status === 'late').length
@@ -1117,7 +1119,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
         (r, i) => `
       <tr>
         <td>${i + 1}</td>
-        <td>${escapeHtml(`${r.day} ${r.date}`)}</td>
+        <td>${escapeHtml(`${r.day} ${formatHijriDate(r.date)}`)}</td>
         <td style="font-weight: 700; direction: ltr;">${escapeHtml(r.time)}</td>
         <td>${escapeHtml(r.studentId)}</td>
         <td style="font-weight: 700; color: #0c4277;">${escapeHtml(r.name)}</td>
@@ -1137,7 +1139,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
 <html lang="ar" dir="rtl">
 <head>
   <meta charset="UTF-8">
-  <title>سجل الحضور اليومي - ${todayStr}</title>
+  <title>سجل الحضور اليومي - ${todayHijri}</title>
   <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;600;700;800&display=swap" rel="stylesheet">
   <style>
     @page { size: A4 landscape; margin: 10mm; }
@@ -1166,7 +1168,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
 <body>
   <div class="header">
     ${reportBrandHeader('سجل حصر الحضور والتأخر المدرسي', schoolSettings.schoolName)}
-    <p>اليوم: ${dayName} | التاريخ: ${todayStr} | العام الدراسي: ${escapeHtml(schoolSettings.academicYear)} | ${escapeHtml(schoolSettings.semester)} | مدير المدرسة: ${escapeHtml(schoolSettings.principalName)} | وقت الطباعة: ${new Intl.DateTimeFormat('ar-SA', { hour: '2-digit', minute: '2-digit' }).format(new Date())}</p>
+    <p>اليوم: ${dayName} | التاريخ: ${todayHijri} | العام الدراسي: ${escapeHtml(schoolSettings.academicYear)} | ${escapeHtml(schoolSettings.semester)} | مدير المدرسة: ${escapeHtml(schoolSettings.principalName)} | وقت الطباعة: ${new Intl.DateTimeFormat('ar-SA', { hour: '2-digit', minute: '2-digit', timeZone: 'Asia/Riyadh' }).format(new Date())}</p>
   </div>
   <div class="summary-pills">
     <div class="pill total">إجمالي الطلاب المسجلين: ${scanLog.length}</div>
@@ -1530,7 +1532,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
           </div>
 
           <div className="top-actions">
-            <span className="date-label">{new Intl.DateTimeFormat('ar-SA', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(new Date())}</span>
+            <span className="date-label">{formatHijriDateWithWeekday(new Date())}</span>
             <button className="profile-button">
               <span className="profile-avatar">{schoolSettings.principalName.trim().charAt(0) || 'م'}</span>
               <span>
@@ -1978,7 +1980,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
                 <div className="school-date-tag">
                   <span>اليوم: <strong>{ARABIC_DAYS[new Date().getDay()]}</strong></span>
                   <span>•</span>
-                  <span>التاريخ: <strong>{getTodayDateStr()}</strong></span>
+                  <span>التاريخ الهجري: <strong>{formatHijriDate(getTodayDateStr())}</strong></span>
                 </div>
               </div>
 
@@ -2220,7 +2222,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
                 <div>
                   <span className="panel-kicker">سجل الطلاب المسجلين</span>
                   <h3>
-                    سجل الحضور لليوم: {ARABIC_DAYS[new Date().getDay()]} ({getTodayDateStr()})
+                    سجل الحضور لليوم: {ARABIC_DAYS[new Date().getDay()]} ({formatHijriDate(getTodayDateStr())})
                   </h3>
                 </div>
 
@@ -2390,7 +2392,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
                         <tr key={`${record.studentId}-${record.time}-${index}`}>
                           <td data-label="م">{index + 1}</td>
                           <td data-label="اليوم والتاريخ">
-                            {record.day} {record.date}
+                            {record.day} {formatHijriDate(record.date)}
                           </td>
                           <td data-label="وقت الحضور" className="log-time-cell">{record.time}</td>
                           <td data-label="رقم الطالب" className="log-id-cell">{record.studentId}</td>

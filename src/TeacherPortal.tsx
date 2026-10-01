@@ -1,29 +1,15 @@
-import { useEffect, useRef, useState } from 'react'
-import * as jsQRNs from 'jsqr'
-import { BookOpenCheck, Camera, FileText, KeyRound, LogOut, Printer, Save, UserRound, X } from 'lucide-react'
-import { api, type Account, type TeacherLesson, type TeacherLessonReport, type TeacherNote, type TeacherPortalDashboard, type TeacherPortalScheduleItem } from './api'
-import { downloadWorkbook, openPrintDocument } from './SchoolFeatures'
+import { useEffect, useState } from 'react'
+import { BookOpenCheck, KeyRound, LogOut, Save, UserRound } from 'lucide-react'
+import { api, type Account, type TeacherLesson, type TeacherNote, type TeacherPortalDashboard, type TeacherPortalScheduleItem } from './api'
+import { HijriDatePicker } from './HijriDatePicker'
+import { formatHijriDate } from './dateUtils'
 
-const notes: TeacherNote[] = ['هرب', 'نائم', 'لم يحل الواجب', 'لم يشارك', 'مشارك فعال']
+const notes: TeacherNote[] = ['هروب من الحصة', 'نائم أثناء الدرس', 'لم يحل الواجب', 'لم يشارك', 'مشارك فعال', 'لم يحضر الكتاب أو المذكرة', 'استخدام الجوال أثناء الحصة']
 const dayNames = ['', 'الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت']
 const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Riyadh' }).format(new Date())
-const escapeHtml = (value: unknown) => String(value ?? '').replace(/[&<>'"]/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[character] || character))
 const periodLabel = (period: number) => `الحصة ${['', 'الأولى', 'الثانية', 'الثالثة', 'الرابعة', 'الخامسة', 'السادسة', 'السابعة', 'الثامنة', 'التاسعة', 'العاشرة'][period] || period}`
-const jsQR = (jsQRNs as any).default || jsQRNs
-const barcodeCandidates = (value: string) => {
-  const raw = value.trim()
-  const legacy = raw.replace(/\\/g, '/').match(/(?:^|\/)student_barcodes\/([^/]+)\.png$/i)?.[1]
-  return [...new Set([raw, legacy || ''])].filter(Boolean)
-}
 
 type StudentState = { status: 'present' | 'absent'; note: TeacherNote | '' }
-
-function reportHtml(report: TeacherLessonReport) {
-  return `<section class="page"><div class="heading"><strong>المعلم:</strong> ${escapeHtml(report.teacherName)} &nbsp; | &nbsp; <strong>اليوم والتاريخ:</strong> ${escapeHtml(dayNames[report.weekday])} ${escapeHtml(report.date)}<br/>
-    <strong>الصف والفصل:</strong> ${escapeHtml(report.grade)} - ${escapeHtml(report.classroomValue)} &nbsp; | &nbsp; <strong>${escapeHtml(periodLabel(report.periodNumber))}</strong></div>
-    <table><thead><tr><th>الطالب</th><th>الحالة</th><th>الملاحظة</th></tr></thead><tbody>${report.records.map(row => `<tr><td>${escapeHtml(row.name)}</td><td>${row.status === 'present' ? 'حاضر' : 'غائب'}</td><td>${escapeHtml(row.note || '—')}</td></tr>`).join('')}</tbody></table>
-    <p style="margin-top:28px">توقيع المعلم: ........................................................</p></section>`
-}
 
 export function TeacherPortal({ account, onLogout }: { account: Account; onLogout: () => void }) {
   const [date, setDate] = useState(today())
@@ -31,24 +17,12 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
   const [lesson, setLesson] = useState<TeacherLesson | null>(null)
   const [selected, setSelected] = useState<TeacherPortalScheduleItem | null>(null)
   const [states, setStates] = useState<Record<string, StudentState>>({})
-  const [reports, setReports] = useState<TeacherLessonReport[]>([])
-  const [noteFilter, setNoteFilter] = useState('')
   const [password, setPassword] = useState('')
   const [passwordConfirm, setPasswordConfirm] = useState('')
   const [passwordChanged, setPasswordChanged] = useState(!account.mustChangePassword)
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState('')
-  const [cameraOpen, setCameraOpen] = useState(false)
-  const videoRef = useRef<HTMLVideoElement | null>(null)
-  const canvasRef = useRef<HTMLCanvasElement | null>(null)
-  const cameraStreamRef = useRef<MediaStream | null>(null)
-
-  const stopCamera = () => {
-    cameraStreamRef.current?.getTracks().forEach(track => track.stop())
-    cameraStreamRef.current = null
-    setCameraOpen(false)
-  }
 
   const loadDashboard = async () => {
     setBusy('dashboard')
@@ -75,59 +49,6 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
     setStates(current => ({ ...current, [studentId]: { ...current[studentId], ...update } }))
   }
 
-  const startCamera = async () => {
-    if (!navigator.mediaDevices?.getUserMedia) { setError('الكاميرا غير مدعومة في هذا المتصفح. استخدم التحضير اليدوي.'); return }
-    setError('')
-    try {
-      cameraStreamRef.current = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } }, audio: false })
-      setCameraOpen(true)
-    } catch { setError('تعذر فتح الكاميرا. اسمح للمتصفح باستخدامها ثم أعد المحاولة.') }
-  }
-
-  useEffect(() => {
-    if (!cameraOpen || !cameraStreamRef.current || !videoRef.current || !canvasRef.current || !lesson) return
-    const video = videoRef.current
-    const canvas = canvasRef.current
-    const stream = cameraStreamRef.current
-    let cancelled = false
-    let frame = 0
-    const tick = () => {
-      if (cancelled) return
-      if (video.readyState >= HTMLMediaElement.HAVE_ENOUGH_DATA && video.videoWidth && video.videoHeight) {
-        const context = canvas.getContext('2d', { willReadFrequently: true })
-        if (context) {
-          const scale = Math.min(1, 480 / Math.max(video.videoWidth, video.videoHeight))
-          canvas.width = Math.max(1, Math.round(video.videoWidth * scale))
-          canvas.height = Math.max(1, Math.round(video.videoHeight * scale))
-          context.drawImage(video, 0, 0, canvas.width, canvas.height)
-          const result = jsQR(context.getImageData(0, 0, canvas.width, canvas.height).data, canvas.width, canvas.height, { inversionAttempts: 'dontInvert' })
-          if (result) {
-            const student = lesson.students.find(row => barcodeCandidates(result.data).includes(row.id))
-            if (student) {
-              updateStudent(student.id, { status: 'present' })
-              setNotice(`تم رصد حضور الطالب ${student.name} في متابعة هذه الحصة.`)
-              stopCamera()
-              return
-            }
-            setError('هذا الباركود لا يخص طالبًا في الفصل المحدد.')
-          }
-        }
-      }
-      frame = requestAnimationFrame(tick)
-    }
-    const attach = async () => {
-      video.srcObject = stream
-      video.setAttribute('playsinline', 'true')
-      video.muted = true
-      try { await video.play() } catch {}
-      if (!cancelled) frame = requestAnimationFrame(tick)
-    }
-    void attach()
-    return () => { cancelled = true; cancelAnimationFrame(frame) }
-  }, [cameraOpen, lesson])
-
-  useEffect(() => () => { cameraStreamRef.current?.getTracks().forEach(track => track.stop()) }, [])
-
   const saveLesson = async () => {
     if (!lesson || !selected) return
     setBusy('save')
@@ -141,12 +62,7 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
         students: lesson.students.map(student => ({ studentId: student.id, ...(states[student.id] || { status: 'present', note: '' }) })),
       })
       setNotice(`تم حفظ متابعة ${result.saved} طالبًا. يُسجّل الحاضر بلا ملاحظة كمشارك فعال.`)
-      await loadReports()
     } catch { setError('تعذر حفظ المتابعة. تحقق من اتصالك ثم أعد المحاولة.') } finally { setBusy('') }
-  }
-
-  const loadReports = async () => {
-    try { setReports((await api.teacherReports({ date, note: noteFilter })).reports) } catch { setError('تعذر تحميل تقاريرك.') }
   }
 
   const savePassword = async () => {
@@ -161,18 +77,6 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
     } catch { setError('تعذر تغيير كلمة المرور.') } finally { setBusy('') }
   }
 
-  const printReport = (report: TeacherLessonReport) => {
-    if (!dashboard) return
-    openPrintDocument('كشف متابعة طلاب الفصل', reportHtml(report), dashboard.schoolName)
-  }
-
-  const exportReport = (report: TeacherLessonReport) => {
-    if (!dashboard) return
-    downloadWorkbook(`متابعة-${report.teacherName}-${report.date}-${report.periodNumber}`, [
-      ['الطالب', 'الحالة', 'الملاحظة'],
-      ...report.records.map(row => [row.name, row.status === 'present' ? 'حاضر' : 'غائب', row.note || '—']),
-    ], 'متابعة الفصل', dashboard.schoolName, 'كشف متابعة طلاب الفصل')
-  }
 
   return <main className="teacher-portal" dir="rtl">
     <header className="teacher-topbar">
@@ -181,7 +85,7 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
     </header>
     <section className="teacher-welcome">
       <div><UserRound size={27} /><div><strong>{dashboard?.teacher.name || account.displayName}</strong><small>يعرض هذا الحساب جدولك وطلاب فصولك فقط.</small></div></div>
-      <label>التاريخ<input type="date" value={date} onChange={event => { setDate(event.target.value); setLesson(null); setSelected(null) }} /></label>
+      <HijriDatePicker label="التاريخ الهجري" value={date} max={today()} onChange={value => { setDate(value); setLesson(null); setSelected(null) }} />
     </section>
 
     {!passwordChanged && <section className="teacher-security-card">
@@ -193,7 +97,7 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
     {error && <div className="teacher-notice error">{error}</div>}
 
     <section className="teacher-card">
-      <div className="teacher-section-head"><div><span>جدول اليوم</span><h2>{dayNames[dashboard?.weekday || 0]} {date}</h2></div><BookOpenCheck size={26} /></div>
+      <div className="teacher-section-head"><div><span>جدول اليوم</span><h2>{dayNames[dashboard?.weekday || 0]} · {formatHijriDate(date)}</h2></div><BookOpenCheck size={26} /></div>
       {busy === 'dashboard' ? <p className="teacher-empty">جارٍ تحميل الجدول…</p> : !dashboard?.schedule.length ? <p className="teacher-empty">لا توجد حصص مسندة لك في هذا اليوم.</p> : <div className="teacher-schedule-grid">
         {dashboard.schedule.map(item => <button key={item.assignmentId} className={`teacher-schedule-card ${selected?.assignmentId === item.assignmentId ? 'selected' : ''}`} onClick={() => void openLesson(item)}>
           <strong>{periodLabel(item.periodNumber)}</strong><span>{item.classroom}</span><small>{item.subject || 'بدون مادة محددة'}{item.startTime && item.endTime ? ` · ${item.startTime}–${item.endTime}` : ''}</small>
@@ -202,9 +106,8 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
     </section>
 
     {lesson && selected && <section className="teacher-card teacher-roster-card">
-      <div className="teacher-section-head"><div><span>{lesson.mapping.grade} · الفصل {lesson.mapping.classroom}</span><h2>{periodLabel(selected.periodNumber)} — {selected.classroom}</h2></div><div className="teacher-report-actions"><button className="outline-button" onClick={() => void startCamera()} disabled={cameraOpen}><Camera size={17} /> رصد بالباركود</button><button className="primary-button" onClick={() => void saveLesson()} disabled={busy === 'save'}><Save size={17} /> {busy === 'save' ? 'جارٍ الحفظ…' : 'حفظ المتابعة'}</button></div></div>
+      <div className="teacher-section-head"><div><span>{lesson.mapping.grade} · الفصل {lesson.mapping.classroom}</span><h2>{periodLabel(selected.periodNumber)} — {selected.classroom}</h2></div><div className="teacher-report-actions"><button className="primary-button" onClick={() => void saveLesson()} disabled={busy === 'save'}><Save size={17} /> {busy === 'save' ? 'جارٍ الحفظ…' : 'حفظ المتابعة'}</button></div></div>
       <p className="teacher-help">اختيار الحالة والملاحظة هنا خاص بمتابعة المعلم، ولا يغيّر سجل الحضور والغياب الإداري.</p>
-      {cameraOpen && <div className="teacher-camera"><div><strong>وجّه الكاميرا إلى باركود الطالب</strong><button onClick={stopCamera}><X size={17} /> إغلاق الكاميرا</button></div><video ref={videoRef} muted playsInline /><canvas ref={canvasRef} hidden /></div>}
       <div className="teacher-roster-table-wrap"><table className="teacher-roster-table"><thead><tr><th>الطالب</th><th>الحالة</th><th>الملاحظة</th></tr></thead><tbody>
         {lesson.students.map(student => { const state = states[student.id] || { status: 'present' as const, note: '' as const }; return <tr key={student.id}>
           <td><strong>{student.name}</strong><small>{student.grade} · {student.classroom}</small></td>
@@ -212,11 +115,7 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
           <td><select value={state.note} disabled={state.status === 'absent'} onChange={event => updateStudent(student.id, { note: event.target.value as TeacherNote | '' })}><option value="">مشارك فعال عند الحفظ</option>{notes.map(note => <option key={note} value={note}>{note}</option>)}</select></td>
         </tr> })}
       </tbody></table></div>
+      <div className="teacher-roster-save-bottom"><button className="primary-button" onClick={() => void saveLesson()} disabled={busy === 'save'}><Save size={17} /> {busy === 'save' ? 'جارٍ الحفظ…' : 'حفظ المتابعة'}</button></div>
     </section>}
-
-    <section className="teacher-card teacher-reports-card">
-      <div className="teacher-section-head"><div><span>تقاريري</span><h2>كشوف المتابعة</h2></div><div className="teacher-report-actions"><select value={noteFilter} onChange={event => setNoteFilter(event.target.value)}><option value="">كل الملاحظات</option>{notes.map(note => <option key={note} value={note}>{note}</option>)}</select><button className="outline-button" onClick={() => void loadReports()}><FileText size={17} /> عرض الكشوف</button></div></div>
-      {!reports.length ? <p className="teacher-empty">اختر «عرض الكشوف» لإظهار تقارير هذا التاريخ.</p> : <div className="teacher-report-list">{reports.map(report => <article key={report.id}><div><strong>{periodLabel(report.periodNumber)} · {report.classroom}</strong><span>{report.presentCount} حاضر · {report.absentCount} غائب · {report.records.filter(row => row.note && row.note !== 'مشارك فعال').length} ملاحظة</span></div><div><button onClick={() => printReport(report)} title="طباعة PDF"><Printer size={17} /></button><button onClick={() => exportReport(report)} title="تصدير Excel"><FileText size={17} /></button></div></article>)}</div>}
-    </section>
   </main>
 }

@@ -111,7 +111,7 @@ export type LessonScanPreview = {
 }
 export type TeacherPortalScheduleItem = { assignmentId: string; classroomId: string; classroom: string; periodNumber: number; subject: string; startTime: string | null; endTime: string | null }
 export type TeacherPortalDashboard = { schoolName: string; teacher: { name: string; identityNumber: string }; date: string; weekday: number; schedule: TeacherPortalScheduleItem[] }
-export type TeacherNote = 'هرب' | 'نائم' | 'لم يحل الواجب' | 'لم يشارك' | 'مشارك فعال'
+export type TeacherNote = 'هروب من الحصة' | 'نائم أثناء الدرس' | 'لم يحل الواجب' | 'لم يشارك' | 'مشارك فعال' | 'لم يحضر الكتاب أو المذكرة' | 'استخدام الجوال أثناء الحصة'
 export type TeacherLessonStudent = { id: string; name: string; phone: string; grade: string; classroom: string; status: 'present' | 'absent'; note: TeacherNote | '' }
 export type TeacherLesson = { assignment: { assignmentId: string; classroomId: string; classroom: string; subject: string }; date: string; periodNumber: number; mapping: { grade: string; classroom: string; mappingSource: 'automatic' | 'manual' }; students: TeacherLessonStudent[] }
 export type TeacherLessonReport = {

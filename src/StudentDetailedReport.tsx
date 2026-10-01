@@ -1,6 +1,8 @@
 import { useMemo, useState } from 'react'
 import { ChevronDown, Printer, Search } from 'lucide-react'
 import { api, type DetailedStudentReport } from './api'
+import { HijriDatePicker } from './HijriDatePicker'
+import { formatHijriDate } from './dateUtils'
 
 type StudentOption = { id: string; name: string; grade: string; classroom: string; phone: string }
 type LessonRecord = DetailedStudentReport['lessons'][number]
@@ -106,13 +108,13 @@ export function StudentDetailedReport({ students, schoolName, printDocument }: {
       return `<h2>المادة: ${escapeHtml(group.subject)}</h2>
         <p><strong>المعلم:</strong> ${escapeHtml(group.teacherName)}　 <strong>الصف والفصل:</strong> ${escapeHtml(group.grade)} - ${escapeHtml(group.classroomValue)}</p>
         <p>أيام الغياب عن حصص المادة: ${summary.absenceDays}　 <strong>عدد الملاحظات: ${summary.noteCount}</strong></p>
-        <table><thead><tr><th>التاريخ</th><th>الحصة</th><th>الحالة</th><th>الملاحظة</th></tr></thead><tbody>${group.records.map(record => `<tr><td>${escapeHtml(record.date)}</td><td>${record.periodNumber}</td><td>${statusLabel(record.status)}</td><td>${escapeHtml(record.note || '—')}</td></tr>`).join('')}</tbody></table>`
+        <table><thead><tr><th>التاريخ الهجري</th><th>الحصة</th><th>الحالة</th><th>الملاحظة</th></tr></thead><tbody>${group.records.map(record => `<tr><td>${escapeHtml(formatHijriDate(record.date))}</td><td>${record.periodNumber}</td><td>${statusLabel(record.status)}</td><td>${escapeHtml(record.note || '—')}</td></tr>`).join('')}</tbody></table>`
     }).join('<hr/>')
     const contents = `<section class="page"><h1>تقرير مفصل عن الطالب</h1>
       <div class="heading"><p><strong>اسم الطالب:</strong> ${escapeHtml(report.student.name)}</p>
       <p><strong>الصف والفصل:</strong> ${escapeHtml(report.student.grade)} - ${escapeHtml(report.student.classroom)}</p>
       <p><strong>أيام الغياب عن المدرسة:</strong> ${report.summary.schoolAbsenceDays}　 <strong>أيام التأخر عن المدرسة:</strong> ${report.summary.schoolLateDays}</p>
-      <p><strong>الفترة:</strong> ${escapeHtml(report.from)} إلى ${escapeHtml(report.to)}</p></div>${groupHtml}</section>`
+      <p><strong>الفترة الهجرية:</strong> ${escapeHtml(formatHijriDate(report.from))} إلى ${escapeHtml(formatHijriDate(report.to))}</p></div>${groupHtml}</section>`
     printDocument('تقرير مفصل عن الطالب', contents, schoolName)
   }
 
@@ -122,12 +124,12 @@ export function StudentDetailedReport({ students, schoolName, printDocument }: {
       <label className="student-detail-search"><Search size={17} /><input value={search} onChange={event => { setSearch(event.target.value); setStudent(null); setReport(null) }} placeholder="ابحث باسم الطالب..." autoComplete="off" aria-label="ابحث باسم الطالب" /></label>
       {!student && suggestions.length > 0 && <div className="student-detail-suggestions" role="listbox">{suggestions.map(item => <button type="button" role="option" key={item.id} onClick={() => chooseStudent(item)}>{item.name}<small>{item.grade} · {item.classroom}</small></button>)}</div>}
       {search.trim() && !suggestions.length && !student && <p className="teacher-empty">لا توجد أسماء مطابقة.</p>}
-      {student && <div className="student-detail-range"><label>من<input type="date" value={from} max={to} onChange={event => setFrom(event.target.value)} /></label><label>إلى<input type="date" value={to} min={from} max={today()} onChange={event => setTo(event.target.value)} /></label><button type="button" className="primary-button" onClick={() => void load(student)} disabled={busy || !from || !to}>{busy ? 'جارٍ التحميل…' : 'تحديث التقرير'}</button></div>}
+      {student && <div className="student-detail-range"><HijriDatePicker label="من التاريخ الهجري" value={from} max={to} onChange={setFrom} /><HijriDatePicker label="إلى التاريخ الهجري" value={to} min={from} max={today()} onChange={setTo} /><button type="button" className="primary-button" onClick={() => void load(student)} disabled={busy || !from || !to}>{busy ? 'جارٍ التحميل…' : 'تحديث التقرير'}</button></div>}
     </div>
     {error && <p className="teacher-notice error" role="alert">{error}</p>}
     {busy && <p className="teacher-empty">جارٍ تحميل بيانات الطالب...</p>}
     {report && <>
-      <section className="student-detail-summary"><h3>تقرير مفصل عن الطالب</h3><strong>{report.student.name}</strong><span>{report.student.grade} · {report.student.classroom}</span><div><b>أيام الغياب عن المدرسة: {report.summary.schoolAbsenceDays}</b><b>أيام التأخر عن المدرسة: {report.summary.schoolLateDays}</b><small>الفترة: {report.from} إلى {report.to}</small></div></section>
+      <section className="student-detail-summary"><h3>تقرير مفصل عن الطالب</h3><strong>{report.student.name}</strong><span>{report.student.grade} · {report.student.classroom}</span><div><b>أيام الغياب عن المدرسة: {report.summary.schoolAbsenceDays}</b><b>أيام التأخر عن المدرسة: {report.summary.schoolLateDays}</b><small>الفترة الهجرية: {formatHijriDate(report.from)} إلى {formatHijriDate(report.to)}</small></div></section>
       <div className="student-detail-print"><label>المواد<select value={printSubject} onChange={event => setPrintSubject(event.target.value)}><option value="all">جميع المواد</option>{groups.map(group => <option key={group.key} value={group.key}>{group.subject} · {group.teacherName}</option>)}</select></label><button type="button" className="export-btn pdf" onClick={printReport} disabled={!groups.length}><Printer size={16} /> طباعة التقرير</button></div>
       {!groups.length ? <p className="teacher-empty">لا توجد سجلات حصص لهذا الطالب ضمن الفترة المحددة.</p> : <div className="student-detail-subjects">{groups.map((group, index) => {
         const summary = groupSummary(group)
@@ -136,7 +138,7 @@ export function StudentDetailedReport({ students, schoolName, printDocument }: {
         return <article className="student-detail-subject" key={group.key}>
           <div className="student-detail-subject-head"><div><h3>المادة: {group.subject}</h3><p>المعلم: {group.teacherName} · الصف والفصل: {group.grade} - {group.classroomValue}</p></div></div>
           <table className="student-detail-summary-table"><thead><tr><th>أيام الغياب عن المادة</th><th>عدد الملاحظات</th><th>السجل</th></tr></thead><tbody><tr><td>{summary.absenceDays}</td><td>{summary.noteCount}</td><td><button type="button" className="outline-button" aria-expanded={expanded} aria-controls={detailsId} onClick={() => toggleGroup(group.key)}><ChevronDown size={16} />{expanded ? 'إخفاء السجل' : 'عرض السجل والملاحظات'}</button></td></tr></tbody></table>
-          {expanded && <div className="table-wrap" id={detailsId}><table className="responsive-data-table"><thead><tr><th>التاريخ</th><th>الحصة</th><th>الحالة</th><th>الملاحظة</th></tr></thead><tbody>{group.records.map((record, recordIndex) => <tr key={`${record.date}-${record.periodNumber}-${recordIndex}`}><td data-label="التاريخ">{record.date}</td><td data-label="الحصة">{record.periodNumber}</td><td data-label="الحالة">{statusLabel(record.status)}</td><td data-label="الملاحظة">{record.note || '—'}</td></tr>)}</tbody></table></div>}
+          {expanded && <div className="table-wrap" id={detailsId}><table className="responsive-data-table"><thead><tr><th>التاريخ الهجري</th><th>الحصة</th><th>الحالة</th><th>الملاحظة</th></tr></thead><tbody>{group.records.map((record, recordIndex) => <tr key={`${record.date}-${record.periodNumber}-${recordIndex}`}><td data-label="التاريخ الهجري">{formatHijriDate(record.date)}</td><td data-label="الحصة">{record.periodNumber}</td><td data-label="الحالة">{statusLabel(record.status)}</td><td data-label="الملاحظة">{record.note || '—'}</td></tr>)}</tbody></table></div>}
         </article>
       })}</div>}
     </>}

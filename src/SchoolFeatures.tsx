@@ -3,6 +3,8 @@ import * as XLSX from 'xlsx'
 import { CheckCircle2, Download, FileText, Mail, Printer, RefreshCw, Save, Send, ShieldCheck, XCircle } from 'lucide-react'
 import { api, type MessageLog } from './api'
 import { StudentDetailedReport } from './StudentDetailedReport'
+import { HijriDatePicker } from './HijriDatePicker'
+import { formatHijriDate, formatHijriDateTime } from './dateUtils'
 
 export type FeatureStudent = { id: string; name: string; phone: string; grade: string; classroom: string }
 export type FeatureAttendance = { studentId: string; status: 'present' | 'late' }
@@ -10,7 +12,7 @@ export type FeatureAttendance = { studentId: string; status: 'present' | 'late' 
 const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Riyadh' }).format(new Date())
 const escapeHtml = (value: unknown) => String(value ?? '').replace(/[&<>'"]/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[character] || character))
 const maskPhone = (phone: string) => phone.length > 4 ? `${phone.slice(0, 3)}••••${phone.slice(-3)}` : phone
-const formatDateTime = (value: string) => new Intl.DateTimeFormat('ar-SA', { dateStyle: 'medium', timeStyle: 'short', timeZone: 'Asia/Riyadh' }).format(new Date(value))
+const formatDateTime = (value: string) => formatHijriDateTime(value)
 type MessageKind = 'late' | 'absence' | 'general'
 const MESSAGE_CANDIDATE_LIMIT = 50
 const MESSAGE_LOG_LIMIT = 40
@@ -70,7 +72,7 @@ export function openOfficialFormDocument(title: string, contents: string) {
 export function downloadWorkbook(name: string, rows: Array<Array<string | number>>, sheetName = 'تقرير', schoolName = '', reportTitle = name) {
   const workbook = XLSX.utils.book_new()
   const columnCount = Math.max(rows[0]?.length || 1, 1)
-  const brandedRows: Array<Array<string | number>> = [[schoolName], [reportTitle], [`تاريخ التصدير: ${today()}`], [], ...rows]
+  const brandedRows: Array<Array<string | number>> = [[schoolName], [reportTitle], [`تاريخ التصدير: ${formatHijriDate(today())}`], [], ...rows]
   const sheet = XLSX.utils.aoa_to_sheet(brandedRows)
   const widths = Array.from({ length: columnCount }, (_, column) => {
     const width = brandedRows.reduce((max, row) => Math.max(max, String(row[column] ?? '').length), 12)
@@ -370,11 +372,26 @@ function exportDaily(title: string, rows: DailyRow[], schoolName: string) {
 }
 
 function printDaily(title: string, rows: DailyRow[], schoolName: string, date: string) {
-  openPrintDocument(title, `<section class="page"><h1>${escapeHtml(title)}</h1><table><thead><tr><th>الطالب</th><th>الصف</th><th>الفصل</th><th>الجوال</th><th>الحالة</th></tr></thead><tbody>${rows.map(row => `<tr><td>${escapeHtml(row.name)}</td><td>${escapeHtml(row.grade)}</td><td>${escapeHtml(row.classroom)}</td><td dir="ltr">${escapeHtml(row.phone)}</td><td>${statusText(row.status)}</td></tr>`).join('')}</tbody></table><p class="meta">${date}</p></section>`, schoolName)
+  openPrintDocument(title, `<section class="page"><h1>${escapeHtml(title)}</h1><table><thead><tr><th>الطالب</th><th>الصف</th><th>الفصل</th><th>الجوال</th><th>الحالة</th></tr></thead><tbody>${rows.map(row => `<tr><td>${escapeHtml(row.name)}</td><td>${escapeHtml(row.grade)}</td><td>${escapeHtml(row.classroom)}</td><td dir="ltr">${escapeHtml(row.phone)}</td><td>${statusText(row.status)}</td></tr>`).join('')}</tbody></table><p class="meta">${escapeHtml(formatHijriDate(date))}</p></section>`, schoolName)
+  return <section id={id} className="panel daily-report-panel"><div className="panel-header"><div><span className="panel-kicker">سجل يومي</span><h2>{title}</h2><p>العدد: {rows.length} طالبًا</p>{onCancelApproval && <p>اختر تاريخًا سابقًا من التقويم لمراجعة سجله أو إلغاء اعتماده.</p>}</div><HijriDatePicker label="التاريخ الهجري" value={date} max={today()} disabled={busy || cancelBusy} onChange={onDate} /></div><div className="feature-actions daily-actions" aria-busy={busy || cancelBusy}><button className="secondary-button" type="button" onClick={() => onAll('excused')} disabled={!rows.length || busy || cancelBusy}>اعتبار الجميع بعذر</button><button className="secondary-button" type="button" onClick={() => onAll('unexcused')} disabled={!rows.length || busy || cancelBusy}>اعتبار الجميع بدون عذر</button>{onCancelApproval && <button className="danger-button cancel-absence-approval" type="button" onClick={onCancelApproval} disabled={!rows.length || busy || cancelBusy}><XCircle size={16} />{cancelBusy ? 'جارٍ إلغاء الاعتماد...' : 'إلغاء اعتماد هذا اليوم'}</button>}<button className="export-btn csv" type="button" onClick={onExcel} disabled={!rows.length}><Download size={16} /> Excel</button><button className="export-btn pdf" type="button" onClick={onPdf} disabled={!rows.length}><Printer size={16} /> PDF</button></div>{actionNotice && <p className="report-action-notice" role="status" aria-live="polite">{actionNotice}</p>}<div className="daily-list">{rows.map(row => <article key={row.studentId} className="daily-row"><div><strong>{row.name}</strong><small>{row.grade || '—'} · {row.classroom || '—'} · <span dir="ltr">{row.phone || '—'}</span>{late && row.time ? ` · ${row.time}` : ''}</small></div><select value={row.status} disabled={busy || cancelBusy} onChange={event => onStatus([row.studentId], event.target.value as 'unexcused' | 'excused')}><option value="unexcused">بدون عذر</option><option value="excused">بعذر</option></select></article>)}</div></section>
 }
 
 function DailyList({ id, title, date, onDate, rows, onStatus, onAll, onExcel, onPdf, onCancelApproval, cancelBusy = false, busy = false, actionNotice = '', late = false }: { id?: string; title: string; date: string; onDate: (value: string) => void; rows: DailyRow[]; onStatus: (ids: string[], status: 'unexcused' | 'excused') => void; onAll: (status: 'unexcused' | 'excused') => void; onExcel: () => void; onPdf: () => void; onCancelApproval?: () => void; cancelBusy?: boolean; busy?: boolean; actionNotice?: string; late?: boolean }) {
-  return <section id={id} className="panel daily-report-panel"><div className="panel-header"><div><span className="panel-kicker">سجل يومي</span><h2>{title}</h2><p>العدد: {rows.length} طالبًا</p>{onCancelApproval && <p>اختر تاريخًا سابقًا من التقويم لمراجعة سجله أو إلغاء اعتماده.</p>}</div><label className="report-date">التاريخ<input type="date" value={date} max={today()} disabled={busy || cancelBusy} onChange={event => onDate(event.target.value)} /></label></div><div className="feature-actions daily-actions" aria-busy={busy || cancelBusy}><button className="secondary-button" type="button" onClick={() => onAll('excused')} disabled={!rows.length || busy || cancelBusy}>اعتبار الجميع بعذر</button><button className="secondary-button" type="button" onClick={() => onAll('unexcused')} disabled={!rows.length || busy || cancelBusy}>اعتبار الجميع بدون عذر</button>{onCancelApproval && <button className="danger-button cancel-absence-approval" type="button" onClick={onCancelApproval} disabled={!rows.length || busy || cancelBusy}><XCircle size={16} />{cancelBusy ? 'جارٍ إلغاء الاعتماد...' : 'إلغاء اعتماد هذا اليوم'}</button>}<button className="export-btn csv" type="button" onClick={onExcel} disabled={!rows.length}><Download size={16} /> Excel</button><button className="export-btn pdf" type="button" onClick={onPdf} disabled={!rows.length}><Printer size={16} /> PDF</button></div>{actionNotice && <p className="report-action-notice" role="status" aria-live="polite">{actionNotice}</p>}<div className="daily-list">{rows.map(row => <article key={row.studentId} className="daily-row"><div><strong>{row.name}</strong><small>{row.grade || '—'} · {row.classroom || '—'} · <span dir="ltr">{row.phone || '—'}</span>{late && row.time ? ` · ${row.time}` : ''}</small></div><select value={row.status} disabled={busy || cancelBusy} onChange={event => onStatus([row.studentId], event.target.value as 'unexcused' | 'excused')}><option value="unexcused">بدون عذر</option><option value="excused">بعذر</option></select></article>)}{!rows.length && <p className="report-empty-state">لا توجد سجلات لهذا التاريخ.</p>}</div></section>
+  return <section id={id} className="panel daily-report-panel">
+    <div className="panel-header">
+      <div><span className="panel-kicker">سجل يومي</span><h2>{title}</h2><p>العدد: {rows.length} طالبًا</p>{onCancelApproval && <p>اختر تاريخًا سابقًا من التقويم لمراجعة سجله أو إلغاء اعتماده.</p>}</div>
+      <HijriDatePicker label="التاريخ الهجري" value={date} max={today()} disabled={busy || cancelBusy} onChange={onDate} />
+    </div>
+    <div className="feature-actions daily-actions" aria-busy={busy || cancelBusy}>
+      <button className="secondary-button" type="button" onClick={() => onAll('excused')} disabled={!rows.length || busy || cancelBusy}>اعتبار الجميع بعذر</button>
+      <button className="secondary-button" type="button" onClick={() => onAll('unexcused')} disabled={!rows.length || busy || cancelBusy}>اعتبار الجميع بدون عذر</button>
+      {onCancelApproval && <button className="danger-button cancel-absence-approval" type="button" onClick={onCancelApproval} disabled={!rows.length || busy || cancelBusy}><XCircle size={16} />{cancelBusy ? 'جارٍ إلغاء الاعتماد...' : 'إلغاء اعتماد هذا اليوم'}</button>}
+      <button className="export-btn csv" type="button" onClick={onExcel} disabled={!rows.length}><Download size={16} /> Excel</button>
+      <button className="export-btn pdf" type="button" onClick={onPdf} disabled={!rows.length}><Printer size={16} /> PDF</button>
+    </div>
+    {actionNotice && <p className="report-action-notice" role="status" aria-live="polite">{actionNotice}</p>}
+    <div className="daily-list">{rows.map(row => <article key={row.studentId} className="daily-row"><div><strong>{row.name}</strong><small>{row.grade || '—'} · {row.classroom || '—'} · <span dir="ltr">{row.phone || '—'}</span>{late && row.time ? ` · ${row.time}` : ''}</small></div><select value={row.status} disabled={busy || cancelBusy} onChange={event => onStatus([row.studentId], event.target.value as 'unexcused' | 'excused')}><option value="unexcused">بدون عذر</option><option value="excused">بعذر</option></select></article>)}{!rows.length && <p className="report-empty-state">لا توجد سجلات لهذا التاريخ.</p>}</div>
+  </section>
 }
 
 function HistoryCounts({ type, students, schoolName }: { type: 'absence' | 'late'; students: FeatureStudent[]; schoolName: string }) {
@@ -394,10 +411,13 @@ function HistoryCounts({ type, students, schoolName }: { type: 'absence' | 'late
   useEffect(() => { void load() }, [type])
   const matches = useMemo(() => search.trim() ? students.filter(student => student.name.includes(search.trim())).slice(0, 8) : [], [students, search])
   const buckets = [{ label: 'طلاب غيابهم من 1 إلى 5 أيام', tone: 'yellow', rows: allRows.filter(row => row.days >= 1 && row.days <= 5) }, { label: 'طلاب غيابهم من 6 إلى 10 أيام', tone: 'orange', rows: allRows.filter(row => row.days >= 6 && row.days <= 10) }, { label: 'طلاب غيابهم 11 يومًا فأكثر', tone: 'red', rows: allRows.filter(row => row.days >= 11) }]
-  const open = async (row: CountRow) => setHistory(await api.studentHistory(type, row.studentId) as History)
+  const open = async (row: CountRow) => {
+    const result = await api.studentHistory(type, row.studentId)
+    setHistory({ ...result, days: result.days.map(day => ({ ...day, date: formatHijriDate(day.date) })) } as History)
+  }
   const printHistories = async (rows: CountRow[]) => {
     const histories = await Promise.all(rows.map(row => api.studentHistory(type, row.studentId)))
-    openPrintDocument(reportTitle, histories.map(item => `<section class="page"><h1>${reportTitle}</h1><div class="heading"><p><span class="label">اسم الطالب:</span> ${escapeHtml(item.student.name)}</p><p><span class="label">الصف:</span> ${escapeHtml(item.student.grade)} · <span class="label">الفصل:</span> ${escapeHtml(item.student.classroom)}</p><table><thead><tr><th>التاريخ</th><th>الحالة</th>${type === 'late' ? '<th>الوقت</th>' : ''}</tr></thead><tbody>${item.days.map(day => `<tr><td>${escapeHtml(day.date)}</td><td>${statusText(day.status)}</td>${type === 'late' ? `<td>${escapeHtml(day.time || '—')}</td>` : ''}</tr>`).join('')}</tbody></table><p class="meta">عدد الأيام: ${item.days.length} · الجوال: <span dir="ltr">${escapeHtml(item.student.phone)}</span><br/>${today()}</p></div></section>`).join(''), schoolName)
+    openPrintDocument(reportTitle, histories.map(item => `<section class="page"><h1>${reportTitle}</h1><div class="heading"><p><span class="label">اسم الطالب:</span> ${escapeHtml(item.student.name)}</p><p><span class="label">الصف:</span> ${escapeHtml(item.student.grade)} · <span class="label">الفصل:</span> ${escapeHtml(item.student.classroom)}</p><table><thead><tr><th>التاريخ</th><th>الحالة</th>${type === 'late' ? '<th>الوقت</th>' : ''}</tr></thead><tbody>${item.days.map(day => `<tr><td>${escapeHtml(formatHijriDate(day.date))}</td><td>${statusText(day.status)}</td>${type === 'late' ? `<td>${escapeHtml(day.time || '—')}</td>` : ''}</tr>`).join('')}</tbody></table><p class="meta">عدد الأيام: ${item.days.length} · الجوال: <span dir="ltr">${escapeHtml(item.student.phone)}</span><br/>${formatHijriDate(today())}</p></div></section>`).join(''), schoolName)
   }
   return <section className="panel history-count-panel"><div className="panel-header"><div><span className="panel-kicker">ملخص تراكمي</span><h2>{title}</h2><p>ابحث وحدد الطلاب، أو افتح بطاقة لعرض فئتها.</p></div></div><div className="count-card-grid">{buckets.map(bucket => <button className={`count-card ${bucket.tone}`} type="button" key={bucket.tone} onClick={() => setShownRows(bucket.rows)}><span>{bucket.label.replace('غياب', type === 'late' ? 'تأخر' : 'غياب')}</span><strong>{bucket.rows.length} طالب</strong></button>)}</div><div className="student-picker"><input value={search} onChange={event => setSearch(event.target.value)} placeholder="ابحث باسم الطالب..." />{matches.map(student => <label key={student.id}><input type="checkbox" checked={selected.has(student.id)} onChange={() => setSelected(current => { const next = new Set(current); next.has(student.id) ? next.delete(student.id) : next.add(student.id); return next })} /> {student.name} · {student.grade} · {student.classroom}</label>)}<button type="button" className="primary-button" onClick={() => void load([...selected])} disabled={!selected.size}><CheckCircle2 size={16} /> تأكيد الطلاب المحددين</button><button type="button" className="secondary-button" onClick={() => { setSelected(new Set()); void load() }}>عرض الجميع</button></div><div className="feature-actions"><button type="button" className="export-btn csv" onClick={() => downloadWorkbook(title, [['الطالب','الصف','الفصل','الجوال','عدد الأيام','بعذر','بدون عذر'], ...shownRows.map(row => [row.name,row.grade,row.classroom,row.phone,row.days,row.excusedDays,row.unexcusedDays])], title, schoolName, title)} disabled={!shownRows.length}><Download size={16} /> Excel</button><button type="button" className="export-btn pdf" onClick={() => void printHistories(shownRows)} disabled={!shownRows.length}><Printer size={16} /> PDF لجميع الظاهرين</button></div><div className="daily-list">{shownRows.map(row => <button type="button" className="history-row" key={row.studentId} onClick={() => void open(row)}><span><strong>{row.name}</strong><small>{row.grade} · {row.classroom} · <bdi>{row.phone}</bdi></small></span><strong>{row.days} يومًا</strong></button>)}{!shownRows.length && <p className="report-empty-state">لا توجد بيانات ضمن هذا الاختيار.</p>}</div>{history && <div className="report-modal-overlay"><section className="report-modal"><header className="report-modal-header"><div><span className="panel-kicker">تفاصيل الطالب</span><h2>{history.student.name}</h2><p>{history.student.grade} · {history.student.classroom} · <bdi>{history.student.phone}</bdi></p></div><button type="button" className="modal-close-button" onClick={() => setHistory(null)}>×</button></header><div className="report-modal-actions"><button type="button" className="export-btn csv" onClick={() => downloadWorkbook(`${reportTitle}_${history.student.name}`, [['التاريخ','الحالة', ...(type === 'late' ? ['الوقت'] : [])], ...history.days.map(day => [day.date,statusText(day.status), ...(type === 'late' ? [day.time || '—'] : [])])], reportTitle, schoolName, `${reportTitle} - ${history.student.name}`)}>Excel</button><button type="button" className="export-btn pdf" onClick={() => void printHistories([{ studentId: history.student.studentId, name: history.student.name, grade: history.student.grade, classroom: history.student.classroom, phone: history.student.phone, days: history.days.length, excusedDays: 0, unexcusedDays: 0 }])}>PDF</button></div><div className="absence-detail-list">{history.days.map(day => <article className="absence-day-card" key={day.date}><strong>{day.date}</strong><span>{statusText(day.status)}{type === 'late' && day.time ? ` · ${day.time}` : ''}</span></article>)}</div></section></div>}</section>
 }
@@ -486,15 +506,15 @@ export function ReportsCenter({ students, schoolName }: { students: FeatureStude
     const date = absenceDate
     const count = absences.length
     if (cancelingSelectedAbsenceDate || !count) return
-    if (!window.confirm(`سيؤدي هذا إلى إلغاء اعتماد غياب ${count} طالبًا بتاريخ ${date} وحذف سجلات الغياب لهذا التاريخ فقط. لن تُحتسب هذه الأيام ضمن الغياب، ولن تتأثر الأيام الأخرى أو سجلات الحضور. لا يمكن التراجع عن الحذف. هل تريد المتابعة؟`)) return
+    if (!window.confirm(`سيؤدي هذا إلى إلغاء اعتماد غياب ${count} طالبًا بتاريخ ${formatHijriDate(date)} وحذف سجلات الغياب لهذا التاريخ فقط. لن تُحتسب هذه الأيام ضمن الغياب، ولن تتأثر الأيام الأخرى أو سجلات الحضور. لا يمكن التراجع عن الحذف. هل تريد المتابعة؟`)) return
     setCancelingSelectedAbsenceDate(true)
-    setDailyStatusNotice(`جارٍ إلغاء اعتماد غياب ${date}...`)
+    setDailyStatusNotice(`جارٍ إلغاء اعتماد غياب ${formatHijriDate(date)}...`)
     try {
       const result = await api.cancelAbsences(date)
       const remaining = await api.dailyAbsences(date)
       setAbsences(remaining.rows as DailyRow[])
       if (date === today()) await loadToday()
-      setDailyStatusNotice(`تم إلغاء اعتماد غياب ${date} وحذف ${result.deleted} سجلًا. لم تُحتسب هذه الأيام ضمن عدد الغياب.`)
+      setDailyStatusNotice(`تم إلغاء اعتماد غياب ${formatHijriDate(date)} وحذف ${result.deleted} سجلًا. لم تُحتسب هذه الأيام ضمن عدد الغياب.`)
     } catch (error) {
       const code = error instanceof Error ? error.message : ''
       setDailyStatusNotice(code === 'forbidden' ? 'يلزم استخدام حساب مدير المدرسة لإلغاء اعتماد الغياب.' : 'تعذر إلغاء اعتماد الغياب. تحقق من الاتصال ثم أعد المحاولة.')
@@ -534,13 +554,13 @@ export function ReportsCenter({ students, schoolName }: { students: FeatureStude
     }
   }
   const exportPendingExcel = () => downloadWorkbook(
-    `ملخص_غياب_اليوم_${today()}`,
-    [['التاريخ', 'عدد الطلاب بانتظار الاعتماد'], [today(), todayMissingCount ?? 0]],
+    `ملخص_غياب_اليوم_${formatHijriDate(today())}`,
+    [['التاريخ الهجري', 'عدد الطلاب بانتظار الاعتماد'], [formatHijriDate(today()), todayMissingCount ?? 0]],
     'غياب اليوم', schoolName, 'ملخص غياب اليوم',
   )
   const exportPendingPdf = () => openPrintDocument(
     'ملخص غياب اليوم',
-    `<section class="page"><h1>ملخص غياب اليوم</h1><table><thead><tr><th>التاريخ</th><th>عدد الطلاب بانتظار الاعتماد</th></tr></thead><tbody><tr><td>${today()}</td><td>${todayMissingCount ?? 0}</td></tr></tbody></table></section>`,
+    `<section class="page"><h1>ملخص غياب اليوم</h1><table><thead><tr><th>التاريخ الهجري</th><th>عدد الطلاب بانتظار الاعتماد</th></tr></thead><tbody><tr><td>${escapeHtml(formatHijriDate(today()))}</td><td>${todayMissingCount ?? 0}</td></tr></tbody></table></section>`,
     schoolName,
   )
 
@@ -592,7 +612,7 @@ export function ReportsCenter({ students, schoolName }: { students: FeatureStude
       {activeReport === 'phones' && <section className="panel">
         <div className="panel-header"><div><span className="panel-kicker">بيانات الاتصال</span><h2>تقرير هواتف الطلاب</h2></div><div className="feature-actions">
           <button type="button" className="export-btn csv" onClick={() => downloadWorkbook('تقرير_هواتف_الطلاب', [['اسم الطالب','الصف','الفصل','رقم الجوال'], ...students.map(student => [student.name,student.grade,student.classroom,student.phone])], 'هواتف الطلاب', schoolName, 'تقرير هواتف الطلاب')}><Download size={16} /> Excel</button>
-          <button type="button" className="export-btn pdf" onClick={() => openPrintDocument('تقرير هواتف الطلاب', `<section class="page"><h1>تقرير هواتف الطلاب</h1><table><thead><tr><th>الطالب</th><th>الصف</th><th>الفصل</th><th>الجوال</th></tr></thead><tbody>${students.map(student => `<tr><td>${escapeHtml(student.name)}</td><td>${escapeHtml(student.grade)}</td><td>${escapeHtml(student.classroom)}</td><td dir="ltr">${escapeHtml(student.phone)}</td></tr>`).join('')}</tbody></table><p class="meta">${escapeHtml(schoolName)} · ${today()}</p></section>`, schoolName)}><Printer size={16} /> PDF</button>
+          <button type="button" className="export-btn pdf" onClick={() => openPrintDocument('تقرير هواتف الطلاب', `<section class="page"><h1>تقرير هواتف الطلاب</h1><table><thead><tr><th>الطالب</th><th>الصف</th><th>الفصل</th><th>الجوال</th></tr></thead><tbody>${students.map(student => `<tr><td>${escapeHtml(student.name)}</td><td>${escapeHtml(student.grade)}</td><td>${escapeHtml(student.classroom)}</td><td dir="ltr">${escapeHtml(student.phone)}</td></tr>`).join('')}</tbody></table><p class="meta">${escapeHtml(schoolName)} · ${escapeHtml(formatHijriDate(today()))}</p></section>`, schoolName)}><Printer size={16} /> PDF</button>
         </div></div>
       </section>}
 

@@ -27,6 +27,8 @@ import {
   type LessonTimeSlot,
   type TeacherDayAbsence,
 } from './api'
+import { HijriDatePicker } from './HijriDatePicker'
+import { formatHijriDate } from './dateUtils'
 import { downloadWorkbook, openOfficialFormDocument, openPrintDocument } from './SchoolFeatures'
 
 const jsQR = ((jsQRNs as unknown as { default?: unknown }).default || jsQRNs) as (data: Uint8ClampedArray, width: number, height: number) => { data: string } | null
@@ -284,11 +286,6 @@ function scheduleTableHtml(schedule: LessonSchedule) {
 function incidentPrintHtml(incident: LessonIncident, schoolName: string) {
   const identityNumber = Array.from(String(incident.identityNumber || '').replace(/\s/g, ''))
   const civilIdCells = Array.from({ length: Math.max(10, identityNumber.length) }, (_, index) => `<span>${escapeHtml(identityNumber[index] || '')}</span>`).join('')
-  const date = new Date(`${incident.incidentDate}T12:00:00+03:00`)
-  const dateParts = new Intl.DateTimeFormat('en-u-ca-islamic-umalqura-nu-latn', {
-    day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'Asia/Riyadh',
-  }).formatToParts(date)
-  const hijriPart = (type: string) => dateParts.find(part => part.type === type)?.value || ''
   const logoUrl = `${window.location.origin}/moe-logo.png`
   return `<main class="sheet">
     <header class="top">
@@ -302,7 +299,7 @@ function incidentPrintHtml(incident: LessonIncident, schoolName: string) {
     <table class="fields civil-row"><tbody><tr><th>السجل المدني</th><td><div class="civil-boxes">${civilIdCells}</div></td></tr></tbody></table>
     <table class="fields teacher-table"><thead><tr><th>الاسم</th><th>التخصص</th><th>المستوى / المرتبة</th><th>رقم الوظيفة</th><th>العمل الحالي</th></tr></thead><tbody><tr><td>${escapeHtml(incident.teacherName)}</td><td></td><td></td><td></td><td></td></tr></tbody></table>
     <div class="greeting"><p>المكرم المعلم: ${escapeHtml(incident.teacherName)} وفقه الله</p><p>السلام عليكم ورحمة الله وبركاته</p></div>
-    <div class="case-intro"><span>إنه في يوم ${escapeHtml(weekdayLabel(incident.weekday))}</span><span class="date-line">الموافق ${escapeHtml(hijriPart('day'))} / ${escapeHtml(hijriPart('month'))} / ${escapeHtml(hijriPart('year'))}هـ، اتضح ما يلي:</span></div>
+    <div class="case-intro"><span>إنه في يوم ${escapeHtml(weekdayLabel(incident.weekday))}</span><span class="date-line">الموافق ${escapeHtml(formatHijriDate(incident.incidentDate))}، اتضح ما يلي:</span></div>
     <div class="options">
       <div class="option"><span class="box">&#9744;</span><span>تأخركم من بداية الدوام وحضوركم الساعة ( ................ )</span></div>
       <div class="option"><span class="box">&#9745;</span><span>عدم تواجدكم أثناء الدوام من الساعة ( <b dir="ltr">${escapeHtml(incident.startTime)}</b> ) إلى الساعة ( <b dir="ltr">${escapeHtml(incident.endTime)}</b> )</span></div>
@@ -831,7 +828,7 @@ export function LessonFlowCenter({ schoolName }: { schoolName: string }) {
                 <div className="feature-actions"><button type="button" className="primary-button" onClick={reviewTeacherDayAbsences} disabled={!selectedAbsentTeachers.length || !!busy}><CheckCircle2 size={16} /> مراجعة الأسماء</button></div>
               </>}
               {pendingAbsentTeacherIds && <div className="teacher-absence-confirm"><strong>تأكيد تسجيل الغياب طوال اليوم</strong><p>سيُمنع توجيه مساءلة للمعلمين التاليين عند مسح فصولهم، ويمكن إزالة أي اسم إذا حضر.</p><ul>{pendingAbsentTeachers.map(teacher => <li key={teacher.id}>{teacher.name} · {teacher.identityNumber}</li>)}</ul><div className="feature-actions"><button type="button" className="primary-button" onClick={() => void saveTeacherDayAbsences()} disabled={!!busy}>{busy === 'teacher-day-absences' ? 'جارٍ الحفظ…' : 'تأكيد تسجيل الغياب'}</button><button type="button" className="secondary-button" onClick={() => setPendingAbsentTeacherIds(null)} disabled={!!busy}>إلغاء</button></div></div>}
-              {teacherDayAbsences.length > 0 && <div className="teacher-day-absence-list"><h4>المعلمون المسجلون غائبين اليوم · {teacherDayAbsences[0].date}</h4>{teacherDayAbsences.map(teacher => <div key={teacher.teacherId}><span><strong>{teacher.name}</strong><small>{teacher.identityNumber}</small></span><button type="button" className="outline-button" onClick={() => void removeTeacherDayAbsence(teacher)} disabled={!!busy}>حضر المعلم · إزالة من السجل</button></div>)}</div>}
+              {teacherDayAbsences.length > 0 && <div className="teacher-day-absence-list"><h4>المعلمون المسجلون غائبين اليوم · {formatHijriDate(teacherDayAbsences[0].date)}</h4>{teacherDayAbsences.map(teacher => <div key={teacher.teacherId}><span><strong>{teacher.name}</strong><small>{teacher.identityNumber}</small></span><button type="button" className="outline-button" onClick={() => void removeTeacherDayAbsence(teacher)} disabled={!!busy}>حضر المعلم · إزالة من السجل</button></div>)}</div>}
             </section>}
             {openLessonActionPanel === 'waiting-teacher' && <section className="lesson-manual-form">
               <div className="lesson-section-heading">
@@ -839,7 +836,7 @@ export function LessonFlowCenter({ schoolName }: { schoolName: string }) {
                 <button type="button" className="icon-danger-button" onClick={() => setOpenLessonActionPanel(null)} aria-label="إغلاق"><XCircle size={18} /></button>
               </div>
               <div className="lesson-manual-fields">
-                <label>التاريخ<input type="date" value={incidentDate} onChange={event => setIncidentDate(event.target.value)} /></label>
+                <HijriDatePicker label="التاريخ الهجري" value={incidentDate} max={todayRiyadh()} onChange={setIncidentDate} />
                 <label>الفصل<select value={manualClassroomId} onChange={event => setManualClassroomId(event.target.value)}><option value="">اختر الفصل</option>{overview?.classrooms.map(classroom => <option key={classroom.id} value={classroom.id}>{classroom.name}</option>)}</select></label>
                 <label>الحصة<select value={manualPeriodNumber} onChange={event => setManualPeriodNumber(event.target.value)}><option value="">اختر الحصة</option>{manualPeriods.map(slot => <option key={slot.periodNumber} value={slot.periodNumber}>الحصة {slot.periodNumber} · {slot.startTime} إلى {slot.endTime}</option>)}</select></label>
                 <label>ابحث عن المعلم<input value={teacherSearch} onChange={event => { setTeacherSearch(event.target.value); setManualObservationError('') }} placeholder="الاسم أو رقم الهوية" /></label>
@@ -851,7 +848,7 @@ export function LessonFlowCenter({ schoolName }: { schoolName: string }) {
             </section>}
             {openLessonActionPanel === 'cancel-incident' && <section className="lesson-manual-form lesson-cancellation-form">
               <div className="lesson-section-heading">
-                <div><span className="panel-kicker">حذف مساءلة</span><h3>إلغاء مساءلة معلم</h3><p>اختر السجل المطلوب حذفه من مساءلات تاريخ {incidentDate}.</p></div>
+                <div><span className="panel-kicker">حذف مساءلة</span><h3>إلغاء مساءلة معلم</h3><p>اختر السجل المطلوب حذفه من مساءلات تاريخ {formatHijriDate(incidentDate)}.</p></div>
                 <button type="button" className="icon-danger-button" onClick={() => setOpenLessonActionPanel(null)} aria-label="إغلاق"><XCircle size={18} /></button>
               </div>
               <label className="lesson-cancellation-select">المعلم المرصود<select value={selectedCancellationId} onChange={event => setSelectedCancellationId(event.target.value)}><option value="">اختر المساءلة</option>{cancellableIncidents.map(incident => <option key={incident.id} value={incident.id}>{incident.teacherName} · {incident.classroom} · الحصة {incident.periodNumber} · {incident.startTime} إلى {incident.endTime}</option>)}</select></label>
@@ -887,7 +884,7 @@ export function LessonFlowCenter({ schoolName }: { schoolName: string }) {
           </div>
           <div className="lesson-incidents-side">
             <div className="lesson-toolbar">
-              <input type="date" value={incidentDate} onChange={event => setIncidentDate(event.target.value)} />
+              <HijriDatePicker label="التاريخ الهجري" value={incidentDate} max={todayRiyadh()} onChange={setIncidentDate} />
               <button className="secondary-button" type="button" onClick={() => void loadIncidents()}><Search size={16} /> عرض</button>
               <button className="secondary-button" type="button" onClick={() => setOpenLessonActionPanel(current => current === 'incident-history' ? null : 'incident-history')}>{openLessonActionPanel === 'incident-history' ? 'إخفاء السجل' : `عرض السجل (${incidents.length})`}</button>
             </div>

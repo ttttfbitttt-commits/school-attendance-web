@@ -26,6 +26,21 @@
 .auth-card h1 { color: var(--navy); margin: 0 0 8px; font-size: 24px; }.auth-card p { color: var(--muted); margin: 0 0 22px; font-size: 13px; }
 .auth-success { color:#16653a; background:#eaf9f0; border:1px solid #a9e2bd; border-radius:9px; padding:10px; font-size:12px; line-height:1.7; }
 .auth-back { border:1px solid var(--line); border-radius:10px; background:#fff; color:var(--muted); padding:10px; font:inherit; }
+.hijri-date-picker { position:relative; display:grid; gap:5px; min-width:0; color:var(--ink); }
+.hijri-date-label { color:var(--muted); font-size:12px; font-weight:700; }
+.hijri-date-trigger { display:flex; align-items:center; justify-content:space-between; gap:8px; width:100%; min-width:0; min-height:40px; padding:8px 10px; border:1px solid #cbd5e1; border-radius:9px; background:#fff; color:var(--blue-dark); font:inherit; text-align:right; cursor:pointer; }
+.hijri-date-trigger:focus-visible { outline:2px solid var(--blue); outline-offset:2px; }
+.hijri-date-trigger:disabled { opacity:.55; cursor:not-allowed; }
+.hijri-date-popover { position:absolute; z-index:40; top:calc(100% + 6px); right:0; width:min(320px,calc(100vw - 32px)); padding:11px; border:1px solid #cbd5e1; border-radius:12px; background:#fff; box-shadow:0 12px 30px rgba(16,42,67,.18); }
+.hijri-date-month-nav { display:grid; grid-template-columns:36px 1fr 36px; align-items:center; gap:8px; margin-bottom:9px; text-align:center; color:var(--blue-dark); }
+.hijri-date-month-nav button,.hijri-date-grid button { border:1px solid #dbe5ee; border-radius:8px; background:#fff; color:var(--ink); font:inherit; }
+.hijri-date-month-nav button { display:grid; place-items:center; width:36px; height:34px; }
+.hijri-date-grid { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:4px; text-align:center; }
+.hijri-date-weekday { padding:5px 0; color:var(--muted); font-size:11px; font-weight:700; }
+.hijri-date-grid button,.hijri-date-grid>span:not(.hijri-date-weekday) { display:grid; place-items:center; aspect-ratio:1; min-width:0; padding:0; font-size:12px; }
+.hijri-date-grid button:hover:not(:disabled) { border-color:var(--blue); background:#eff7ff; }
+.hijri-date-grid button.selected { border-color:var(--blue); background:var(--blue); color:#fff; }
+.hijri-date-grid button:disabled { color:#b6c1cc; background:#f5f7f9; cursor:not-allowed; }
 .auth-tabs { display: grid; grid-template-columns: 1fr 1fr; background: #f3f6f9; border-radius: 12px; padding: 4px; margin-bottom: 18px; }.auth-tabs button { border: 0; padding: 10px; border-radius: 9px; background: transparent; color: var(--muted); }.auth-tabs button.active { background: white; color: var(--blue-dark); font-weight: 700; box-shadow: 0 2px 6px rgba(0,0,0,.06); }
 .auth-tabs.auth-tabs-three { grid-template-columns: repeat(3, 1fr); }
 .auth-card form { display: grid; gap: 13px; }.auth-card label { display: grid; grid-template-columns: auto 1fr; align-items: center; gap: 8px; color: var(--ink); font-size: 13px; }.auth-card input,.auth-card select { grid-column: 1 / -1; width: 100%; border: 1px solid var(--line); border-radius: 10px; padding: 11px 12px; background: #fff; font:inherit; }.auth-card input:focus,.auth-card select:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(20,118,201,.12); }.auth-card small { color: var(--muted); }.auth-submit { border: 0; border-radius: 11px; background: var(--blue); color: #fff; padding: 12px; font-weight: 700; margin-top: 4px; }.auth-error { color: #b42318; background: #fff1f0; border-radius: 9px; padding: 9px; font-size: 12px; }

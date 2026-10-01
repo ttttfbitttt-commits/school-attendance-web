@@ -1,6 +1,6 @@
 import crypto from 'node:crypto'
 
-const NOTE_OPTIONS = new Set(['هرب', 'نائم', 'لم يحل الواجب', 'لم يشارك', 'مشارك فعال'])
+const NOTE_OPTIONS = new Set(['هروب من الحصة', 'نائم أثناء الدرس', 'لم يحل الواجب', 'لم يشارك', 'مشارك فعال', 'لم يحضر الكتاب أو المذكرة', 'استخدام الجوال أثناء الحصة'])
 const ATTENDANCE_OPTIONS = new Set(['present', 'absent'])
 
 function clean(value, max = 240) {
@@ -192,7 +192,7 @@ export async function migrateTeacherPortal(adminPool) {
       grade_value text NOT NULL DEFAULT '',
       classroom_value text NOT NULL DEFAULT '',
       attendance_status text NOT NULL CHECK (attendance_status IN ('present','absent')),
-      note text NOT NULL DEFAULT '' CHECK (note IN ('','هرب','نائم','لم يحل الواجب','لم يشارك','مشارك فعال')),
+      note text NOT NULL DEFAULT '',
       updated_at timestamptz NOT NULL DEFAULT now(),
       UNIQUE (lesson_session_id,student_id),
       FOREIGN KEY (school_id,student_id) REFERENCES students(school_id,id) ON DELETE RESTRICT
@@ -200,6 +200,16 @@ export async function migrateTeacherPortal(adminPool) {
     CREATE INDEX IF NOT EXISTS teacher_lesson_student_records_school_note ON teacher_lesson_student_records(school_id,note) WHERE note <> '';
     CREATE INDEX IF NOT EXISTS teacher_lesson_student_records_school_student ON teacher_lesson_student_records(school_id,student_id,lesson_session_id);
   `)
+  await pool.query('ALTER TABLE teacher_lesson_student_records DROP CONSTRAINT IF EXISTS teacher_lesson_student_records_note_check')
+  await pool.query(`UPDATE teacher_lesson_student_records SET note=CASE note
+    WHEN 'هرب' THEN 'هروب من الحصة' WHEN 'نائم' THEN 'نائم أثناء الدرس' ELSE note END
+    WHERE note IN ('هرب','نائم')`)
+  await pool.query(`DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='teacher_lesson_student_records'::regclass AND conname='teacher_lesson_student_records_note_check_v2') THEN
+      ALTER TABLE teacher_lesson_student_records ADD CONSTRAINT teacher_lesson_student_records_note_check_v2
+        CHECK (note IN ('','هروب من الحصة','نائم أثناء الدرس','لم يحل الواجب','لم يشارك','مشارك فعال','لم يحضر الكتاب أو المذكرة','استخدام الجوال أثناء الحصة'));
+    END IF;
+  END $$`)
 }
 
 export async function handleTeacherPortalRequest(context) {
