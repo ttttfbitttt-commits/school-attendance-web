@@ -50,14 +50,15 @@ function TeacherSheetsSetup({ sheets, onSaved }: { sheets: TeacherSheetConfig[];
 function TeacherSheetStart({ sheets, schedule, onOpen }: { sheets: TeacherSheetConfig[]; schedule: TeacherPortalScheduleItem[]; onOpen: (item: TeacherPortalScheduleItem) => void }) {
   const [subject, setSubject] = useState(sheets[0]?.subject || '')
   const [classroomId, setClassroomId] = useState('')
-  const classrooms = schedule.filter(item => item.subject === subject)
+  const classrooms = [...new Map(schedule.filter(item => item.subject === subject).map(item => [item.classroom, item])).values()]
   const config = sheets.find(sheet => sheet.subject === subject)
   useEffect(() => { setClassroomId(classrooms[0]?.classroomId || '') }, [subject, schedule.length])
   const selected = classrooms.find(item => item.classroomId === classroomId)
   return <div className="teacher-sheet-start">
-    <div className="teacher-sheet-selectors"><label>المادة<select value={subject} onChange={event => setSubject(event.target.value)}><option value="">اختر المادة</option>{sheets.map(sheet => <option key={sheet.subject} value={sheet.subject}>{sheet.subject}</option>)}</select></label><label>الفصل<select value={classroomId} onChange={event => setClassroomId(event.target.value)} disabled={!classrooms.length}><option value="">اختر الفصل</option>{classrooms.map(item => <option key={item.classroomId} value={item.classroomId}>{item.classroom}</option>)}</select></label><label>نوع الكشف<select value={config?.subject || ''} disabled><option value={config?.subject || ''}>{config?.version ? 'الكشف المعتمد للمادة' : 'لم يتم إعداد كشف بعد'}</option></select></label></div>
+    <div className="teacher-sheet-selectors"><label>المادة<select value={subject} onChange={event => setSubject(event.target.value)}><option value="">اختر المادة</option>{sheets.map(sheet => <option key={sheet.subject} value={sheet.subject}>{sheet.subject}</option>)}</select></label><label>الفصل<select value={classroomId} onChange={event => setClassroomId(event.target.value)} disabled={!classrooms.length}><option value="">اختر الفصل</option>{classrooms.map(item => <option key={item.classroomId} value={item.classroomId}>{item.classroom}</option>)}</select></label><label>نوع الكشف<select value={config?.subject || ''} disabled={!config?.version}><option value={config?.subject || ''}>{config?.version ? `الكشف المعتمد للمادة · الإصدار ${config.version}` : 'لم يتم إعداد كشف بعد'}</option></select></label></div>
     {!classrooms.length && subject && <p className="teacher-empty">لا توجد فصول مرتبطة بهذه المادة في جدولك.</p>}
-    {selected && <button type="button" className="primary-button" onClick={() => onOpen(selected)}><BookOpenCheck size={17} /> فتح كشف {selected.subject} · {selected.classroom}</button>}
+    {subject && !config?.version && <p className="teacher-empty">أعد إعداد كشف هذه المادة أولاً من خيار «إعداد الكشوف».</p>}
+    {selected && config?.version ? <button type="button" className="primary-button" onClick={() => onOpen(selected)}><BookOpenCheck size={17} /> فتح كشف {selected.subject} · {selected.classroom}</button> : null}
   </div>
 }
 
