@@ -109,8 +109,8 @@ export type LessonScanPreview = {
   startTime: string
   endTime: string
 }
-export type TeacherPortalScheduleItem = { assignmentId: string; classroomId: string; classroom: string; periodNumber: number; subject: string; startTime: string | null; endTime: string | null }
-export type TeacherPortalDashboard = { schoolName: string; teacher: { name: string; identityNumber: string }; date: string; weekday: number; schedule: TeacherPortalScheduleItem[] }
+export type TeacherPortalScheduleItem = { assignmentId: string; classroomId: string; classroom: string; weekday: number; periodNumber: number; subject: string; startTime: string | null; endTime: string | null }
+export type TeacherPortalDashboard = { schoolName: string; teacher: { name: string; identityNumber: string }; date: string; weekday: number; schedule: TeacherPortalScheduleItem[]; weekSchedule: TeacherPortalScheduleItem[] }
 export type TeacherNote = 'هروب من الحصة' | 'نائم أثناء الدرس' | 'لم يحل الواجب' | 'لم يشارك' | 'مشارك فعال' | 'لم يحضر الكتاب أو المذكرة' | 'استخدام الجوال أثناء الحصة'
 export type TeacherSheetColumn = { id: string; label: string; type: 'score' | 'text' | 'choice' | 'boolean'; maxScore: number | null; choices: string[] }
 export type TeacherSheetConfig = { id?: string; subject: string; version: number; columns: TeacherSheetColumn[]; createdAt?: string }

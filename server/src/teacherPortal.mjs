@@ -335,12 +335,13 @@ export async function handleTeacherPortalRequest(context) {
       const active = await activeImport(client, user.school_id)
       if (!teacher.rowCount || !school.rowCount) return { missing: true }
       const schedule = active ? (await client.query(`SELECT a.id AS "assignmentId",a.classroom_id AS "classroomId",c.name AS classroom,
-          a.period_number AS "periodNumber",a.subject_name AS subject,to_char(t.starts_at,'HH24:MI') AS "startTime",to_char(t.ends_at,'HH24:MI') AS "endTime"
+          a.weekday,a.period_number AS "periodNumber",a.subject_name AS subject,to_char(t.starts_at,'HH24:MI') AS "startTime",to_char(t.ends_at,'HH24:MI') AS "endTime"
         FROM lesson_schedule_assignments a JOIN lesson_classrooms c ON c.id=a.classroom_id AND c.school_id=a.school_id
           LEFT JOIN lesson_time_slots t ON t.school_id=a.school_id AND t.weekday=a.weekday AND t.period_number=a.period_number
-        WHERE a.school_id=$1 AND a.import_id=$2 AND a.teacher_id=$3 AND a.weekday=$4
-        ORDER BY a.period_number,c.name`, [user.school_id, active.id, user.teacher_id, weekday])).rows : []
-      return { schoolName: school.rows[0].name, teacher: teacher.rows[0], date, weekday, schedule: schedule.map(row => ({ ...row, periodNumber: Number(row.periodNumber) })) }
+        WHERE a.school_id=$1 AND a.import_id=$2 AND a.teacher_id=$3
+        ORDER BY a.weekday,a.period_number,c.name`, [user.school_id, active.id, user.teacher_id])).rows : []
+      const weekSchedule = schedule.map(row => ({ ...row, weekday: Number(row.weekday), periodNumber: Number(row.periodNumber) }))
+      return { schoolName: school.rows[0].name, teacher: teacher.rows[0], date, weekday, schedule: weekSchedule.filter(row => row.weekday === weekday), weekSchedule }
     })
     if (result.missing) { json(res, 404, { error: 'teacher_account_not_ready' }); return true }
     json(res, 200, result)
