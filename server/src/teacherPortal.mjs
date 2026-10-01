@@ -362,7 +362,7 @@ export async function handleTeacherPortalRequest(context) {
     if (!teacherOnly()) { json(res, 403, { error: 'forbidden' }); return true }
     const subject = clean(url.searchParams.get('subjectName'), 200)
     const classroomId = String(url.searchParams.get('classroomId') || '')
-    const sheetType = validSheetType(url.searchParams.get('sheetType'))
+    const sheetType = validOpenSheetType(url.searchParams.get('sheetType'))
     const from = validDate(url.searchParams.get('from'))
     const to = validDate(url.searchParams.get('to'))
     if (!subject || !validId(classroomId) || !sheetType || (from && to && from > to)) { json(res, 400, { error: 'invalid_sheet_report' }); return true }
@@ -372,17 +372,25 @@ export async function handleTeacherPortalRequest(context) {
       const assignments = (await client.query(`SELECT a.id FROM lesson_schedule_assignments a
         WHERE a.school_id=$1 AND a.import_id=$2 AND a.teacher_id=$3 AND a.subject_name=$4 AND a.classroom_id=$5`, [user.school_id, active.id, user.teacher_id, subject, classroomId])).rows
       if (!assignments.length) return { error: 'lesson_not_assigned' }
-      const config = (await client.query(`SELECT id,subject_name AS subject,sheet_type AS "sheetType",version,columns
-        FROM teacher_sheet_configs WHERE school_id=$1 AND teacher_id=$2 AND subject_name=$3 AND sheet_type=$4 AND active=true ORDER BY version DESC LIMIT 1`, [user.school_id, user.teacher_id, subject, sheetType])).rows[0]
-      if (!config) return { error: 'sheet_not_configured' }
+      const requestedTypes = sheetType === 'combined' ? [...SHEET_TYPES] : [sheetType]
+      const configs = (await client.query(`SELECT DISTINCT ON (sheet_type) id,sheet_type AS "sheetType",version,columns
+        FROM teacher_sheet_configs WHERE school_id=$1 AND teacher_id=$2 AND subject_name=$3 AND sheet_type=ANY($4::text[]) AND active=true
+        ORDER BY sheet_type,version DESC`, [user.school_id, user.teacher_id, subject, requestedTypes])).rows
+        .sort((left, right) => requestedTypes.indexOf(left.sheetType) - requestedTypes.indexOf(right.sheetType))
+      if (!configs.length) return { error: 'sheet_not_configured' }
       const roster = await rosterForClassroom(client, user.school_id, classroomId)
-      const entries = (await client.query(`SELECT e.student_id AS "studentId",e.values,e.updated_at AS "updatedAt"
-        FROM teacher_sheet_entries e WHERE e.school_id=$1 AND e.config_id=$2 AND e.assignment_id=ANY($3::uuid[])
+      const entries = (await client.query(`SELECT e.config_id AS "configId",e.student_id AS "studentId",e.values
+        FROM teacher_sheet_entries e WHERE e.school_id=$1 AND e.config_id=ANY($2::uuid[]) AND e.assignment_id=ANY($3::uuid[])
         AND ($4::date IS NULL OR e.entry_date >= $4::date) AND ($5::date IS NULL OR e.entry_date <= $5::date)
-        ORDER BY e.updated_at DESC`, [user.school_id, config.id, assignments.map(row => row.id), from, to])).rows
+        ORDER BY e.updated_at DESC`, [user.school_id, configs.map(config => config.id), assignments.map(row => row.id), from, to])).rows
+      const typeById = new Map(configs.map(config => [config.id, config.sheetType]))
       const values = new Map()
-      for (const entry of entries) if (!values.has(entry.studentId)) values.set(entry.studentId, entry.values || {})
-      return { subject, sheetType, version: Number(config.version), columns: config.columns, classroomId, classroom: roster.mapping?.classroom || '', grade: roster.mapping?.grade || '', students: roster.students.map(student => ({ ...student, values: values.get(student.id) || {} })) }
+      for (const entry of entries) {
+        const current = values.get(entry.studentId) || {}
+        for (const [key, value] of Object.entries(entry.values || {})) { const namespaced = `${typeById.get(entry.configId)}:${key}`; if (!(namespaced in current)) current[namespaced] = value }
+        values.set(entry.studentId, current)
+      }
+      return { subject, sheetType, sections: configs.map(config => ({ sheetType: config.sheetType, version: Number(config.version), columns: config.columns })), classroomId, classroom: roster.mapping?.classroom || '', grade: roster.mapping?.grade || '', students: roster.students.map(student => ({ ...student, values: values.get(student.id) || {} })) }
     })
     if (result.error) { json(res, result.error === 'sheet_not_configured' ? 404 : 409, result); return true }
     json(res, 200, result)
