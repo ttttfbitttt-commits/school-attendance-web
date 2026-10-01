@@ -20,7 +20,6 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
   const [states, setStates] = useState<Record<string, StudentState>>({})
   const [password, setPassword] = useState('')
   const [passwordConfirm, setPasswordConfirm] = useState('')
-  const [passwordChanged, setPasswordChanged] = useState(!account.mustChangePassword)
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
   const [busy, setBusy] = useState('')
@@ -75,7 +74,6 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
       await api.changeTeacherPassword(password)
       setPassword('')
       setPasswordConfirm('')
-      setPasswordChanged(true)
       setNotice('تم حفظ كلمة المرور الجديدة.')
     } catch { setError('تعذر تغيير كلمة المرور.') } finally { setBusy('') }
   }
@@ -106,7 +104,7 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
     </section>
 
     {activeTab === 'password' && <section className="teacher-security-card">
-      <div><KeyRound size={22} /><div><h2>غيّر كلمة المرور المؤقتة</h2><p>لا يمكن استخدام بوابة المعلم قبل اختيار كلمة مرورك الخاصة.</p></div></div>
+      <div><KeyRound size={22} /><div><h2>تغيير كلمة المرور</h2></div></div>
       <div className="teacher-password-form"><input type="password" placeholder="كلمة المرور الجديدة" value={password} onChange={event => setPassword(event.target.value)} /><input type="password" placeholder="تأكيد كلمة المرور" value={passwordConfirm} onChange={event => setPasswordConfirm(event.target.value)} /><button onClick={() => void savePassword()} disabled={busy === 'password'}>حفظ كلمة المرور</button></div>
     </section>}
 
@@ -114,10 +112,6 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
     {error && <div className="teacher-notice error">{error}</div>}
 
     {activeTab === 'home' && <>
-    {!passwordChanged && <section className="teacher-security-card">
-      <div><KeyRound size={22} /><div><h2>غيّر كلمة المرور المؤقتة</h2><p>لا يمكن استخدام بوابة المعلم قبل اختيار كلمة مرورك الخاصة.</p></div></div>
-      <div className="teacher-password-form"><input type="password" placeholder="كلمة المرور الجديدة" value={password} onChange={event => setPassword(event.target.value)} /><input type="password" placeholder="تأكيد كلمة المرور" value={passwordConfirm} onChange={event => setPasswordConfirm(event.target.value)} /><button onClick={() => void savePassword()} disabled={busy === 'password'}>حفظ كلمة المرور</button></div>
-    </section>}
     <section className="teacher-card">
       <div className="teacher-section-head"><div><span>جدول اليوم</span><h2>{dayNames[dashboard?.weekday || 0]} · {formatHijriDate(date)}</h2></div><BookOpenCheck size={26} /></div>
       {busy === 'dashboard' ? <p className="teacher-empty">جارٍ تحميل الجدول…</p> : !dashboard?.schedule.length ? <p className="teacher-empty">لا توجد حصص مسندة لك في هذا اليوم.</p> : <div className="teacher-schedule-grid">
