@@ -11,7 +11,7 @@ const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Riyadh' }
 const periodLabel = (period: number) => `الحصة ${['', 'الأولى', 'الثانية', 'الثالثة', 'الرابعة', 'الخامسة', 'السادسة', 'السابعة', 'الثامنة', 'التاسعة', 'العاشرة'][period] || period}`
 const weekdayForDate = (value: string) => { const day = new Date(`${value}T12:00:00Z`).getUTCDay(); return day === 0 ? 1 : day + 1 }
 const dateForWeekday = (value: string, weekday: number) => { const date = new Date(`${value}T12:00:00Z`); date.setUTCDate(date.getUTCDate() + weekday - weekdayForDate(value)); return date.toISOString().slice(0, 10) }
-const displaySheetValue = (value: string | number | boolean | undefined) => value === true ? '✓' : value === false ? '✗' : value ?? ''
+const displaySheetValue = (value: string | number | boolean | undefined, type?: TeacherSheetColumn['type']) => type === 'boolean' && value === undefined ? '✓' : value === true ? '✓' : value === false ? '✗' : value ?? ''
 
 type StudentState = { status: 'present' | 'absent'; note: TeacherNote | ''; sheetValues: Record<string, string | number | boolean> }
 type TeacherTab = 'home' | 'sheets' | 'reports' | 'password'
