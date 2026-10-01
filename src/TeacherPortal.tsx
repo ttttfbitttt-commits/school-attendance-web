@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { BarChart3, BookOpenCheck, Check, Copy, FileSpreadsheet, KeyRound, LayoutDashboard, LogOut, Menu, Plus, Printer, Save, Trash2, UserRound, X } from 'lucide-react'
-import { api, type Account, type TeacherLesson, type TeacherNote, type TeacherPortalDashboard, type TeacherPortalScheduleItem, type TeacherSheetColumn, type TeacherSheetConfig } from './api'
+import { api, type Account, type TeacherLesson, type TeacherLessonReport, type TeacherNote, type TeacherPortalDashboard, type TeacherPortalScheduleItem, type TeacherSheetColumn, type TeacherSheetConfig } from './api'
 import { HijriDatePicker } from './HijriDatePicker'
 import { formatHijriDate } from './dateUtils'
 import * as XLSX from 'xlsx'
@@ -57,6 +57,20 @@ function TeacherSheetStart({ sheets, schedule, onOpen }: { sheets: TeacherSheetC
     {!classrooms.length && subject && <p className="teacher-empty">لا توجد حصة لهذه المادة في جدول اليوم.</p>}
     {selected && <button type="button" className="primary-button" onClick={() => onOpen(selected)}><BookOpenCheck size={17} /> فتح كشف {selected.subject} · {selected.classroom}</button>}
   </div>
+}
+
+function TeacherReportsTab() {
+  const [date, setDate] = useState(today())
+  const [reports, setReports] = useState<TeacherLessonReport[]>([])
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const load = async (value = date) => { setBusy(true); setError(''); try { setReports((await api.teacherReports({ date: value })).reports) } catch { setError('تعذر تحميل تقارير المتابعة.') } finally { setBusy(false) } }
+  useEffect(() => { void load() }, [date])
+  const exportReports = () => {
+    const rows = [['المادة', 'الفصل', 'التاريخ', 'الحصة', 'الطالب', 'الحالة', 'الملاحظة'], ...reports.flatMap(report => report.records.map(record => [report.subject, report.classroom, report.date, report.periodNumber, record.name, record.status === 'present' ? 'حاضر' : 'غائب', record.note || '']))]
+    const workbook = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(rows), 'التقارير'); XLSX.writeFile(workbook, `تقارير-المتابعة-${date}.xlsx`)
+  }
+  return <section className="teacher-card"><div className="teacher-section-head"><div><span>تقارير المتابعة</span><h2>التقارير</h2><p>اعرض حصص المتابعة حسب التاريخ وصدّرها عند الحاجة.</p></div><BarChart3 size={30} /></div><div className="teacher-report-filters"><HijriDatePicker label="تاريخ التقرير الهجري" value={date} max={today()} onChange={setDate} /><div className="teacher-report-actions"><button type="button" className="outline-button" onClick={exportReports} disabled={!reports.length}><FileSpreadsheet size={16} /> Excel</button><button type="button" className="primary-button" onClick={() => void load()} disabled={busy}>{busy ? 'جارٍ التحميل…' : 'تحديث التقارير'}</button></div></div>{error && <p className="teacher-notice error">{error}</p>}{busy ? <p className="teacher-empty">جارٍ تحميل التقارير…</p> : !reports.length ? <p className="teacher-empty">لا توجد تقارير متابعة لهذا التاريخ.</p> : <div className="teacher-report-list">{reports.map(report => <article key={report.id}><div><strong>{report.subject || 'مادة غير محددة'} · {report.classroom}</strong><span>{formatHijriDate(report.date)} · {periodLabel(report.periodNumber)} · {report.studentsCount} طالب · {report.presentCount} حاضر · {report.absentCount} غائب</span></div></article>)}</div>}</section>
 }
 
 export function TeacherPortal({ account, onLogout }: { account: Account; onLogout: () => void }) {
@@ -219,7 +233,7 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
     </section>}
     </>}
     {activeTab === 'sheets' && <section className="teacher-card"><div className="teacher-section-head"><div><span>إدارة الكشوف</span><h2>الكشوف</h2><p>جهز كشف كل مادة مرة واحدة، أو ابدأ المتابعة مباشرة.</p></div><FileSpreadsheet size={30} /></div>{sheetMode === 'menu' && <div className="teacher-sheet-menu"><button type="button" onClick={() => setSheetMode('setup')}><FileSpreadsheet size={30} /><strong>إعداد الكشوف</strong><small>أنشئ الأعمدة والدرجات لكل مادة</small></button><button type="button" onClick={() => setSheetMode('start')}><BookOpenCheck size={30} /><strong>بدء المتابعة</strong><small>اختر المادة والفصل والكشف ثم افتح الطلاب</small></button></div>}{sheetMode === 'setup' && <><button type="button" className="outline-button teacher-sheet-back" onClick={() => setSheetMode('menu')}>العودة إلى الكشوف</button><TeacherSheetsSetup sheets={sheets} onSaved={config => setSheets(current => current.map(sheet => sheet.subject === config.subject ? config : sheet))} /></>}{sheetMode === 'start' && <><button type="button" className="outline-button teacher-sheet-back" onClick={() => setSheetMode('menu')}>العودة إلى الكشوف</button><TeacherSheetStart sheets={sheets} schedule={dashboard?.schedule || []} onOpen={item => void openLesson(item)} /></>}</section>}
-    {activeTab === 'reports' && <section className="teacher-card teacher-tab-placeholder"><BarChart3 size={30} /><h2>التقارير</h2><p>ستظهر هنا تقارير الطلاب والمواد والفصول مع خيارات الطباعة والتصدير.</p></section>}
+    {activeTab === 'reports' && <TeacherReportsTab />}
     </div>
   </main>
 }
