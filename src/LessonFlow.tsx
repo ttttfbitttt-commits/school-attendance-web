@@ -32,7 +32,7 @@ import { downloadWorkbook, openOfficialFormDocument, openPrintDocument } from '.
 const jsQR = ((jsQRNs as unknown as { default?: unknown }).default || jsQRNs) as (data: Uint8ClampedArray, width: number, height: number) => { data: string } | null
 
 type SectionKey = 'setup' | 'times' | 'codes' | 'schedules' | 'incidents'
-type LessonActionPanel = 'teacher-absence' | 'waiting-teacher' | 'cancel-incident' | null
+type LessonActionPanel = 'teacher-absence' | 'waiting-teacher' | 'cancel-incident' | 'incident-history' | null
 type TeacherImportRow = { name: string; identityNumber: string; phone?: string }
 type ParsedSchedule = {
   sourceSchoolName: string
@@ -338,7 +338,6 @@ export function LessonFlowCenter({ schoolName }: { schoolName: string }) {
   const [schedule, setSchedule] = useState<LessonSchedule | null>(null)
   const [incidentDate, setIncidentDate] = useState(todayRiyadh())
   const [incidents, setIncidents] = useState<LessonIncident[]>([])
-  const [showIncidents, setShowIncidents] = useState(false)
   const [scanIncident, setScanIncident] = useState<LessonIncident | null>(null)
   const [scanPreview, setScanPreview] = useState<LessonScanPreview | null>(null)
   const [openLessonActionPanel, setOpenLessonActionPanel] = useState<LessonActionPanel>(null)
@@ -558,7 +557,7 @@ export function LessonFlowCenter({ schoolName }: { schoolName: string }) {
       if (result.existing && result.incident) {
         setScanPreview(null)
         setScanIncident(result.incident)
-        setShowIncidents(true)
+        setOpenLessonActionPanel('incident-history')
         return 'هذه المساءلة موجودة مسبقًا لهذه الحصة.'
       }
       if (!result.preview) throw new Error('scan_preview_missing')
@@ -574,7 +573,7 @@ export function LessonFlowCenter({ schoolName }: { schoolName: string }) {
       const result = await api.confirmLessonScan(scanPreview.confirmationToken)
       setScanPreview(null)
       setScanIncident(result.incident)
-      setShowIncidents(true)
+      setOpenLessonActionPanel('incident-history')
       return result.existing ? 'هذه المساءلة موجودة مسبقًا لهذه الحصة.' : 'تمت إضافة مساءلة المعلم إلى السجل.'
     })
   }
@@ -640,8 +639,7 @@ export function LessonFlowCenter({ schoolName }: { schoolName: string }) {
         incidentDate,
       })
       setScanIncident(result.incident)
-      setShowIncidents(true)
-      setOpenLessonActionPanel(null)
+      setOpenLessonActionPanel('incident-history')
       return result.existing ? 'توجد مساءلة قائمة بالفعل لهذا الفصل والحصة والتاريخ.' : 'تم إنشاء مساءلة للمعلم المختار.'
     })
   }
@@ -891,9 +889,9 @@ export function LessonFlowCenter({ schoolName }: { schoolName: string }) {
             <div className="lesson-toolbar">
               <input type="date" value={incidentDate} onChange={event => setIncidentDate(event.target.value)} />
               <button className="secondary-button" type="button" onClick={() => void loadIncidents()}><Search size={16} /> عرض</button>
-              <button className="secondary-button" type="button" onClick={() => setShowIncidents(value => !value)}>{showIncidents ? 'إخفاء السجل' : `عرض السجل (${incidents.length})`}</button>
+              <button className="secondary-button" type="button" onClick={() => setOpenLessonActionPanel(current => current === 'incident-history' ? null : 'incident-history')}>{openLessonActionPanel === 'incident-history' ? 'إخفاء السجل' : `عرض السجل (${incidents.length})`}</button>
             </div>
-            {showIncidents && <div className="lesson-incidents-list">
+            {openLessonActionPanel === 'incident-history' && <div className="lesson-incidents-list">
               {incidents.map(incident => <article className="lesson-incident-card" key={incident.id}>
                 <div><strong>{incident.teacherName}</strong><small>{incident.classroom} · {weekdayLabel(incident.weekday)} · الحصة {incident.periodNumber} · {incidentStatus(incident.status)}</small></div>
                 <div className="feature-actions">
