@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { BarChart3, BookOpenCheck, Check, Copy, FileSpreadsheet, KeyRound, LayoutDashboard, LogOut, Menu, Plus, Printer, Save, Trash2, UserRound, X } from 'lucide-react'
-import { api, type Account, type TeacherLesson, type TeacherLessonReport, type TeacherNote, type TeacherPortalDashboard, type TeacherPortalScheduleItem, type TeacherSheetColumn, type TeacherSheetConfig, type TeacherSheetSubject, type TeacherSheetType } from './api'
+import { api, type Account, type TeacherLesson, type TeacherLessonReport, type TeacherNote, type TeacherPortalDashboard, type TeacherPortalScheduleItem, type TeacherSheetColumn, type TeacherSheetConfig, type TeacherSheetOpenType, type TeacherSheetSubject, type TeacherSheetType } from './api'
 import { HijriDatePicker } from './HijriDatePicker'
 import { formatHijriDate } from './dateUtils'
 import * as XLSX from 'xlsx'
@@ -15,6 +15,8 @@ const displaySheetValue = (value: string | number | boolean | undefined) => valu
 
 type StudentState = { status: 'present' | 'absent'; note: TeacherNote | ''; sheetValues: Record<string, string | number | boolean> }
 type TeacherTab = 'home' | 'sheets' | 'reports' | 'password'
+type RenderSheetColumn = TeacherSheetColumn & { key: string; sheetType: TeacherSheetType }
+const getSheetColumns = (lesson: TeacherLesson): RenderSheetColumn[] => lesson.sheetConfigs.flatMap(config => config.columns.map(column => ({ ...column, key: `${config.sheetType}:${column.id}`, sheetType: config.sheetType })))
 
 const blankColumns = (count: number, prefix = 'خانة'): TeacherSheetColumn[] => Array.from({ length: count }, (_, index) => ({ id: `${prefix}-${index + 1}-${Date.now()}`, label: `${prefix} ${index + 1}`, type: 'text', maxScore: null, choices: [] }))
 const sheetTemplates: Array<{ label: string; columns: TeacherSheetColumn[] }> = [
@@ -53,24 +55,25 @@ function TeacherSheetsSetup({ sheets, onSaved }: { sheets: TeacherSheetSubject[]
   </div>
 }
 
-function TeacherSheetStart({ sheets, schedule, onOpen }: { sheets: TeacherSheetSubject[]; schedule: TeacherPortalScheduleItem[]; onOpen: (item: TeacherPortalScheduleItem, type: TeacherSheetType) => void }) {
+function TeacherSheetStart({ sheets, schedule, onOpen }: { sheets: TeacherSheetSubject[]; schedule: TeacherPortalScheduleItem[]; onOpen: (item: TeacherPortalScheduleItem, type: TeacherSheetOpenType) => void }) {
   const [subject, setSubject] = useState(sheets[0]?.subject || '')
-  const [sheetType, setSheetType] = useState<TeacherSheetType>('followup')
+  const [sheetType, setSheetType] = useState<TeacherSheetOpenType>('followup')
   const [classroomId, setClassroomId] = useState('')
   const classrooms = [...new Map(schedule.filter(item => item.subject === subject).map(item => [item.classroom, item])).values()]
-  const config = sheets.find(sheet => sheet.subject === subject)?.configs.find(item => item.sheetType === sheetType)
+  const subjectConfigs = sheets.find(sheet => sheet.subject === subject)?.configs || []
+  const config = sheetType === 'combined' ? subjectConfigs.find(item => item.sheetType === 'followup') || subjectConfigs[0] : subjectConfigs.find(item => item.sheetType === sheetType)
   useEffect(() => { setClassroomId(classrooms[0]?.classroomId || '') }, [subject, schedule.length])
   const selected = classrooms.find(item => item.classroomId === classroomId)
   return <div className="teacher-sheet-start">
-    <div className="teacher-sheet-selectors"><label>المادة<select value={subject} onChange={event => setSubject(event.target.value)}><option value="">اختر المادة</option>{sheets.map(sheet => <option key={sheet.subject} value={sheet.subject}>{sheet.subject}</option>)}</select></label><label>الفصل<select value={classroomId} onChange={event => setClassroomId(event.target.value)} disabled={!classrooms.length}><option value="">اختر الفصل</option>{classrooms.map(item => <option key={item.classroomId} value={item.classroomId}>{item.classroom}</option>)}</select></label><label>نوع الكشف<select value={sheetType} onChange={event => setSheetType(event.target.value as TeacherSheetType)}><option value="followup">المتابعة</option><option value="homework">الواجبات</option><option value="tests">الاختبارات</option></select></label></div>
+    <div className="teacher-sheet-selectors"><label>المادة<select value={subject} onChange={event => setSubject(event.target.value)}><option value="">اختر المادة</option>{sheets.map(sheet => <option key={sheet.subject} value={sheet.subject}>{sheet.subject}</option>)}</select></label><label>الفصل<select value={classroomId} onChange={event => setClassroomId(event.target.value)} disabled={!classrooms.length}><option value="">اختر الفصل</option>{classrooms.map(item => <option key={item.classroomId} value={item.classroomId}>{item.classroom}</option>)}</select></label><label>نوع العرض<select value={sheetType} onChange={event => setSheetType(event.target.value as TeacherSheetOpenType)}><option value="combined">الكشف المدمج</option><option value="followup">المتابعة فقط</option><option value="homework">الواجبات فقط</option><option value="tests">الاختبارات فقط</option></select></label></div>
     {!classrooms.length && subject && <p className="teacher-empty">لا توجد فصول مرتبطة بهذه المادة في جدولك.</p>}
-    {subject && !config?.version && <p className="teacher-empty">أعد إعداد كشف {sheetTypeLabels[sheetType]} لهذه المادة أولاً.</p>}
+    {subject && !config?.version && <p className="teacher-empty">أعد إعداد قسم هذا العرض أولاً، أو اختر عرضاً يحتوي على قسم جاهز.</p>}
     {selected && config?.version ? <button type="button" className="primary-button" onClick={() => onOpen(selected, sheetType)}><BookOpenCheck size={17} /> فتح كشف {sheetTypeLabels[sheetType]} · {selected.classroom}</button> : null}
   </div>
 }
 
 function TeacherSheetRoster({ lesson, selected, states, updateSheetValue, exportSheet, printSheet, saveLesson, busy }: { lesson: TeacherLesson; selected: TeacherPortalScheduleItem; states: Record<string, StudentState>; updateSheetValue: (studentId: string, columnId: string, value: string | number | boolean) => void; exportSheet: () => void; printSheet: () => void; saveLesson: () => void; busy: string }) {
-  return <section className="teacher-card teacher-roster-card teacher-sheet-roster"><div className="teacher-section-head"><div><span>{lesson.assignment.subject} · {lesson.mapping.grade} · الفصل {lesson.mapping.classroom}</span><h2>كشف {lesson.assignment.subject} — {selected.classroom}</h2></div><div className="teacher-report-actions"><button className="outline-button" onClick={exportSheet}><FileSpreadsheet size={16} /> Excel</button><button className="outline-button" onClick={printSheet}><Printer size={16} /> PDF</button><button className="primary-button" onClick={saveLesson} disabled={busy === 'save'}><Save size={17} /> {busy === 'save' ? 'جارٍ الحفظ…' : 'حفظ الكشف'}</button></div></div><div className="teacher-roster-table-wrap"><table className="teacher-roster-table"><thead><tr><th>الطالب</th>{lesson.sheetConfig?.columns.map(column => <th key={column.id}>{column.label}{column.type === 'score' && column.maxScore !== null ? ` / ${column.maxScore}` : ''}</th>)}</tr></thead><tbody>{lesson.students.map(student => { const state = states[student.id] || { status: 'present' as const, note: '' as const, sheetValues: {} }; return <tr key={student.id}><td><strong>{student.name}</strong><small>{student.grade} · {student.classroom}</small></td>{lesson.sheetConfig?.columns.map(column => <td key={column.id} className="teacher-sheet-cell">{column.type === 'score' && <input type="number" min="0" max={column.maxScore ?? undefined} value={String(state.sheetValues[column.id] ?? '')} onChange={event => updateSheetValue(student.id, column.id, event.target.value)} aria-label={`${column.label} لـ ${student.name}`} />}{column.type === 'text' && <input value={String(state.sheetValues[column.id] ?? '')} onChange={event => updateSheetValue(student.id, column.id, event.target.value)} aria-label={`${column.label} لـ ${student.name}`} />}{column.type === 'choice' && <select value={String(state.sheetValues[column.id] ?? '')} onChange={event => updateSheetValue(student.id, column.id, event.target.value)} aria-label={`${column.label} لـ ${student.name}`}><option value="">اختر</option>{column.choices.map(choice => <option key={choice} value={choice}>{choice}</option>)}</select>}{column.type === 'boolean' && <input type="checkbox" checked={state.sheetValues[column.id] === true} onChange={event => updateSheetValue(student.id, column.id, event.target.checked)} aria-label={`${column.label} لـ ${student.name}`} />}</td>)}</tr> })}</tbody></table></div><div className="teacher-roster-save-bottom"><button className="outline-button" onClick={exportSheet}><FileSpreadsheet size={16} /> Excel</button><button className="outline-button" onClick={printSheet}><Printer size={16} /> PDF</button><button className="primary-button" onClick={saveLesson} disabled={busy === 'save'}><Save size={17} /> {busy === 'save' ? 'جارٍ الحفظ…' : 'حفظ الكشف'}</button></div></section>
+  return <section className="teacher-card teacher-roster-card teacher-sheet-roster"><div className="teacher-section-head"><div><span>{lesson.assignment.subject} · {lesson.mapping.grade} · الفصل {lesson.mapping.classroom}</span><h2>كشف {lesson.assignment.subject} — {selected.classroom}</h2></div><div className="teacher-report-actions"><button className="outline-button" onClick={exportSheet}><FileSpreadsheet size={16} /> Excel</button><button className="outline-button" onClick={printSheet}><Printer size={16} /> PDF</button><button className="primary-button" onClick={saveLesson} disabled={busy === 'save'}><Save size={17} /> {busy === 'save' ? 'جارٍ الحفظ…' : 'حفظ الكشف'}</button></div></div><div className="teacher-roster-table-wrap"><table className="teacher-roster-table"><thead><tr><th>الطالب</th>{getSheetColumns(lesson).map(column => <th key={column.key}>{column.label}{column.type === 'score' && column.maxScore !== null ? ` / ${column.maxScore}` : ''}</th>)}</tr></thead><tbody>{lesson.students.map(student => { const state = states[student.id] || { status: 'present' as const, note: '' as const, sheetValues: {} }; return <tr key={student.id}><td><strong>{student.name}</strong><small>{student.grade} · {student.classroom}</small></td>{getSheetColumns(lesson).map(column => <td key={column.key} className="teacher-sheet-cell">{column.type === 'score' && <input type="number" min="0" max={column.maxScore ?? undefined} value={String(state.sheetValues[column.key] ?? '')} onChange={event => updateSheetValue(student.id, column.key, event.target.value)} aria-label={`${column.label} لـ ${student.name}`} />}{column.type === 'text' && <input value={String(state.sheetValues[column.key] ?? '')} onChange={event => updateSheetValue(student.id, column.key, event.target.value)} aria-label={`${column.label} لـ ${student.name}`} />}{column.type === 'choice' && <select value={String(state.sheetValues[column.key] ?? '')} onChange={event => updateSheetValue(student.id, column.key, event.target.value)} aria-label={`${column.label} لـ ${student.name}`}><option value="">اختر</option>{column.choices.map(choice => <option key={choice} value={choice}>{choice}</option>)}</select>}{column.type === 'boolean' && <input type="checkbox" checked={state.sheetValues[column.key] === true} onChange={event => updateSheetValue(student.id, column.key, event.target.checked)} aria-label={`${column.label} لـ ${student.name}`} />}</td>)}</tr> })}</tbody></table></div><div className="teacher-roster-save-bottom"><button className="outline-button" onClick={exportSheet}><FileSpreadsheet size={16} /> Excel</button><button className="outline-button" onClick={printSheet}><Printer size={16} /> PDF</button><button className="primary-button" onClick={saveLesson} disabled={busy === 'save'}><Save size={17} /> {busy === 'save' ? 'جارٍ الحفظ…' : 'حفظ الكشف'}</button></div></section>
 }
 
 function TeacherReportsTab() {
@@ -104,7 +107,7 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
   const [sheetMode, setSheetMode] = useState<'menu' | 'setup' | 'start'>('menu')
   const [activeLessonDate, setActiveLessonDate] = useState(date)
   const [sheetOnlyView, setSheetOnlyView] = useState(false)
-  const [selectedSheetType, setSelectedSheetType] = useState<TeacherSheetType>('followup')
+  const [selectedSheetType, setSelectedSheetType] = useState<TeacherSheetOpenType>('followup')
 
   const loadDashboard = async () => {
     setBusy('dashboard')
@@ -115,7 +118,7 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
   useEffect(() => { void loadDashboard() }, [date])
   useEffect(() => { void api.teacherSheets().then(result => setSheets(result.sheets)).catch(() => setSheets([])) }, [])
 
-  const openLesson = async (item: TeacherPortalScheduleItem, sheetType: TeacherSheetType = 'followup', sheetOnly = false) => {
+  const openLesson = async (item: TeacherPortalScheduleItem, sheetType: TeacherSheetOpenType = 'followup', sheetOnly = false) => {
     setBusy(`lesson-${item.assignmentId}`)
     setError('')
     const targetDate = dateForWeekday(date, item.weekday)
@@ -145,10 +148,10 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
 
   const exportSheet = () => {
     if (!lesson || !selected) return
-    const columns = lesson.sheetConfig?.columns || []
+    const columns = getSheetColumns(lesson)
     const rows = [['الطالب', 'الحالة', 'الملاحظة', ...columns.map(column => column.label)], ...lesson.students.map(student => {
       const state = states[student.id] || { status: 'present' as const, note: '', sheetValues: {} }
-      return sheetOnlyView ? [student.name, ...columns.map(column => displaySheetValue(state.sheetValues[column.id]))] : [student.name, state.status === 'present' ? 'حاضر' : 'غائب', state.note || '', ...columns.map(column => displaySheetValue(state.sheetValues[column.id]))]
+      return sheetOnlyView ? [student.name, ...columns.map(column => displaySheetValue(state.sheetValues[column.key]))] : [student.name, state.status === 'present' ? 'حاضر' : 'غائب', state.note || '', ...columns.map(column => displaySheetValue(state.sheetValues[column.key]))]
     })]
     const workbook = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(workbook, XLSX.utils.aoa_to_sheet(rows), 'الكشف')
@@ -157,11 +160,11 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
 
   const printSheet = () => {
     if (!lesson || !selected) return
-    const columns = lesson.sheetConfig?.columns || []
+    const columns = getSheetColumns(lesson)
     const escape = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character] || character))
     const rows = lesson.students.map(student => {
       const state = states[student.id] || { status: 'present' as const, note: '', sheetValues: {} }
-      return sheetOnlyView ? `<tr><td>${escape(student.name)}</td>${columns.map(column => `<td>${escape(displaySheetValue(state.sheetValues[column.id]))}</td>`).join('')}</tr>` : `<tr><td>${escape(student.name)}</td><td>${state.status === 'present' ? 'حاضر' : 'غائب'}</td><td>${escape(state.note || '')}</td>${columns.map(column => `<td>${escape(displaySheetValue(state.sheetValues[column.id]))}</td>`).join('')}</tr>`
+      return sheetOnlyView ? `<tr><td>${escape(student.name)}</td>${columns.map(column => `<td>${escape(displaySheetValue(state.sheetValues[column.key]))}</td>`).join('')}</tr>` : `<tr><td>${escape(student.name)}</td><td>${state.status === 'present' ? 'حاضر' : 'غائب'}</td><td>${escape(state.note || '')}</td>${columns.map(column => `<td>${escape(displaySheetValue(state.sheetValues[column.key]))}</td>`).join('')}</tr>`
     }).join('')
     const popup = window.open('', '_blank')
     if (!popup) return
@@ -244,12 +247,12 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
     {lesson && selected && <section className="teacher-card teacher-roster-card">
       <div className="teacher-section-head"><div><span>{lesson.mapping.grade} · الفصل {lesson.mapping.classroom}</span><h2>{periodLabel(selected.periodNumber)} — {selected.classroom}</h2></div><div className="teacher-report-actions"><button className="outline-button" onClick={exportSheet}><FileSpreadsheet size={16} /> Excel</button><button className="outline-button" onClick={printSheet}><Printer size={16} /> PDF</button><button className="primary-button" onClick={() => void saveLesson()} disabled={busy === 'save'}><Save size={17} /> {busy === 'save' ? 'جارٍ الحفظ…' : 'حفظ المتابعة'}</button></div></div>
       <p className="teacher-help">اختيار الحالة والملاحظة هنا خاص بمتابعة المعلم، ولا يغيّر سجل الحضور والغياب الإداري.</p>
-      <div className="teacher-roster-table-wrap"><table className="teacher-roster-table"><thead><tr><th>الطالب</th><th>الحالة</th><th>الملاحظة</th>{lesson.sheetConfig?.columns.map(column => <th key={column.id}>{column.label}{column.type === 'score' && column.maxScore !== null ? ` / ${column.maxScore}` : ''}</th>)}</tr></thead><tbody>
+      <div className="teacher-roster-table-wrap"><table className="teacher-roster-table"><thead><tr><th>الطالب</th><th>الحالة</th><th>الملاحظة</th>{getSheetColumns(lesson).map(column => <th key={column.key}>{column.label}{column.type === 'score' && column.maxScore !== null ? ` / ${column.maxScore}` : ''}</th>)}</tr></thead><tbody>
         {lesson.students.map(student => { const state = states[student.id] || { status: 'present' as const, note: '' as const, sheetValues: {} }; return <tr key={student.id}>
           <td><strong>{student.name}</strong><small>{student.grade} · {student.classroom}</small></td>
           <td><div className="teacher-status-toggle"><button className={state.status === 'present' ? 'active present' : ''} onClick={() => updateStudent(student.id, { status: 'present' })}>حاضر</button><button className={state.status === 'absent' ? 'active absent' : ''} onClick={() => updateStudent(student.id, { status: 'absent', note: '' })}>غائب</button></div></td>
           <td><select value={state.note} disabled={state.status === 'absent'} onChange={event => updateStudent(student.id, { note: event.target.value as TeacherNote | '' })}><option value="">مشارك فعال عند الحفظ</option>{notes.map(note => <option key={note} value={note}>{note}</option>)}</select></td>
-          {lesson.sheetConfig?.columns.map(column => <td key={column.id} className="teacher-sheet-cell">{column.type === 'score' && <input type="number" min="0" max={column.maxScore ?? undefined} value={String(state.sheetValues[column.id] ?? '')} onChange={event => updateSheetValue(student.id, column.id, event.target.value)} aria-label={`${column.label} لـ ${student.name}`} />}{column.type === 'text' && <input value={String(state.sheetValues[column.id] ?? '')} onChange={event => updateSheetValue(student.id, column.id, event.target.value)} aria-label={`${column.label} لـ ${student.name}`} />}{column.type === 'choice' && <select value={String(state.sheetValues[column.id] ?? '')} onChange={event => updateSheetValue(student.id, column.id, event.target.value)} aria-label={`${column.label} لـ ${student.name}`}><option value="">اختر</option>{column.choices.map(choice => <option key={choice} value={choice}>{choice}</option>)}</select>}{column.type === 'boolean' && <input type="checkbox" checked={state.sheetValues[column.id] === true} onChange={event => updateSheetValue(student.id, column.id, event.target.checked)} aria-label={`${column.label} لـ ${student.name}`} />}</td>)}
+          {getSheetColumns(lesson).map(column => <td key={column.key} className="teacher-sheet-cell">{column.type === 'score' && <input type="number" min="0" max={column.maxScore ?? undefined} value={String(state.sheetValues[column.key] ?? '')} onChange={event => updateSheetValue(student.id, column.key, event.target.value)} aria-label={`${column.label} لـ ${student.name}`} />}{column.type === 'text' && <input value={String(state.sheetValues[column.key] ?? '')} onChange={event => updateSheetValue(student.id, column.key, event.target.value)} aria-label={`${column.label} لـ ${student.name}`} />}{column.type === 'choice' && <select value={String(state.sheetValues[column.key] ?? '')} onChange={event => updateSheetValue(student.id, column.key, event.target.value)} aria-label={`${column.label} لـ ${student.name}`}><option value="">اختر</option>{column.choices.map(choice => <option key={choice} value={choice}>{choice}</option>)}</select>}{column.type === 'boolean' && <input type="checkbox" checked={state.sheetValues[column.key] === true} onChange={event => updateSheetValue(student.id, column.key, event.target.checked)} aria-label={`${column.label} لـ ${student.name}`} />}</td>)}
         </tr> })}
       </tbody></table></div>
       <div className="teacher-roster-save-bottom"><button className="outline-button" onClick={exportSheet}><FileSpreadsheet size={16} /> Excel</button><button className="outline-button" onClick={printSheet}><Printer size={16} /> PDF</button><button className="primary-button" onClick={() => void saveLesson()} disabled={busy === 'save'}><Save size={17} /> {busy === 'save' ? 'جارٍ الحفظ…' : 'حفظ المتابعة'}</button></div>
