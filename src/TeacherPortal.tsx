@@ -19,7 +19,12 @@ type RenderSheetColumn = TeacherSheetColumn & { key: string; sheetType: TeacherS
 const getSheetColumns = (lesson: TeacherLesson): RenderSheetColumn[] => lesson.sheetConfigs.flatMap(config => config.columns.map(column => ({ ...column, key: `${config.sheetType}:${column.id}`, sheetType: config.sheetType })))
 type SheetRosterProps = { lesson: TeacherLesson; selected: TeacherPortalScheduleItem; states: Record<string, StudentState>; updateSheetValue: (studentId: string, columnId: string, value: string | number | boolean) => void; exportSheet: () => void; printSheet: () => void; saveLesson: () => void; busy: string }
 function TeacherSheetRoster(props: SheetRosterProps) {
-  const states = Object.fromEntries(Object.entries(props.states).map(([studentId, state]) => [studentId, { ...state, sheetValues: { ...Object.fromEntries(getSheetColumns(props.lesson).filter(column => column.type === 'boolean').map(column => [column.key, true])), ...state.sheetValues } }]))
+  const booleanColumns = getSheetColumns(props.lesson).filter(column => column.type === 'boolean')
+  const states = Object.fromEntries(Object.entries(props.states).map(([studentId, state]) => {
+    const sheetValues = { ...state.sheetValues }
+    for (const column of booleanColumns) if (sheetValues[column.key] === undefined || sheetValues[column.key] === null || sheetValues[column.key] === '') sheetValues[column.key] = true
+    return [studentId, { ...state, sheetValues }]
+  }))
   return <TeacherSheetRosterLegacy {...props} states={states} />
 }
 
