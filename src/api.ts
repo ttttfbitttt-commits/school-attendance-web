@@ -112,6 +112,8 @@ export type LessonScanPreview = {
 export type TeacherPortalScheduleItem = { assignmentId: string; classroomId: string; classroom: string; periodNumber: number; subject: string; startTime: string | null; endTime: string | null }
 export type TeacherPortalDashboard = { schoolName: string; teacher: { name: string; identityNumber: string }; date: string; weekday: number; schedule: TeacherPortalScheduleItem[] }
 export type TeacherNote = 'هروب من الحصة' | 'نائم أثناء الدرس' | 'لم يحل الواجب' | 'لم يشارك' | 'مشارك فعال' | 'لم يحضر الكتاب أو المذكرة' | 'استخدام الجوال أثناء الحصة'
+export type TeacherSheetColumn = { id: string; label: string; type: 'score' | 'text' | 'choice' | 'boolean'; maxScore: number | null; choices: string[] }
+export type TeacherSheetConfig = { id?: string; subject: string; version: number; columns: TeacherSheetColumn[]; createdAt?: string }
 export type TeacherLessonStudent = { id: string; name: string; phone: string; grade: string; classroom: string; status: 'present' | 'absent'; note: TeacherNote | '' }
 export type TeacherLesson = { assignment: { assignmentId: string; classroomId: string; classroom: string; subject: string }; date: string; periodNumber: number; mapping: { grade: string; classroom: string; mappingSource: 'automatic' | 'manual' }; students: TeacherLessonStudent[] }
 export type TeacherLessonReport = {
@@ -208,6 +210,8 @@ export const api = {
   saveTeacherLesson: (payload: { classroomId: string; date: string; periodNumber: number; students: Array<{ studentId: string; status: 'present' | 'absent'; note: TeacherNote | '' }> }) => request<{ ok: boolean; saved: number }>('/teacher-portal/teacher/lesson', { method: 'PUT', body: JSON.stringify(payload) }),
   teacherReports: (filters: { date?: string; note?: string } = {}) => request<{ reports: TeacherLessonReport[] }>(`/teacher-portal/teacher/reports?${new URLSearchParams(Object.entries(filters).filter(([, value]) => value).map(([key, value]) => [key, value || '']))}`),
   changeTeacherPassword: (password: string) => request<{ ok: boolean }>('/teacher-portal/teacher/password', { method: 'POST', body: JSON.stringify({ password }) }),
+  teacherSheets: () => request<{ sheets: TeacherSheetConfig[] }>('/teacher-portal/teacher/sheets'),
+  saveTeacherSheetConfig: (subjectName: string, columns: TeacherSheetColumn[]) => request<{ config: TeacherSheetConfig }>('/teacher-portal/teacher/sheets/config', { method: 'PUT', body: JSON.stringify({ subjectName, columns }) }),
   teacherAdminOverview: () => request<TeacherAdminOverview>('/teacher-portal/admin/overview'),
   teacherAdminCredentials: () => request<{ credentials: Array<{ teacherId: string; name: string; identityNumber: string; temporaryPassword: string }> }>('/teacher-portal/admin/credentials'),
   teacherMappingOptions: () => request<{ options: Array<{ grade: string; classroom: string; count: number }> }>('/teacher-portal/admin/mapping-options'),
