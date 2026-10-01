@@ -345,6 +345,7 @@ export function LessonFlowCenter({ schoolName }: { schoolName: string }) {
   const [manualPeriodNumber, setManualPeriodNumber] = useState('')
   const [manualTeacherId, setManualTeacherId] = useState('')
   const [teacherSearch, setTeacherSearch] = useState('')
+  const [manualObservationError, setManualObservationError] = useState('')
   const [teacherDayAbsences, setTeacherDayAbsences] = useState<TeacherDayAbsence[]>([])
   const [showTeacherAbsenceForm, setShowTeacherAbsenceForm] = useState(false)
   const [teacherAbsenceSearch, setTeacherAbsenceSearch] = useState('')
@@ -410,6 +411,7 @@ export function LessonFlowCenter({ schoolName }: { schoolName: string }) {
     setBusy(label)
     setError('')
     setNotice('')
+    if (label === 'manual-incident') setManualObservationError('')
     try {
       const message = await task()
       setNotice(message)
@@ -419,18 +421,20 @@ export function LessonFlowCenter({ schoolName }: { schoolName: string }) {
     } catch (err) {
       const message = err instanceof Error ? err.message : ''
       const apiError = err as Error & { data?: { classroomId?: string; periodNumber?: number; date?: string } }
-      if (message === 'teacher_absent_today' && apiError.data?.classroomId) {
-        setManualClassroomId(apiError.data.classroomId)
-        setManualPeriodNumber(String(apiError.data.periodNumber || ''))
-        setIncidentDate(apiError.data.date || todayRiyadh())
-        setManualTeacherId('')
-        setTeacherSearch('')
-        setShowManualObservation(true)
+      if (message === 'teacher_absent_today') {
+        setManualObservationError('المعلم مسجل غائباً اليوم. اختر معلماً بديلاً أو أزله من سجل الغياب إذا كان قد حضر.')
+        if (apiError.data?.classroomId) {
+          setManualClassroomId(apiError.data.classroomId)
+          setManualPeriodNumber(String(apiError.data.periodNumber || ''))
+          setIncidentDate(apiError.data.date || todayRiyadh())
+          setManualTeacherId('')
+          setTeacherSearch('')
+          setShowManualObservation(true)
+        }
+        return
       }
       const userMessage = message === 'scan_confirmation_expired'
         ? 'انتهت مهلة التأكيد. امسح باركود الفصل مرة أخرى.'
-        : message === 'teacher_absent_today'
-          ? 'المعلم المجدول مسجل غائباً اليوم. توجّه إلى رصد المعلم المنتظر واختر المعلم الذي يغطي الحصة.'
         : message === 'outside_lesson_time'
           ? 'لا يمكن رصد المساءلة الآن لأن الوقت الحالي خارج أوقات الحصص المحفوظة لهذا اليوم. راجع تبويب «أوقات الحصص»، أو استخدم «رصد المعلم المنتظر» لتحديد الحصة يدويًا.'
           : message
@@ -841,9 +845,10 @@ export function LessonFlowCenter({ schoolName }: { schoolName: string }) {
                 <label>التاريخ<input type="date" value={incidentDate} onChange={event => setIncidentDate(event.target.value)} /></label>
                 <label>الفصل<select value={manualClassroomId} onChange={event => setManualClassroomId(event.target.value)}><option value="">اختر الفصل</option>{overview?.classrooms.map(classroom => <option key={classroom.id} value={classroom.id}>{classroom.name}</option>)}</select></label>
                 <label>الحصة<select value={manualPeriodNumber} onChange={event => setManualPeriodNumber(event.target.value)}><option value="">اختر الحصة</option>{manualPeriods.map(slot => <option key={slot.periodNumber} value={slot.periodNumber}>الحصة {slot.periodNumber} · {slot.startTime} إلى {slot.endTime}</option>)}</select></label>
-                <label>ابحث عن المعلم<input value={teacherSearch} onChange={event => setTeacherSearch(event.target.value)} placeholder="الاسم أو رقم الهوية" /></label>
-                <label>المعلم<select value={manualTeacherId} onChange={event => setManualTeacherId(event.target.value)}><option value="">اختر المعلم</option>{manualTeachers.map(teacher => <option key={teacher.id} value={teacher.id}>{teacher.name} · {teacher.identityNumber}</option>)}</select></label>
+                <label>ابحث عن المعلم<input value={teacherSearch} onChange={event => { setTeacherSearch(event.target.value); setManualObservationError('') }} placeholder="الاسم أو رقم الهوية" /></label>
+                <label>المعلم<select value={manualTeacherId} onChange={event => { setManualTeacherId(event.target.value); setManualObservationError('') }}><option value="">اختر المعلم</option>{manualTeachers.map(teacher => <option key={teacher.id} value={teacher.id}>{teacher.name} · {teacher.identityNumber}</option>)}</select></label>
               </div>
+              {manualObservationError && <p className="lesson-inline-error" role="alert">{manualObservationError}</p>}
               {manualPeriodNumber && <p className="lesson-time-hint">وقت المساءلة: {manualPeriods.find(slot => slot.periodNumber === Number(manualPeriodNumber))?.startTime || '—'} إلى {manualPeriods.find(slot => slot.periodNumber === Number(manualPeriodNumber))?.endTime || '—'}</p>}
               <div className="feature-actions"><button type="button" className="primary-button" onClick={() => void createManualIncident()} disabled={!!busy}><CheckCircle2 size={16} /> تأكيد الرصد وتوجيه المساءلة</button></div>
             </section>}

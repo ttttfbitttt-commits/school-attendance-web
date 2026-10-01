@@ -4408,6 +4408,7 @@ tbody td {
   color: #0d5fa4 !important;
   font-weight: 800;
 }
+.lesson-inline-error { margin:0 !important; padding:10px 12px; border:1px solid #fecaca; border-radius:10px; color:#991b1b !important; background:#fff1f2; font-weight:800; }
 
 .lesson-scan-preview {
   border-color: #93c5fd;
