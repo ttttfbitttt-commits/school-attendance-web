@@ -181,7 +181,8 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
       setSheetOnlyView(sheetOnly)
       setActiveTab(sheetOnly ? 'sheets' : 'home')
       setSheetMode('menu')
-      setStates(Object.fromEntries(next.students.map(student => [student.id, { status: student.status, note: student.note, sheetValues: student.sheetValues }])))
+      const defaultSheetValues = Object.fromEntries(next.sheetConfigs.flatMap(config => config.columns.filter(column => column.type === 'boolean').map(column => [`${config.sheetType}:${column.id}`, true])))
+      setStates(Object.fromEntries(next.students.map(student => [student.id, { status: student.status, note: student.note, sheetValues: { ...defaultSheetValues, ...student.sheetValues } }])))
     } catch {
       setError('تعذر فتح طلاب الفصل. اطلب من الإدارة مطابقة الصف والفصل مع بيانات الطلاب أولًا.')
     } finally { setBusy('') }

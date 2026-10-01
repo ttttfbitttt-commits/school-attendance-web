@@ -44,7 +44,7 @@ function cleanSheetValues(columns, value) {
       const score = raw === '' || raw === null || raw === undefined ? '' : Number(raw)
       return [column.id, score === '' || !Number.isFinite(score) ? '' : Math.max(0, Math.min(column.maxScore ?? 1000, score))]
     }
-    if (column.type === 'boolean') return [column.id, raw === true]
+    if (column.type === 'boolean') return [column.id, raw === undefined ? true : raw === true]
     if (column.type === 'choice') return [column.id, column.choices.includes(String(raw || '')) ? String(raw) : '']
     return [column.id, clean(raw, 1000)]
   }))
