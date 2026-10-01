@@ -2,7 +2,6 @@ import crypto from 'node:crypto'
 
 const NOTE_OPTIONS = new Set(['هروب من الحصة', 'نائم أثناء الدرس', 'لم يحل الواجب', 'لم يشارك', 'مشارك فعال', 'لم يحضر الكتاب أو المذكرة', 'استخدام الجوال أثناء الحصة'])
 const ATTENDANCE_OPTIONS = new Set(['present', 'absent'])
-const SHEET_FIELD_TYPES = new Set(['score', 'text', 'choice', 'boolean'])
 
 function clean(value, max = 240) {
   return String(value ?? '').replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max)
@@ -21,18 +20,6 @@ function weekdayForDate(value) {
 function validPeriod(value) {
   const period = Number(value)
   return Number.isInteger(period) && period >= 1 && period <= 12 ? period : null
-}
-function cleanSheetColumns(value) {
-  if (!Array.isArray(value) || value.length > 64) return null
-  const columns = value.map((column, index) => {
-    const label = clean(column?.label, 120)
-    const type = String(column?.type || '')
-    const maxScore = column?.maxScore === null || column?.maxScore === undefined || column?.maxScore === '' ? null : Number(column.maxScore)
-    const choices = Array.isArray(column?.choices) ? column.choices.map(choice => clean(choice, 80)).filter(Boolean).slice(0, 20) : []
-    if (!label || !SHEET_FIELD_TYPES.has(type) || (maxScore !== null && (!Number.isFinite(maxScore) || maxScore < 0 || maxScore > 1000))) return null
-    return { id: clean(column?.id, 80) || `column-${index + 1}`, label, type, maxScore, choices }
-  })
-  return columns.every(Boolean) ? columns : null
 }
 function classKey(value) {
   return clean(value, 200)
@@ -212,33 +199,6 @@ export async function migrateTeacherPortal(adminPool) {
     );
     CREATE INDEX IF NOT EXISTS teacher_lesson_student_records_school_note ON teacher_lesson_student_records(school_id,note) WHERE note <> '';
     CREATE INDEX IF NOT EXISTS teacher_lesson_student_records_school_student ON teacher_lesson_student_records(school_id,student_id,lesson_session_id);
-
-    CREATE TABLE IF NOT EXISTS teacher_sheet_configs (
-      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-      school_id uuid NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
-      teacher_id uuid NOT NULL REFERENCES lesson_teachers(id) ON DELETE CASCADE,
-      subject_name text NOT NULL,
-      version integer NOT NULL CHECK (version > 0),
-      columns jsonb NOT NULL DEFAULT '[]'::jsonb,
-      created_at timestamptz NOT NULL DEFAULT now(),
-      UNIQUE (school_id, teacher_id, subject_name, version)
-    );
-    CREATE INDEX IF NOT EXISTS teacher_sheet_configs_current ON teacher_sheet_configs(school_id,teacher_id,subject_name,version DESC);
-
-    CREATE TABLE IF NOT EXISTS teacher_sheet_entries (
-      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-      school_id uuid NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
-      config_id uuid NOT NULL REFERENCES teacher_sheet_configs(id) ON DELETE RESTRICT,
-      teacher_id uuid NOT NULL REFERENCES lesson_teachers(id) ON DELETE CASCADE,
-      assignment_id uuid NOT NULL REFERENCES lesson_schedule_assignments(id) ON DELETE RESTRICT,
-      classroom_id uuid NOT NULL REFERENCES lesson_classrooms(id) ON DELETE RESTRICT,
-      entry_date date NOT NULL,
-      student_id text NOT NULL,
-      values jsonb NOT NULL DEFAULT '{}'::jsonb,
-      updated_at timestamptz NOT NULL DEFAULT now(),
-      UNIQUE (school_id,config_id,assignment_id,entry_date,student_id)
-    );
-    CREATE INDEX IF NOT EXISTS teacher_sheet_entries_lookup ON teacher_sheet_entries(school_id,teacher_id,assignment_id,entry_date);
   `)
   await adminPool.query('ALTER TABLE teacher_lesson_student_records DROP CONSTRAINT IF EXISTS teacher_lesson_student_records_note_check')
   await adminPool.query(`UPDATE teacher_lesson_student_records SET note=CASE note
@@ -269,48 +229,6 @@ export async function handleTeacherPortalRequest(context) {
       WHERE school_id=$2 AND teacher_id=$3 AND user_id=$4 AND active=true`, [hash, user.school_id, user.teacher_id, user.user_id])
     await authPool.query('UPDATE users SET password_hash=$1 WHERE id=$2', [hash, user.user_id])
     json(res, 200, { ok: true })
-    return true
-  }
-
-  if (req.method === 'GET' && url.pathname === '/api/teacher-portal/teacher/sheets') {
-    if (!teacherOnly()) { json(res, 403, { error: 'forbidden' }); return true }
-    const sheets = await scoped(user.school_id, async client => {
-      const active = await activeImport(client, user.school_id)
-      if (!active) return []
-      const subjects = (await client.query(`SELECT DISTINCT subject_name AS subject
-        FROM lesson_schedule_assignments
-        WHERE school_id=$1 AND import_id=$2 AND teacher_id=$3 AND subject_name IS NOT NULL AND btrim(subject_name) <> ''
-        ORDER BY subject_name`, [user.school_id, active.id, user.teacher_id])).rows
-      const configs = (await client.query(`SELECT DISTINCT ON (subject_name) id,subject_name AS subject,version,columns,created_at AS "createdAt"
-        FROM teacher_sheet_configs
-        WHERE school_id=$1 AND teacher_id=$2 ORDER BY subject_name,version DESC`, [user.school_id, user.teacher_id])).rows
-      const bySubject = new Map(configs.map(config => [config.subject, { ...config, version: Number(config.version) }]))
-      return subjects.map(subject => bySubject.get(subject.subject) || { subject: subject.subject, version: 0, columns: [] })
-    })
-    json(res, 200, { sheets })
-    return true
-  }
-
-  if (req.method === 'PUT' && url.pathname === '/api/teacher-portal/teacher/sheets/config') {
-    if (!teacherOnly()) { json(res, 403, { error: 'forbidden' }); return true }
-    const input = await body(req)
-    const subject = clean(input.subjectName, 200)
-    const columns = cleanSheetColumns(input.columns)
-    if (!subject || !columns) { json(res, 400, { error: 'invalid_sheet_config' }); return true }
-    const result = await scoped(user.school_id, async client => {
-      const active = await activeImport(client, user.school_id)
-      if (!active) return { error: 'schedule_not_imported' }
-      const assigned = await client.query(`SELECT 1 FROM lesson_schedule_assignments
-        WHERE school_id=$1 AND import_id=$2 AND teacher_id=$3 AND subject_name=$4 LIMIT 1`, [user.school_id, active.id, user.teacher_id, subject])
-      if (!assigned.rowCount) return { error: 'subject_not_assigned' }
-      const version = Number((await client.query(`SELECT COALESCE(MAX(version),0)::int AS version FROM teacher_sheet_configs
-        WHERE school_id=$1 AND teacher_id=$2 AND subject_name=$3`, [user.school_id, user.teacher_id, subject])).rows[0].version) + 1
-      const config = (await client.query(`INSERT INTO teacher_sheet_configs(school_id,teacher_id,subject_name,version,columns)
-        VALUES($1,$2,$3,$4,$5::jsonb) RETURNING id,subject_name AS subject,version,columns,created_at AS "createdAt"`, [user.school_id, user.teacher_id, subject, version, JSON.stringify(columns)])).rows[0]
-      return { config: { ...config, version: Number(config.version) } }
-    })
-    if (result.error) { json(res, result.error === 'subject_not_assigned' ? 403 : 409, result); return true }
-    json(res, 200, result)
     return true
   }
 

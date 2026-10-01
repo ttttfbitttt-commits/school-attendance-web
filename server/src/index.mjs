@@ -128,8 +128,7 @@ async function configureDatabaseRoles() {
   await adminPool.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON schools, students, attendance_logs, almadar_accounts, student_excuses,
     message_logs, absence_records, absence_corrections, lesson_teachers, lesson_classrooms, lesson_schedule_imports,
     lesson_name_mappings, lesson_time_slots, lesson_schedule_assignments, teacher_incidents, teacher_day_absences,
-    teacher_classroom_student_maps, teacher_lesson_sessions, teacher_lesson_student_records,
-    teacher_sheet_configs, teacher_sheet_entries TO attendance_app`)
+    teacher_classroom_student_maps, teacher_lesson_sessions, teacher_lesson_student_records TO attendance_app`)
   await adminPool.query('GRANT SELECT, INSERT, UPDATE ON schools, users, memberships TO attendance_auth')
   await adminPool.query('GRANT SELECT, INSERT, DELETE ON sessions TO attendance_auth')
   await adminPool.query('GRANT SELECT, INSERT, UPDATE, DELETE ON teacher_login_accounts TO attendance_auth')
@@ -157,8 +156,6 @@ async function enforceTenantRowSecurity() {
     ['teacher_classroom_student_maps', 'school_id', 'teacher_classroom_student_maps_school_scope'],
     ['teacher_lesson_sessions', 'school_id', 'teacher_lesson_sessions_school_scope'],
     ['teacher_lesson_student_records', 'school_id', 'teacher_lesson_student_records_school_scope'],
-    ['teacher_sheet_configs', 'school_id', 'teacher_sheet_configs_school_scope'],
-    ['teacher_sheet_entries', 'school_id', 'teacher_sheet_entries_school_scope'],
   ]
   for (const [table, schoolColumn, policy] of tables) {
     await adminPool.query(`ALTER TABLE ${table} ENABLE ROW LEVEL SECURITY`)
