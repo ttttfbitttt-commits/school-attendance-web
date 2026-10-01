@@ -109,11 +109,11 @@ export type LessonScanPreview = {
   startTime: string
   endTime: string
 }
-export type TeacherPortalScheduleItem = { assignmentId: string; classroomId: string; classroom: string; periodNumber: number; subject: string; startTime: string | null; endTime: string | null }
-export type TeacherPortalDashboard = { schoolName: string; teacher: { name: string; identityNumber: string }; date: string; weekday: number; schedule: TeacherPortalScheduleItem[] }
+export type TeacherPortalScheduleItem = { assignmentId: string; classroomId: string; classroom: string; weekday: number; periodNumber: number; subject: string; startTime: string | null; endTime: string | null }
+export type TeacherPortalDashboard = { schoolName: string; teacher: { name: string; identityNumber: string }; date: string; weekday: number; schedule: TeacherPortalScheduleItem[]; weekSchedule: TeacherPortalScheduleItem[] }
 export type TeacherNote = 'هروب من الحصة' | 'نائم أثناء الدرس' | 'لم يحل الواجب' | 'لم يشارك' | 'مشارك فعال' | 'لم يحضر الكتاب أو المذكرة' | 'استخدام الجوال أثناء الحصة'
-export type TeacherLessonStudent = { id: string; name: string; phone: string; grade: string; classroom: string; status: 'present' | 'absent'; note: TeacherNote | '' }
-export type TeacherLesson = { assignment: { assignmentId: string; classroomId: string; classroom: string; subject: string }; date: string; periodNumber: number; mapping: { grade: string; classroom: string; mappingSource: 'automatic' | 'manual' }; students: TeacherLessonStudent[] }
+export type TeacherLessonStudent = { id: string; name: string; phone: string; grade: string; classroom: string; status: 'present' | 'absent'; note: TeacherNote | ''; sheetValues: Record<string, string | number | boolean> }
+export type TeacherLesson = { assignment: { assignmentId: string; classroomId: string; classroom: string; subject: string }; date: string; periodNumber: number; mapping: { grade: string; classroom: string; mappingSource: 'automatic' | 'manual' }; sheetConfig: TeacherSheetConfig | null; students: TeacherLessonStudent[] }
 export type TeacherLessonReport = {
   id: string; date: string; weekday: number; periodNumber: number; teacherId: string; teacherName: string; classroom: string; subject: string; grade: string; classroomValue: string; savedAt: string
   studentsCount: number; presentCount: number; absentCount: number
@@ -207,7 +207,7 @@ export const api = {
   deleteLessonIncident: (id: string) => request<{ ok: boolean }>(`/lesson-flow/incidents/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   teacherDashboard: (date: string) => request<TeacherPortalDashboard>(`/teacher-portal/teacher/dashboard?date=${encodeURIComponent(date)}`),
   teacherLesson: (classroomId: string, date: string, periodNumber: number) => request<TeacherLesson>(`/teacher-portal/teacher/lesson?classroomId=${encodeURIComponent(classroomId)}&date=${encodeURIComponent(date)}&periodNumber=${periodNumber}`),
-  saveTeacherLesson: (payload: { classroomId: string; date: string; periodNumber: number; students: Array<{ studentId: string; status: 'present' | 'absent'; note: TeacherNote | '' }> }) => request<{ ok: boolean; saved: number }>('/teacher-portal/teacher/lesson', { method: 'PUT', body: JSON.stringify(payload) }),
+  saveTeacherLesson: (payload: { classroomId: string; date: string; periodNumber: number; students: Array<{ studentId: string; status: 'present' | 'absent'; note: TeacherNote | ''; sheetValues: Record<string, string | number | boolean> }> }) => request<{ ok: boolean; saved: number }>('/teacher-portal/teacher/lesson', { method: 'PUT', body: JSON.stringify(payload) }),
   teacherReports: (filters: { date?: string; note?: string } = {}) => request<{ reports: TeacherLessonReport[] }>(`/teacher-portal/teacher/reports?${new URLSearchParams(Object.entries(filters).filter(([, value]) => value).map(([key, value]) => [key, value || '']))}`),
   changeTeacherPassword: (password: string) => request<{ ok: boolean }>('/teacher-portal/teacher/password', { method: 'POST', body: JSON.stringify({ password }) }),
   teacherSheets: () => request<{ sheets: TeacherSheetConfig[] }>('/teacher-portal/teacher/sheets'),
