@@ -145,9 +145,16 @@ async function reportRows(client, schoolId, filters = {}, teacherId = null) {
   const records = (await client.query(`SELECT lesson_session_id AS "sessionId",student_id AS "studentId",student_name AS name,
       grade_value AS grade,classroom_value AS classroom,attendance_status AS status,note
       FROM teacher_lesson_student_records WHERE school_id=$1 AND lesson_session_id=ANY($2::uuid[]) ORDER BY student_name`, [schoolId, ids])).rows
+  const requestedStudentId = String(filters.studentId || '')
   const grouped = new Map()
-  for (const row of records) grouped.set(row.sessionId, [...(grouped.get(row.sessionId) || []), row])
-  return sessions.map(row => ({ ...row, weekday: Number(row.weekday), periodNumber: Number(row.periodNumber), studentsCount: Number(row.studentsCount), presentCount: Number(row.presentCount), absentCount: Number(row.absentCount), records: grouped.get(row.id) || [] }))
+  for (const row of records) {
+    if (requestedStudentId && row.studentId !== requestedStudentId) continue
+    grouped.set(row.sessionId, [...(grouped.get(row.sessionId) || []), row])
+  }
+  return sessions.map(row => {
+    const sessionRecords = grouped.get(row.id) || []
+    return { ...row, weekday: Number(row.weekday), periodNumber: Number(row.periodNumber), studentsCount: requestedStudentId ? sessionRecords.length : Number(row.studentsCount), presentCount: requestedStudentId ? sessionRecords.filter(record => record.status === 'present').length : Number(row.presentCount), absentCount: requestedStudentId ? sessionRecords.filter(record => record.status === 'absent').length : Number(row.absentCount), records: sessionRecords }
+  })
 }
 
 function teacherAccountSummary(row) {
