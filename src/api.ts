@@ -215,6 +215,7 @@ export const api = {
   changeTeacherPassword: (password: string) => request<{ ok: boolean }>('/teacher-portal/teacher/password', { method: 'POST', body: JSON.stringify({ password }) }),
   teacherSheets: () => request<{ sheets: TeacherSheetSubject[] }>('/teacher-portal/teacher/sheets'),
   saveTeacherSheetConfig: (subjectName: string, sheetType: TeacherSheetType, columns: TeacherSheetColumn[]) => request<{ config: TeacherSheetConfig }>('/teacher-portal/teacher/sheets/config', { method: 'PUT', body: JSON.stringify({ subjectName, sheetType, columns }) }),
+  deleteTeacherSheetConfig: (subjectName: string, sheetType: TeacherSheetType) => request<{ ok: boolean }>(`/teacher-portal/teacher/sheets/config?subjectName=${encodeURIComponent(subjectName)}&sheetType=${sheetType}`, { method: 'DELETE' }),
   teacherAdminOverview: () => request<TeacherAdminOverview>('/teacher-portal/admin/overview'),
   teacherAdminCredentials: () => request<{ credentials: Array<{ teacherId: string; name: string; identityNumber: string; temporaryPassword: string }> }>('/teacher-portal/admin/credentials'),
   teacherMappingOptions: () => request<{ options: Array<{ grade: string; classroom: string; count: number }> }>('/teacher-portal/admin/mapping-options'),

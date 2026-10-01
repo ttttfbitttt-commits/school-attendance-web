@@ -241,8 +241,10 @@ export async function migrateTeacherPortal(adminPool) {
       UNIQUE (school_id, teacher_id, subject_name, version)
     );
     ALTER TABLE teacher_sheet_configs ADD COLUMN IF NOT EXISTS sheet_type text NOT NULL DEFAULT 'followup';
+    ALTER TABLE teacher_sheet_configs ADD COLUMN IF NOT EXISTS active boolean NOT NULL DEFAULT true;
     UPDATE teacher_sheet_configs SET sheet_type='followup' WHERE sheet_type IS NULL OR sheet_type='custom';
     ALTER TABLE teacher_sheet_configs DROP CONSTRAINT IF EXISTS teacher_sheet_configs_school_id_teacher_id_subject_name_version_key;
+    ALTER TABLE teacher_sheet_configs DROP CONSTRAINT IF EXISTS teacher_sheet_configs_school_id_teacher_id_subject_name_ver_key;
     CREATE UNIQUE INDEX IF NOT EXISTS teacher_sheet_configs_subject_type_version ON teacher_sheet_configs(school_id,teacher_id,subject_name,sheet_type,version);
     CREATE INDEX IF NOT EXISTS teacher_sheet_configs_current ON teacher_sheet_configs(school_id,teacher_id,subject_name,version DESC);
 
@@ -302,7 +304,7 @@ export async function handleTeacherPortalRequest(context) {
         FROM lesson_schedule_assignments WHERE school_id=$1 AND import_id=$2 AND teacher_id=$3
         AND subject_name IS NOT NULL AND btrim(subject_name) <> '' ORDER BY subject_name`, [user.school_id, active.id, user.teacher_id])).rows
       const configs = (await client.query(`SELECT DISTINCT ON (subject_name,sheet_type) id,subject_name AS subject,sheet_type AS "sheetType",version,columns,created_at AS "createdAt"
-        FROM teacher_sheet_configs WHERE school_id=$1 AND teacher_id=$2 ORDER BY subject_name,sheet_type,version DESC`, [user.school_id, user.teacher_id])).rows
+        FROM teacher_sheet_configs WHERE school_id=$1 AND teacher_id=$2 AND active=true ORDER BY subject_name,sheet_type,version DESC`, [user.school_id, user.teacher_id])).rows
       const bySubject = new Map()
       for (const config of configs) bySubject.set(config.subject, [...(bySubject.get(config.subject) || []), { ...config, version: Number(config.version) }])
       return subjects.map(subject => ({ subject: subject.subject, configs: bySubject.get(subject.subject) || [] }))
@@ -332,6 +334,17 @@ export async function handleTeacherPortalRequest(context) {
     })
     if (result.error) { json(res, result.error === 'subject_not_assigned' ? 403 : 409, result); return true }
     json(res, 200, result)
+    return true
+  }
+
+  if (req.method === 'DELETE' && url.pathname === '/api/teacher-portal/teacher/sheets/config') {
+    if (!teacherOnly()) { json(res, 403, { error: 'forbidden' }); return true }
+    const subject = clean(url.searchParams.get('subjectName'), 200)
+    const sheetType = validSheetType(url.searchParams.get('sheetType'))
+    if (!subject || !sheetType) { json(res, 400, { error: 'invalid_sheet_config' }); return true }
+    await scoped(user.school_id, client => client.query(`UPDATE teacher_sheet_configs SET active=false
+      WHERE school_id=$1 AND teacher_id=$2 AND subject_name=$3 AND sheet_type=$4 AND active=true`, [user.school_id, user.teacher_id, subject, sheetType]))
+    json(res, 200, { ok: true })
     return true
   }
 
@@ -380,7 +393,7 @@ export async function handleTeacherPortalRequest(context) {
       }
       const requestedTypes = sheetType === 'combined' ? [...SHEET_TYPES] : [sheetType]
       const configResult = await client.query(`SELECT DISTINCT ON (sheet_type) id,subject_name AS subject,sheet_type AS "sheetType",version,columns,created_at AS "createdAt"
-        FROM teacher_sheet_configs WHERE school_id=$1 AND teacher_id=$2 AND subject_name=$3 AND sheet_type=ANY($4::text[]) ORDER BY sheet_type,version DESC`, [user.school_id, user.teacher_id, assignment.rows[0].subject || '', requestedTypes])
+        FROM teacher_sheet_configs WHERE school_id=$1 AND teacher_id=$2 AND subject_name=$3 AND sheet_type=ANY($4::text[]) AND active=true ORDER BY sheet_type,version DESC`, [user.school_id, user.teacher_id, assignment.rows[0].subject || '', requestedTypes])
       const sheetConfigs = configResult.rows.map(config => ({ ...config, version: Number(config.version) })).sort((left, right) => requestedTypes.indexOf(left.sheetType) - requestedTypes.indexOf(right.sheetType))
       const sheetConfig = sheetConfigs[0] || null
       const saved = await client.query(`SELECT r.student_id AS "studentId",r.attendance_status AS status,r.note FROM teacher_lesson_sessions s
@@ -423,7 +436,7 @@ export async function handleTeacherPortalRequest(context) {
       if (!roster.mapping) return { error: 'classroom_student_mapping_needed' }
       const requestedTypes = sheetType === 'combined' ? [...SHEET_TYPES] : [sheetType]
       const configResult = await client.query(`SELECT id,sheet_type AS "sheetType",columns FROM teacher_sheet_configs
-        WHERE school_id=$1 AND teacher_id=$2 AND subject_name=$3 AND sheet_type=ANY($4::text[]) ORDER BY version DESC`, [user.school_id, user.teacher_id, assignment.rows[0].subject || '', requestedTypes])
+        WHERE school_id=$1 AND teacher_id=$2 AND subject_name=$3 AND sheet_type=ANY($4::text[]) AND active=true ORDER BY version DESC`, [user.school_id, user.teacher_id, assignment.rows[0].subject || '', requestedTypes])
       const sheetConfigs = []
       for (const config of configResult.rows) if (!sheetConfigs.some(item => item.sheetType === config.sheetType)) sheetConfigs.push(config)
       const sheetConfig = sheetConfigs[0] || null
