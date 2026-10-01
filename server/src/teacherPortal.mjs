@@ -363,7 +363,9 @@ export async function handleTeacherPortalRequest(context) {
     const subject = clean(url.searchParams.get('subjectName'), 200)
     const classroomId = String(url.searchParams.get('classroomId') || '')
     const sheetType = validSheetType(url.searchParams.get('sheetType'))
-    if (!subject || !validId(classroomId) || !sheetType) { json(res, 400, { error: 'invalid_sheet_report' }); return true }
+    const from = validDate(url.searchParams.get('from'))
+    const to = validDate(url.searchParams.get('to'))
+    if (!subject || !validId(classroomId) || !sheetType || (from && to && from > to)) { json(res, 400, { error: 'invalid_sheet_report' }); return true }
     const result = await scoped(user.school_id, async client => {
       const active = await activeImport(client, user.school_id)
       if (!active) return { error: 'schedule_not_imported' }
@@ -376,7 +378,8 @@ export async function handleTeacherPortalRequest(context) {
       const roster = await rosterForClassroom(client, user.school_id, classroomId)
       const entries = (await client.query(`SELECT e.student_id AS "studentId",e.values,e.updated_at AS "updatedAt"
         FROM teacher_sheet_entries e WHERE e.school_id=$1 AND e.config_id=$2 AND e.assignment_id=ANY($3::uuid[])
-        ORDER BY e.updated_at DESC`, [user.school_id, config.id, assignments.map(row => row.id)])).rows
+        AND ($4::date IS NULL OR e.entry_date >= $4::date) AND ($5::date IS NULL OR e.entry_date <= $5::date)
+        ORDER BY e.updated_at DESC`, [user.school_id, config.id, assignments.map(row => row.id), from, to])).rows
       const values = new Map()
       for (const entry of entries) if (!values.has(entry.studentId)) values.set(entry.studentId, entry.values || {})
       return { subject, sheetType, version: Number(config.version), columns: config.columns, classroomId, classroom: roster.mapping?.classroom || '', grade: roster.mapping?.grade || '', students: roster.students.map(student => ({ ...student, values: values.get(student.id) || {} })) }
