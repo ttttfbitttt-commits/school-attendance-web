@@ -10,6 +10,8 @@ function cleanText(value, max = 300) {
   return String(value ?? '').replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max)
 }
 
+function validId(value) { return /^[0-9a-f-]{36}$/i.test(String(value || '')) }
+
 function normalizeName(value) {
   return cleanText(value, 300)
     .normalize('NFKC')
