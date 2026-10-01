@@ -4610,3 +4610,74 @@ tbody td {
   .teacher-summary-cards { grid-template-columns:1fr; gap:9px; }.teacher-summary-cards button { min-height:104px; grid-template-columns:auto 1fr auto; grid-template-rows:auto auto; align-items:center; column-gap:11px; }.teacher-summary-cards button svg { grid-row:1 / 3; }.teacher-summary-cards button span { font-size:14px; }.teacher-summary-cards button strong { grid-column:3; grid-row:1 / 3; font-size:25px; }.teacher-summary-cards button small { grid-column:2; }.teacher-export-actions { width:100%; }.teacher-export-actions button { flex:1; justify-content:center; }
 }
 .teacher-roster-table th.teacher-sheet-section-head { text-align:center; background:#dbeafe; }
+
+@media (max-width: 720px) {
+  .teacher-portal { display:block; width:100%; min-height:100vh; padding:calc(62px + env(safe-area-inset-top)) 12px calc(24px + env(safe-area-inset-bottom)); overflow-x:hidden; }
+  .teacher-workspace { width:100%; min-width:0; }
+  .teacher-mobile-nav-button { display:grid; place-items:center; position:fixed; z-index:60; top:calc(10px + env(safe-area-inset-top)); right:12px; width:42px; height:42px; }
+  .teacher-sidebar { position:fixed; z-index:80; top:0; right:0; bottom:0; width:min(300px,88vw); min-height:0; border-radius:0 0 0 16px; padding:calc(18px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom)); transform:translateX(105%); transition:transform .2s ease; }
+  .teacher-sidebar.open { transform:translateX(0); }
+  .teacher-sidebar-close { display:grid; place-items:center; margin-right:auto; width:36px; height:36px; }
+  .teacher-sidebar-backdrop { display:block; position:fixed; z-index:70; inset:0; background:rgba(15,35,52,.38); }
+  .teacher-topbar { min-height:40px; margin:0 0 12px; padding:0; align-items:center; }
+  .teacher-topbar h1 { font-size:22px; line-height:1.35; }
+  .teacher-topbar span { font-size:11px; }
+  .teacher-welcome,.teacher-card,.teacher-security-card,.teacher-admin-card,.teacher-admin-head { width:100%; min-width:0; padding:14px; margin-bottom:12px; border-radius:14px; }
+  .teacher-welcome { align-items:stretch; flex-direction:column; gap:12px; }
+  .teacher-welcome>div { min-width:0; align-items:flex-start; }
+  .teacher-welcome>div>div { min-width:0; overflow-wrap:anywhere; }
+  .teacher-welcome small { line-height:1.6; }
+  .teacher-welcome label,.teacher-welcome input { width:100%; }
+  .teacher-section-head,.teacher-admin-head { align-items:flex-start; gap:10px; }
+  .teacher-section-head h2 { font-size:18px; line-height:1.45; }
+  .teacher-section-head>div { min-width:0; }
+  .teacher-section-head>svg { width:23px; height:23px; }
+  .teacher-schedule-grid { grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+  .teacher-schedule-card { min-width:0; min-height:100px; padding:11px; font-size:13px; overflow-wrap:anywhere; }
+  .teacher-summary-cards,.teacher-report-menu,.teacher-sheet-menu { grid-template-columns:1fr; gap:9px; }
+  .teacher-summary-cards button { min-height:92px; padding:12px; }
+  .teacher-report-menu button,.teacher-sheet-menu button { min-height:90px; padding:12px; border-radius:11px; }
+  .teacher-report-menu button { grid-template-columns:28px minmax(0,1fr); justify-items:start; text-align:right; column-gap:10px; }
+  .teacher-report-menu button svg { grid-row:1 / 3; }
+  .teacher-report-menu button small { grid-column:2; text-align:right; }
+  .teacher-sheet-selectors,.teacher-password-form { grid-template-columns:minmax(0,1fr); gap:10px; }
+  .teacher-sheet-selectors select,.teacher-password-form input { width:100%; min-width:0; min-height:44px; }
+  .teacher-sheet-subjects,.teacher-sheet-type-tabs { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
+  .teacher-sheet-subjects button,.teacher-sheet-type-tabs>button:not(.danger-sheet-button) { min-width:0; width:100%; padding:10px; }
+  .teacher-sheet-setup-head,.teacher-sheet-delete-row { align-items:stretch; flex-direction:column; }
+  .teacher-sheet-actions,.teacher-export-actions { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); width:100%; }
+  .teacher-sheet-actions>* { width:100%; justify-content:center; }
+  .teacher-report-filters { align-items:stretch; flex-direction:column; gap:10px; }
+  .teacher-report-filters label,.teacher-report-filters input { width:100%; }
+  .teacher-report-actions { display:flex; flex-wrap:wrap; justify-content:stretch; gap:8px; }
+  .teacher-report-actions>* { flex:1 1 100px; min-height:42px; justify-content:center; }
+  .teacher-roster-table-wrap { width:100%; max-width:100%; overflow-x:auto; overscroll-behavior-x:contain; -webkit-overflow-scrolling:touch; }
+  .teacher-roster-table { width:max-content; min-width:660px; }
+  .teacher-roster-table thead { display:table-header-group; }
+  .teacher-roster-table tbody { display:table-row-group; }
+  .teacher-roster-table tr { display:table-row; padding:0; }
+  .teacher-roster-table th,.teacher-roster-table td { display:table-cell; width:auto; padding:9px 8px; white-space:nowrap; }
+  .teacher-roster-table td::before { display:none; }
+  .teacher-roster-table select { min-width:120px; max-width:none; }
+  .teacher-sheet-roster .teacher-roster-table { min-width:760px; }
+  .teacher-report-list article { min-width:0; align-items:flex-start; flex-direction:column; gap:8px; padding:11px; }
+  .teacher-report-list article>div:first-child { min-width:0; overflow-wrap:anywhere; }
+  .teacher-admin-tabs { display:grid; grid-template-columns:1fr; }
+  .teacher-admin-tools { align-items:stretch; flex-direction:column; }
+  .teacher-account-list article { grid-template-columns:auto minmax(0,1fr); gap:8px; }
+  .teacher-account-list article>div { min-width:0; overflow-wrap:anywhere; }
+  .teacher-account-badge,.teacher-account-actions { grid-column:2; }
+  .teacher-account-actions { display:flex; flex-wrap:wrap; }
+  .teacher-account-actions button { flex:1 1 110px; }
+  .teacher-print-overlay { padding:calc(12px + env(safe-area-inset-top)) 8px calc(12px + env(safe-area-inset-bottom)); }
+  .teacher-print-preview { padding:12px; overflow-x:auto; }
+  .teacher-print-actions { flex-wrap:wrap; }
+}
+
+@media (max-width: 380px) {
+  .teacher-portal { padding-right:9px; padding-left:9px; }
+  .teacher-card,.teacher-welcome,.teacher-security-card { padding:11px; }
+  .teacher-schedule-grid { grid-template-columns:1fr; }
+  .teacher-sheet-subjects,.teacher-sheet-type-tabs { grid-template-columns:1fr; }
+  .teacher-topbar h1 { font-size:20px; }
+}
