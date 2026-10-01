@@ -70,6 +70,8 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
   const savePassword = async () => {
     if (password.length < 8 || password !== passwordConfirm) { setError('اكتب كلمة مرور من 8 أحرف على الأقل، وتأكد من تطابقها.'); return }
     setBusy('password')
+    setError('')
+    setNotice('')
     try {
       await api.changeTeacherPassword(password)
       setPassword('')
