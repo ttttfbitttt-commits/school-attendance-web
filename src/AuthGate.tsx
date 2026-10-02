@@ -110,7 +110,7 @@ export function AuthGate({ children }: { children: (account: Account, logout: ()
     </div>
     <form key={teacher ? 'teacher-login' : registering ? 'school-registration' : 'school-login'} onSubmit={submit} autoComplete="on">
       {teacher ? <>
-        <label><UserRound size={16} /> رقم الهوية<input name="teacherIdentityNumber" inputMode="numeric" autoComplete="off" required /></label>
+        <label><UserRound size={16} /> رقم الهوية<input name="teacherIdentityNumber" type="tel" inputMode="numeric" autoComplete="off" required /></label>
         <label><LockKeyhole size={16} /> كلمة المرور<input name="teacherPassword" type="password" autoComplete="section-teacher current-password" minLength={8} required /></label>
         {schoolChoices.length > 0 && <label>المدرسة<select value={selectedSchoolId} onChange={event => setSelectedSchoolId(event.target.value)}>{schoolChoices.map(school => <option key={school.id} value={school.id}>{school.name}</option>)}</select></label>}
       </> : <>
