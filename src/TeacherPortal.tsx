@@ -336,7 +336,7 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
     {mobileNavOpen && <button type="button" className="teacher-sidebar-backdrop" onClick={() => setMobileNavOpen(false)} aria-label="إغلاق القائمة" />}
     <div className="teacher-workspace">
     <header className="teacher-topbar">
-      <div><span>بوابة المعلم</span><h1>{dashboard?.schoolName || 'نظام حصر الطلاب'}</h1></div>
+      <div><span>بوابة المعلم</span><h1>{dashboard?.schoolName || 'نظام الحصر'}</h1></div>
     </header>
     <section className="teacher-welcome">
       <div><UserRound size={27} /><div><strong>{dashboard?.teacher.name || account.displayName}</strong><small>يعرض هذا الحساب جدولك وطلاب فصولك فقط.</small></div></div>

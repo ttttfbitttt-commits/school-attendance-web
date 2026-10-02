@@ -101,10 +101,10 @@ export function AuthGate({ children }: { children: (account: Account, logout: ()
   const teacher = mode === 'teacher'
   return <main className="auth-page" dir="rtl"><section className="auth-card">
     <div className="auth-icon"><School size={30} /></div>
-    <h1>{teacher ? 'بوابة المعلم' : 'نظام حصر الطلاب'}</h1>
+    <h1>{teacher ? 'بوابة المعلم' : 'نظام الحصر'}</h1>
     <p>{teacher ? 'ادخل برقم الهوية وكلمة المرور التي سلّمتها لك إدارة مدرستك.' : 'بيانات كل مدرسة محفوظة في مساحة مستقلة وآمنة.'}</p>
     <div className="auth-tabs auth-tabs-three">
-      <button className={mode === 'admin' && !registering ? 'active' : ''} type="button" onClick={() => { setMode('admin'); setRegistering(false); setRegistrationSent(false); setSchoolChoices([]); setSelectedSchoolId(''); setError('') }}>دخول الإدارة</button>
+      <button className={mode === 'admin' && !registering ? 'active' : ''} type="button" onClick={() => { setMode('admin'); setRegistering(false); setRegistrationSent(false); setSchoolChoices([]); setSelectedSchoolId(''); setError('') }}>دخول المدرسة</button>
       <button className={mode === 'teacher' ? 'active' : ''} type="button" onClick={() => { setMode('teacher'); setRegistering(false); setRegistrationSent(false); setSchoolChoices([]); setSelectedSchoolId(''); setError('') }}>دخول المعلم</button>
       <button className={mode === 'admin' && registering ? 'active' : ''} type="button" onClick={() => { setMode('admin'); setRegistering(true); setRegistrationSent(false); setSchoolChoices([]); setSelectedSchoolId(''); setError('') }}>تسجيل مدرسة</button>
     </div>

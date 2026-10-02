@@ -1393,7 +1393,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
               <img src={`${import.meta.env.BASE_URL}attendance-system-logo.svg`} alt="" />
             </span>
             <div>
-              <strong>نظام حصر الطلاب</strong>
+              <strong>نظام الحصر</strong>
               <small>برمجة الأستاذ: تركي العبدالعزيز</small>
             </div>
           </div>
