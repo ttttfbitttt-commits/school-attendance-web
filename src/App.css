@@ -4751,3 +4751,13 @@ tbody td {
   .teacher-sheet-roster .teacher-roster-table select,.teacher-sheet-roster .teacher-roster-table input[type="number"] { box-sizing:border-box; width:100%; min-width:0; max-width:100%; padding:4px 2px; font-size:10px; }
   .teacher-sheet-roster .teacher-roster-table input[type="checkbox"] { width:17px; height:17px; }
 }
+
+@media (max-width: 720px), (max-width: 950px) and (orientation: landscape) {
+  .teacher-sheet-setup { width:100%; min-width:0; grid-template-columns:minmax(0,1fr); }
+  .teacher-sheet-columns { width:100%; min-width:0; grid-template-columns:minmax(0,1fr); }
+  .teacher-sheet-column-row { width:100%; min-width:0; box-sizing:border-box; grid-template-columns:minmax(0,1fr) 40px; grid-template-areas:"name name" "type delete" "extra extra"; gap:7px; padding:9px; border:1px solid #dce7ef; border-radius:10px; background:#fff; }
+  .teacher-sheet-column-row input:first-child { grid-area:name; width:100%; min-width:0; box-sizing:border-box; }
+  .teacher-sheet-column-row select { grid-area:type; width:100%; min-width:0; box-sizing:border-box; }
+  .teacher-sheet-column-row .teacher-sheet-score-input,.teacher-sheet-column-row input[placeholder] { grid-area:extra; width:100%; min-width:0; box-sizing:border-box; }
+  .teacher-sheet-column-row .icon-button { grid-area:delete; justify-self:stretch; align-self:stretch; width:40px; height:42px; }
+}
