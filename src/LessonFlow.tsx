@@ -386,18 +386,29 @@ export function LessonFlowCenter({ schoolName }: { schoolName: string }) {
     setIncidents(data.incidents)
   }
 
-  const loadTeacherDayAbsences = async () => {
-    const data = await api.teacherDayAbsences()
+  const loadTeacherDayAbsences = async (date = incidentDate) => {
+    const data = await api.teacherDayAbsences(date)
     setTeacherDayAbsences(data.teachers)
     return data
+  }
+
+  const changeIncidentDate = (date: string) => {
+    setIncidentDate(date)
+    setTeacherDayAbsences([])
+    setPendingAbsentTeacherIds(null)
+    setSelectedAbsentTeacherIds(new Set())
+    setTeacherAbsenceSearch('')
   }
 
   useEffect(() => {
     void loadOverview().catch(err => setError(err.message || 'تعذر تحميل سير الحصص.'))
     void loadIncidents().catch(() => undefined)
-    void loadTeacherDayAbsences().catch(() => undefined)
     return () => stopCamera()
   }, [])
+
+  useEffect(() => {
+    void loadTeacherDayAbsences(incidentDate).catch(() => undefined)
+  }, [incidentDate])
 
   useEffect(() => {
     if (!selectedClassroomId) return
@@ -414,7 +425,7 @@ export function LessonFlowCenter({ schoolName }: { schoolName: string }) {
       setNotice(message)
       await loadOverview()
       await loadIncidents()
-      await loadTeacherDayAbsences()
+      await loadTeacherDayAbsences(incidentDate)
     } catch (err) {
       const message = err instanceof Error ? err.message : ''
       const apiError = err as Error & { data?: { classroomId?: string; periodNumber?: number; date?: string } }
@@ -671,8 +682,8 @@ export function LessonFlowCenter({ schoolName }: { schoolName: string }) {
     setError('')
     if (!opening) return
     setBusy('teacher-day-absence-list')
-    void loadTeacherDayAbsences()
-      .catch(() => setError('تعذر تحميل سجل غياب المعلمين اليوم. اضغط «تحديث السجل» للمحاولة مرة أخرى.'))
+    void loadTeacherDayAbsences(incidentDate)
+      .catch(() => setError('تعذر تحميل سجل غياب المعلمين للتاريخ المحدد. اضغط «تحديث السجل» للمحاولة مرة أخرى.'))
       .finally(() => setBusy(''))
   }
 
@@ -680,9 +691,9 @@ export function LessonFlowCenter({ schoolName }: { schoolName: string }) {
     setBusy('teacher-day-absence-list')
     setError('')
     try {
-      await loadTeacherDayAbsences()
+      await loadTeacherDayAbsences(incidentDate)
     } catch {
-      setError('تعذر تحميل سجل غياب المعلمين اليوم.')
+      setError('تعذر تحميل سجل غياب المعلمين للتاريخ المحدد.')
     } finally {
       setBusy('')
     }
@@ -700,21 +711,21 @@ export function LessonFlowCenter({ schoolName }: { schoolName: string }) {
   const saveTeacherDayAbsences = async () => {
     if (!pendingAbsentTeacherIds?.length) return
     await run('teacher-day-absences', async () => {
-      const result = await api.addTeacherDayAbsences(pendingAbsentTeacherIds)
+      const result = await api.addTeacherDayAbsences(pendingAbsentTeacherIds, incidentDate)
       setTeacherDayAbsences(result.teachers)
       setPendingAbsentTeacherIds(null)
       setSelectedAbsentTeacherIds(new Set())
       setTeacherAbsenceSearch('')
-      return result.added ? `تم تسجيل غياب ${result.added} معلم لهذا اليوم.` : 'المعلمون المحددون مسجلون غائبين لهذا اليوم مسبقاً.'
+      return result.added ? `تم تسجيل غياب ${result.added} معلم للتاريخ المحدد.` : 'المعلمون المحددون مسجلون غائبين في التاريخ المحدد مسبقًا.'
     })
   }
 
   const removeTeacherDayAbsence = async (teacher: TeacherDayAbsence) => {
-    if (!window.confirm(`هل حضر ${teacher.name} وتريد إزالة تسجيل غيابه لهذا اليوم؟`)) return
+    if (!window.confirm(`هل تريد إزالة تسجيل غياب ${teacher.name} في التاريخ المحدد؟`)) return
     await run(`remove-day-absence-${teacher.teacherId}`, async () => {
-      const result = await api.removeTeacherDayAbsence(teacher.teacherId)
+      const result = await api.removeTeacherDayAbsence(teacher.teacherId, incidentDate)
       if (result.removed) setTeacherDayAbsences(current => current.filter(item => item.teacherId !== teacher.teacherId))
-      return result.removed ? `تمت إزالة ${teacher.name} من سجل الغياب لهذا اليوم.` : 'لم يعد هذا المعلم مسجلاً غائباً لهذا اليوم.'
+      return result.removed ? `تمت إزالة ${teacher.name} من سجل الغياب للتاريخ المحدد.` : 'لم يعد هذا المعلم مسجلاً غائبًا في التاريخ المحدد.'
     })
   }
 
@@ -857,22 +868,23 @@ export function LessonFlowCenter({ schoolName }: { schoolName: string }) {
           <div className="lesson-camera-card">
             <div><span className="panel-kicker">تصوير الباركود</span><h3>توجيه مساءلة حسب الحصة الحالية</h3></div>
             <div className="feature-actions">
-              <button type="button" className="secondary-button" onClick={openTeacherDayAbsencePanel} disabled={!!busy}>تسجيل غياب معلم اليوم{teacherDayAbsences.length ? ` (${teacherDayAbsences.length})` : ''}</button>
+              <button type="button" className="secondary-button" onClick={openTeacherDayAbsencePanel} disabled={!!busy}>تسجيل غياب معلم{teacherDayAbsences.length ? ` (${teacherDayAbsences.length})` : ''}</button>
               <button type="button" className="primary-button" onClick={() => void startCamera()} disabled={cameraOn || !!busy}><Camera size={16} /> رصد المعلم بالباركود</button>
               <button type="button" className="secondary-button" onClick={() => { setOpenLessonActionPanel(current => current === 'waiting-teacher' ? null : 'waiting-teacher'); setManualObservationError('') }} disabled={!!busy}><Search size={16} /> رصد المعلم المنتظر</button>
               <button type="button" className="secondary-button" onClick={() => void openCancellation()} disabled={!!busy}><XCircle size={16} /> إلغاء مساءلة</button>
             </div>
             {openLessonActionPanel === 'teacher-absence' && <section className="lesson-manual-form teacher-day-absence-form">
-              <div className="lesson-section-heading"><div><span className="panel-kicker">غياب اليوم</span><h3>تسجيل غياب المعلمين لهذا اليوم</h3><p>اختر معلماً أو أكثر. سيظهر تأكيد بالأسماء قبل الحفظ.</p></div><button type="button" className="icon-danger-button" onClick={() => { setOpenLessonActionPanel(null); setPendingAbsentTeacherIds(null) }} aria-label="إغلاق"><XCircle size={18} /></button></div>
+              <div className="lesson-section-heading"><div><span className="panel-kicker">غياب المعلمين</span><h3>تسجيل غياب المعلمين</h3><p>اختر تاريخ السجل ثم معلماً أو أكثر. سيظهر تأكيد بالأسماء قبل الحفظ.</p></div><button type="button" className="icon-danger-button" onClick={() => { setOpenLessonActionPanel(null); setPendingAbsentTeacherIds(null) }} aria-label="إغلاق"><XCircle size={18} /></button></div>
+              <div className="teacher-absence-date"><HijriDatePicker label="تاريخ سجل الغياب" value={incidentDate} max={todayRiyadh()} onChange={changeIncidentDate} /></div>
               {!pendingAbsentTeacherIds && <>
                 <label className="teacher-absence-search">ابحث باسم المعلم أو رقم هويته<input value={teacherAbsenceSearch} onChange={event => setTeacherAbsenceSearch(event.target.value)} placeholder="ابدأ بكتابة اسم المعلم..." /></label>
                 {teacherAbsenceMatches.length > 0 && <div className="teacher-absence-suggestions">{teacherAbsenceMatches.map(teacher => <label key={teacher.id}><input type="checkbox" checked={selectedAbsentTeacherIds.has(teacher.id)} onChange={() => toggleAbsentTeacherSelection(teacher.id)} /><span>{teacher.name}<small>{teacher.identityNumber}</small></span></label>)}</div>}
-                {teacherAbsenceSearch.trim() && !teacherAbsenceMatches.length && <p className="lesson-empty">لا توجد أسماء مطابقة غير مسجلة غائبة اليوم.</p>}
+                {teacherAbsenceSearch.trim() && !teacherAbsenceMatches.length && <p className="lesson-empty">لا توجد أسماء مطابقة غير مسجلة غائبة في هذا التاريخ.</p>}
                 {selectedAbsentTeachers.length > 0 && <p className="lesson-time-hint">المحددون: {selectedAbsentTeachers.map(teacher => teacher.name).join('، ')}</p>}
                 <div className="feature-actions"><button type="button" className="primary-button" onClick={reviewTeacherDayAbsences} disabled={!selectedAbsentTeachers.length || !!busy}><CheckCircle2 size={16} /> مراجعة الأسماء</button></div>
               </>}
-              {pendingAbsentTeacherIds && <div className="teacher-absence-confirm"><strong>تأكيد تسجيل الغياب طوال اليوم</strong><p>سيُمنع توجيه مساءلة للمعلمين التاليين عند مسح فصولهم، ويمكن إزالة أي اسم إذا حضر.</p><ul>{pendingAbsentTeachers.map(teacher => <li key={teacher.id}>{teacher.name} · {teacher.identityNumber}</li>)}</ul><div className="feature-actions"><button type="button" className="primary-button" onClick={() => void saveTeacherDayAbsences()} disabled={!!busy}>{busy === 'teacher-day-absences' ? 'جارٍ الحفظ…' : 'تأكيد تسجيل الغياب'}</button><button type="button" className="secondary-button" onClick={() => setPendingAbsentTeacherIds(null)} disabled={!!busy}>إلغاء</button></div></div>}
-              <div className="teacher-day-absence-list"><div className="teacher-day-absence-list-head"><h4>سجل غياب المعلمين اليوم · {formatHijriDate(todayRiyadh())}</h4><button type="button" className="outline-button" onClick={() => void refreshTeacherDayAbsences()} disabled={!!busy}>{busy === 'teacher-day-absence-list' ? 'جارٍ التحديث…' : 'تحديث السجل'}</button></div>{teacherDayAbsences.length ? teacherDayAbsences.map(teacher => <div key={teacher.teacherId}><span><strong>{teacher.name}</strong><small>{teacher.identityNumber}</small></span><button type="button" className="outline-button" onClick={() => void removeTeacherDayAbsence(teacher)} disabled={!!busy}>حضر المعلم · إزالة من السجل</button></div>) : <p className="teacher-day-absence-empty">لا يوجد معلم مسجل غائبًا اليوم.</p>}</div>
+              {pendingAbsentTeacherIds && <div className="teacher-absence-confirm"><strong>تأكيد تسجيل الغياب للتاريخ المحدد</strong><p>يمكن إزالة أي اسم من السجل إذا حضر المعلم أو احتاج الغياب إلى تصحيح.</p><ul>{pendingAbsentTeachers.map(teacher => <li key={teacher.id}>{teacher.name} · {teacher.identityNumber}</li>)}</ul><div className="feature-actions"><button type="button" className="primary-button" onClick={() => void saveTeacherDayAbsences()} disabled={!!busy}>{busy === 'teacher-day-absences' ? 'جارٍ الحفظ…' : 'تأكيد تسجيل الغياب'}</button><button type="button" className="secondary-button" onClick={() => setPendingAbsentTeacherIds(null)} disabled={!!busy}>إلغاء</button></div></div>}
+              <div className="teacher-day-absence-list"><div className="teacher-day-absence-list-head"><h4>سجل غياب المعلمين · {formatHijriDate(incidentDate)}</h4><button type="button" className="outline-button" onClick={() => void refreshTeacherDayAbsences()} disabled={!!busy}>{busy === 'teacher-day-absence-list' ? 'جارٍ التحديث…' : 'تحديث السجل'}</button></div>{teacherDayAbsences.length ? teacherDayAbsences.map(teacher => <div key={teacher.teacherId}><span><strong>{teacher.name}</strong><small>{teacher.identityNumber}</small></span><button type="button" className="outline-button" onClick={() => void removeTeacherDayAbsence(teacher)} disabled={!!busy}>حضر المعلم · إزالة من السجل</button></div>) : <p className="teacher-day-absence-empty">لا يوجد معلم مسجل غائبًا في هذا التاريخ.</p>}</div>
             </section>}
             {openLessonActionPanel === 'waiting-teacher' && <section className="lesson-manual-form">
               <div className="lesson-section-heading">
@@ -880,7 +892,7 @@ export function LessonFlowCenter({ schoolName }: { schoolName: string }) {
                 <button type="button" className="icon-danger-button" onClick={() => setOpenLessonActionPanel(null)} aria-label="إغلاق"><XCircle size={18} /></button>
               </div>
               <div className="lesson-manual-fields">
-                <HijriDatePicker label="التاريخ الهجري" value={incidentDate} max={todayRiyadh()} onChange={setIncidentDate} />
+                <HijriDatePicker label="التاريخ الهجري" value={incidentDate} max={todayRiyadh()} onChange={changeIncidentDate} />
                 <label>الفصل<select value={manualClassroomId} onChange={event => setManualClassroomId(event.target.value)}><option value="">اختر الفصل</option>{overview?.classrooms.map(classroom => <option key={classroom.id} value={classroom.id}>{classroom.name}</option>)}</select></label>
                 <label>الحصة<select value={manualPeriodNumber} onChange={event => setManualPeriodNumber(event.target.value)}><option value="">اختر الحصة</option>{manualPeriods.map(slot => <option key={slot.periodNumber} value={slot.periodNumber}>الحصة {slot.periodNumber} · {slot.startTime} إلى {slot.endTime}</option>)}</select></label>
                 <label>ابحث عن المعلم<input value={teacherSearch} onChange={event => { setTeacherSearch(event.target.value); setManualObservationError('') }} placeholder="الاسم أو رقم الهوية" /></label>
@@ -928,7 +940,7 @@ export function LessonFlowCenter({ schoolName }: { schoolName: string }) {
           </div>
           <div className="lesson-incidents-side">
             <div className="lesson-toolbar">
-              <HijriDatePicker label="التاريخ الهجري" value={incidentDate} max={todayRiyadh()} onChange={setIncidentDate} />
+              <HijriDatePicker label="التاريخ الهجري" value={incidentDate} max={todayRiyadh()} onChange={changeIncidentDate} />
               <button className="secondary-button" type="button" onClick={() => void loadIncidents()}><Search size={16} /> عرض</button>
               <button className="secondary-button" type="button" onClick={() => setOpenLessonActionPanel(current => current === 'incident-history' ? null : 'incident-history')}>{openLessonActionPanel === 'incident-history' ? 'إخفاء السجل' : `عرض السجل (${incidents.length})`}</button>
             </div>

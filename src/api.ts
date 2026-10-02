@@ -198,9 +198,9 @@ export const api = {
   messages: (type?: MessageLog['type']) => request<{ messages: MessageLog[] }>(`/messages${type ? `?type=${encodeURIComponent(type)}` : ''}`),
   sendMessages: (payload: { studentIds: string[]; type: 'late' | 'absence' | 'general'; message?: string }) => request<{ ok: boolean; sent: number; failed: number }>('/messages/send', { method: 'POST', body: JSON.stringify(payload) }),
   lessonOverview: () => request<LessonFlowOverview>('/lesson-flow/overview'),
-  teacherDayAbsences: () => request<{ date: string; teachers: TeacherDayAbsence[] }>('/lesson-flow/teacher-day-absences'),
-  addTeacherDayAbsences: (teacherIds: string[]) => request<{ date: string; added: number; teachers: TeacherDayAbsence[] }>('/lesson-flow/teacher-day-absences', { method: 'POST', body: JSON.stringify({ teacherIds }) }),
-  removeTeacherDayAbsence: (teacherId: string) => request<{ ok: boolean; removed: number }>(`/lesson-flow/teacher-day-absences?teacherId=${encodeURIComponent(teacherId)}`, { method: 'DELETE' }),
+  teacherDayAbsences: (date = '') => request<{ date: string; teachers: TeacherDayAbsence[] }>(`/lesson-flow/teacher-day-absences${date ? `?date=${encodeURIComponent(date)}` : ''}`),
+  addTeacherDayAbsences: (teacherIds: string[], date = '') => request<{ date: string; added: number; teachers: TeacherDayAbsence[] }>('/lesson-flow/teacher-day-absences', { method: 'POST', body: JSON.stringify({ teacherIds, date }) }),
+  removeTeacherDayAbsence: (teacherId: string, date = '') => request<{ ok: boolean; removed: number }>(`/lesson-flow/teacher-day-absences?teacherId=${encodeURIComponent(teacherId)}${date ? `&date=${encodeURIComponent(date)}` : ''}`, { method: 'DELETE' }),
   importLessonTeachers: (teachers: Array<{ name: string; identityNumber: string; phone?: string }>) =>
     request<{ ok: boolean; imported: number; exactResolved: number }>('/lesson-flow/teachers', { method: 'POST', body: JSON.stringify({ teachers }) }),
   importLessonSchedule: (payload: {

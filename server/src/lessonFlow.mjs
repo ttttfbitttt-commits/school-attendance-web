@@ -331,7 +331,7 @@ export async function handleLessonFlowRequest(context) {
   }
 
   if (req.method === 'GET' && url.pathname === '/api/lesson-flow/teacher-day-absences') {
-    const date = riyadhClock().date
+    const date = validDate(url.searchParams.get('date')) || riyadhClock().date
     const result = await scoped(user.school_id, async client => (await client.query(`SELECT teacher_id AS "teacherId",teacher_name AS name,
         identity_number AS "identityNumber",to_char(absence_date,'YYYY-MM-DD') AS date
       FROM teacher_day_absences WHERE school_id=$1 AND absence_date=$2 ORDER BY teacher_name`, [user.school_id, date])).rows)
@@ -343,7 +343,7 @@ export async function handleLessonFlowRequest(context) {
     const input = await body(req)
     const teacherIds = Array.isArray(input.teacherIds) ? [...new Set(input.teacherIds.map(value => String(value || '')).filter(validId))].slice(0, 200) : []
     if (!teacherIds.length) { json(res, 400, { error: 'teacher_selection_required' }); return true }
-    const date = riyadhClock().date
+    const date = validDate(input.date) || riyadhClock().date
     const result = await scoped(user.school_id, async client => {
       const teachers = await client.query(`SELECT id,full_name AS name,identity_number AS "identityNumber"
         FROM lesson_teachers WHERE school_id=$1 AND active=true AND id=ANY($2::uuid[])`, [user.school_id, teacherIds])
@@ -365,7 +365,7 @@ export async function handleLessonFlowRequest(context) {
   if (req.method === 'DELETE' && url.pathname === '/api/lesson-flow/teacher-day-absences') {
     const teacherId = String(url.searchParams.get('teacherId') || '')
     if (!validId(teacherId)) { json(res, 400, { error: 'invalid_teacher' }); return true }
-    const date = riyadhClock().date
+    const date = validDate(url.searchParams.get('date')) || riyadhClock().date
     const result = await scoped(user.school_id, async client => client.query(
       'DELETE FROM teacher_day_absences WHERE school_id=$1 AND teacher_id=$2 AND absence_date=$3', [user.school_id, teacherId, date]))
     json(res, 200, { ok: true, removed: result.rowCount })
