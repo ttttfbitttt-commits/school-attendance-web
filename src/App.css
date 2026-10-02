@@ -4683,18 +4683,17 @@ tbody td {
 }
 
 @media (max-width: 720px) {
-  .teacher-roster-card .teacher-roster-table-wrap { overflow:visible; }
-  .teacher-roster-card .teacher-roster-table { display:block; width:100%; min-width:0; }
-  .teacher-roster-card .teacher-roster-table thead { display:none; }
-  .teacher-roster-card .teacher-roster-table tbody { display:grid; gap:8px; }
-  .teacher-roster-card .teacher-roster-table tr { display:grid; grid-template-columns:minmax(0,1fr); gap:4px; padding:10px 12px; border:1px solid #dce7ef; border-radius:10px; background:#fff; }
-  .teacher-roster-card .teacher-roster-table td { display:flex; width:100%; min-width:0; justify-content:space-between; align-items:center; gap:10px; padding:4px 0; white-space:normal; }
-  .teacher-roster-card .teacher-roster-table td:first-child { display:block; padding-bottom:8px; border-bottom:1px solid #e6eef4; }
-  .teacher-roster-card .teacher-roster-table td:nth-child(2)::before { content:'الحالة'; flex:0 0 auto; color:var(--muted); font-size:12px; }
-  .teacher-roster-card .teacher-roster-table td:nth-child(3)::before { content:'الملاحظة'; flex:0 0 auto; color:var(--muted); font-size:12px; }
-  .teacher-roster-card .teacher-status-toggle { flex-wrap:wrap; justify-content:flex-start; }
+  .teacher-roster-card .teacher-roster-table-wrap { overflow-x:auto; overflow-y:hidden; overscroll-behavior-x:contain; -webkit-overflow-scrolling:touch; }
+  .teacher-roster-card .teacher-roster-table { display:table; width:100%; min-width:680px; table-layout:auto; }
+  .teacher-roster-card .teacher-roster-table thead { display:table-header-group; }
+  .teacher-roster-card .teacher-roster-table tbody { display:table-row-group; }
+  .teacher-roster-card .teacher-roster-table tr { display:table-row; padding:0; border:0; background:transparent; }
+  .teacher-roster-card .teacher-roster-table th,.teacher-roster-card .teacher-roster-table td { display:table-cell; width:auto; padding:9px 10px; white-space:nowrap; }
+  .teacher-roster-card .teacher-roster-table td:first-child { display:table-cell; padding-bottom:9px; border-bottom:1px solid #e6eef4; }
+  .teacher-roster-card .teacher-roster-table td::before { display:none; content:none; }
+  .teacher-roster-card .teacher-status-toggle { flex-wrap:nowrap; }
   .teacher-roster-card .teacher-status-toggle button { min-height:40px; }
-  .teacher-roster-card .teacher-roster-table select { width:min(68%,260px); min-width:0; max-width:100%; min-height:40px; white-space:normal; }
+  .teacher-roster-card .teacher-roster-table select { width:auto; min-width:190px; max-width:none; min-height:40px; }
 }
 
 @media (max-width: 950px) and (orientation: landscape) {
@@ -4723,15 +4722,14 @@ tbody td {
   .teacher-report-filters { flex-direction:row; flex-wrap:wrap; }
   .teacher-report-filters label { flex:1 1 190px; }
   .teacher-report-actions { flex-wrap:wrap; }
-  .teacher-roster-card .teacher-roster-table-wrap { overflow:visible; }
-  .teacher-roster-card .teacher-roster-table { display:block; width:100%; min-width:0; }
-  .teacher-roster-card .teacher-roster-table thead { display:none; }
-  .teacher-roster-card .teacher-roster-table tbody { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:8px; }
-  .teacher-roster-card .teacher-roster-table tr { display:grid; grid-template-columns:minmax(0,1fr); gap:4px; padding:9px 11px; border:1px solid #dce7ef; border-radius:10px; background:#fff; }
-  .teacher-roster-card .teacher-roster-table td { display:flex; width:100%; min-width:0; justify-content:space-between; align-items:center; gap:8px; padding:3px 0; white-space:normal; }
-  .teacher-roster-card .teacher-roster-table td:first-child { display:block; padding-bottom:6px; border-bottom:1px solid #e6eef4; }
-  .teacher-roster-card .teacher-roster-table td:nth-child(2)::before { content:'الحالة'; flex:0 0 auto; color:var(--muted); font-size:11px; }
-  .teacher-roster-card .teacher-roster-table td:nth-child(3)::before { content:'الملاحظة'; flex:0 0 auto; color:var(--muted); font-size:11px; }
-  .teacher-roster-card .teacher-status-toggle { flex-wrap:wrap; }
-  .teacher-roster-card .teacher-roster-table select { width:min(70%,240px); min-width:0; max-width:100%; }
+  .teacher-roster-card .teacher-roster-table-wrap { overflow-x:auto; overflow-y:hidden; overscroll-behavior-x:contain; -webkit-overflow-scrolling:touch; }
+  .teacher-roster-card .teacher-roster-table { display:table; width:100%; min-width:680px; table-layout:auto; }
+  .teacher-roster-card .teacher-roster-table thead { display:table-header-group; }
+  .teacher-roster-card .teacher-roster-table tbody { display:table-row-group; }
+  .teacher-roster-card .teacher-roster-table tr { display:table-row; padding:0; border:0; background:transparent; }
+  .teacher-roster-card .teacher-roster-table th,.teacher-roster-card .teacher-roster-table td { display:table-cell; width:auto; padding:8px 9px; white-space:nowrap; }
+  .teacher-roster-card .teacher-roster-table td:first-child { display:table-cell; padding-bottom:8px; border-bottom:1px solid #e6eef4; }
+  .teacher-roster-card .teacher-roster-table td::before { display:none; content:none; }
+  .teacher-roster-card .teacher-status-toggle { flex-wrap:nowrap; }
+  .teacher-roster-card .teacher-roster-table select { width:auto; min-width:180px; max-width:none; }
 }
