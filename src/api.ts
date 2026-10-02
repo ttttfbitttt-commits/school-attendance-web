@@ -43,6 +43,8 @@ export type DetailedStudentReport = {
   to: string
   student: { studentId: string; name: string; grade: string; classroom: string; phone: string }
   summary: { schoolAbsenceDays: number; schoolLateDays: number }
+  subjects: Array<{ subject: string; teacherName: string; grade: string; classroomValue: string }>
+  grades: Array<{ date: string; subject: string; teacherName: string; grade: string; classroomValue: string; sheetType: TeacherSheetType; columns: TeacherSheetColumn[]; values: Record<string, string | number | boolean> }>
   lessons: Array<{ date: string; weekday: number; periodNumber: number; subject: string; teacherName: string; classroom: string; grade: string; classroomValue: string; status: 'present' | 'absent'; note: TeacherNote | '' }>
 }
 export type MessageLog = { id: string; studentId: string | null; studentName: string; recipient: string; senderName: string; type: 'late' | 'absence' | 'general' | 'test'; body: string; status: 'sent' | 'failed'; errorDetail: string; createdAt: string }

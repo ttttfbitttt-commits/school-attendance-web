@@ -738,6 +738,31 @@ export async function handleFeatureRequest(context) {
           (SELECT COUNT(DISTINCT absence_date)::int FROM absence_records WHERE school_id=$1 AND student_id=$2 AND absence_date BETWEEN $3 AND $4) AS "schoolAbsenceDays",
           (SELECT COUNT(DISTINCT attendance_date)::int FROM attendance_logs WHERE school_id=$1 AND student_id=$2 AND status='late' AND attendance_date BETWEEN $3 AND $4) AS "schoolLateDays"`,
       [user.school_id, studentId, range.from, range.to])
+      const subjects = await client.query(`SELECT a.subject_name AS subject,
+          COALESCE(NULLIF(t.full_name,''),NULLIF(a.raw_teacher_name,''),'') AS "teacherName",
+          m.grade_value AS grade,m.classroom_value AS "classroomValue",
+          ARRAY_AGG(DISTINCT a.id) AS "assignmentIds"
+        FROM teacher_classroom_student_maps m
+        JOIN lesson_schedule_imports i ON i.school_id=m.school_id AND i.is_active=true
+        JOIN lesson_schedule_assignments a ON a.school_id=m.school_id AND a.import_id=i.id AND a.classroom_id=m.classroom_id
+        LEFT JOIN lesson_teachers t ON t.school_id=a.school_id AND t.id=a.teacher_id
+        WHERE m.school_id=$1 AND m.grade_value=$3 AND m.classroom_value=$4
+        GROUP BY a.subject_name,COALESCE(NULLIF(t.full_name,''),NULLIF(a.raw_teacher_name,''),''),m.grade_value,m.classroom_value
+        ORDER BY a.subject_name,COALESCE(NULLIF(t.full_name,''),NULLIF(a.raw_teacher_name,''),'')`,
+      [user.school_id, studentId, student.rows[0].grade, student.rows[0].classroom])
+      const assignmentIds = subjects.rows.flatMap(subject => subject.assignmentIds)
+      const grades = assignmentIds.length ? await client.query(`SELECT
+          to_char(e.entry_date,'YYYY-MM-DD') AS date,a.subject_name AS subject,
+          COALESCE(NULLIF(t.full_name,''),NULLIF(a.raw_teacher_name,''),'') AS "teacherName",
+          c.sheet_type AS "sheetType",c.columns,e.values
+        FROM teacher_sheet_entries e
+        JOIN lesson_schedule_assignments a ON a.school_id=e.school_id AND a.id=e.assignment_id
+        JOIN teacher_sheet_configs c ON c.school_id=e.school_id AND c.id=e.config_id
+        LEFT JOIN lesson_teachers t ON t.school_id=e.school_id AND t.id=e.teacher_id
+        WHERE e.school_id=$1 AND e.student_id=$2 AND e.assignment_id=ANY($5::uuid[])
+          AND e.entry_date BETWEEN $3 AND $4
+        ORDER BY a.subject_name,"teacherName",c.sheet_type,e.entry_date DESC`,
+      [user.school_id, studentId, range.from, range.to, assignmentIds]) : { rows: [] }
       const lessons = await client.query(`SELECT
           to_char(s.session_date,'YYYY-MM-DD') AS date,s.weekday,s.period_number AS "periodNumber",
           s.subject_name AS subject,s.teacher_name AS "teacherName",s.classroom_name AS classroom,
@@ -747,7 +772,13 @@ export async function handleFeatureRequest(context) {
         WHERE r.school_id=$1 AND r.student_id=$2 AND s.session_date BETWEEN $3 AND $4
         ORDER BY s.subject_name,s.teacher_name,s.classroom_name,s.session_date DESC,s.period_number DESC`,
       [user.school_id, studentId, range.from, range.to])
-      return { student: student.rows[0], summary: summary.rows[0], lessons: lessons.rows }
+      return {
+        student: student.rows[0],
+        summary: summary.rows[0],
+        subjects: subjects.rows.map(subject => ({ subject: subject.subject, teacherName: subject.teacherName, grade: subject.grade, classroomValue: subject.classroomValue })),
+        grades: grades.rows.map(grade => ({ ...grade, grade: student.rows[0].grade, classroomValue: student.rows[0].classroom })),
+        lessons: lessons.rows,
+      }
     })
     if (!result) { json(res, 404, { error: 'student_not_found' }); return true }
     json(res, 200, { from: range.from, to: range.to, ...result })

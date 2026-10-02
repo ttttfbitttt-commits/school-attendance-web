@@ -2579,9 +2579,15 @@ tbody td {
 .student-detail-print label { flex:1; }
 .student-detail-subjects { display:grid; gap:12px; }
 .student-detail-subject { padding:13px; border:1px solid #dbe5ee; border-radius:10px; background:#fff; }
+.student-detail-subject-head { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }
 .student-detail-subject-head h3,.student-detail-subject-head p { margin:0; }
 .student-detail-subject-head h3 { color:var(--blue-dark); font-size:16px; }
 .student-detail-subject-head p { margin-top:4px; color:var(--muted); font-size:13px; }
+.student-detail-status { flex:none; padding:5px 8px; border-radius:6px; background:#fff3e0; color:#8a4b08; font-size:12px; font-weight:700; }
+.student-detail-status.has-data { background:#e8f4ec; color:#21663c; }
+.student-detail-subsection { margin-top:14px; }
+.student-detail-subsection h4 { margin:0 0 8px; color:var(--ink); font-size:14px; }
+.student-detail-no-data { margin:0; padding:10px 12px; border-inline-start:3px solid #cbd5e1; background:#f7fafc; color:var(--muted); font-size:13px; }
 .student-detail-summary-table { width:100%; min-width:0; margin-top:10px; border-collapse:collapse; table-layout:fixed; font-size:13px; }
 .student-detail-summary-table th,.student-detail-summary-table td { padding:8px; border:1px solid #dbe5ee; text-align:right; vertical-align:middle; }
 .student-detail-summary-table th { background:#f4f8fb; color:#36516c; }
@@ -2598,6 +2604,9 @@ tbody td {
   .student-detail-summary-table { font-size:11px; }
   .student-detail-summary-table th,.student-detail-summary-table td { padding:6px 4px; }
   .student-detail-summary-table .outline-button { padding:7px 6px; font-size:11px; }
+  .student-detail-subject-head { flex-direction:column; gap:6px; }
+  .student-detail-subject .responsive-data-table { min-width:520px; }
+  .student-detail-subject .table-wrap { overflow-x:auto; }
   .student-detail-suggestions button { flex-direction:column; gap:3px; }
   .report-date { width: 100%; margin-top: 10px; }
   .daily-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
