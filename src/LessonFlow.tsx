@@ -7,6 +7,7 @@ import {
   Camera,
   CheckCircle2,
   Clock3,
+  Copy,
   Download,
   FileSpreadsheet,
   Link2,
@@ -478,6 +479,18 @@ export function LessonFlowCenter({ schoolName }: { schoolName: string }) {
     setTimes(current => current.map(slot => slot.weekday === activeDay && slot.periodNumber === periodNumber ? { ...slot, [key]: value } : slot))
   }
 
+  const applyActiveDayTimesToWeekdays = () => {
+    const schoolDays = weekdays.slice(0, 5).map(day => day.id)
+    setTimes(current => {
+      const activeDayTimes = current.filter(slot => slot.weekday === activeDay)
+      if (!activeDayTimes.length) return current
+      return [
+        ...current.filter(slot => !schoolDays.includes(slot.weekday)),
+        ...schoolDays.flatMap(weekday => activeDayTimes.map(slot => ({ ...slot, weekday }))),
+      ]
+    })
+  }
+
   const addPeriod = () => {
     setTimes(current => {
       const daySlots = current.filter(slot => slot.weekday === activeDay)
@@ -767,8 +780,10 @@ export function LessonFlowCenter({ schoolName }: { schoolName: string }) {
             <button type="button" className="icon-danger-button" onClick={() => removePeriod(slot.periodNumber)}><XCircle size={18} /></button>
           </article>)}
         </div>
+        <p className="lesson-time-hint">تطبيق توقيت اليوم المحدد يستبدل أوقات أيام الدراسة الأخرى، ويمكن تعديل كل يوم بعد ذلك.</p>
         <div className="feature-actions">
           <button type="button" className="secondary-button" onClick={addPeriod}><Clock3 size={16} /> إضافة حصة</button>
+          <button type="button" className="secondary-button" onClick={applyActiveDayTimesToWeekdays} disabled={!timesForDay.length || !!busy}><Copy size={16} /> تطبيق توقيت اليوم على جميع الأيام</button>
           <button type="button" className="primary-button" onClick={saveTimes} disabled={!!busy}><Save size={16} /> حفظ أوقات الحصص</button>
         </div>
       </section>
