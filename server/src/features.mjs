@@ -746,10 +746,10 @@ export async function handleFeatureRequest(context) {
         JOIN lesson_schedule_imports i ON i.school_id=m.school_id AND i.is_active=true
         JOIN lesson_schedule_assignments a ON a.school_id=m.school_id AND a.import_id=i.id AND a.classroom_id=m.classroom_id
         LEFT JOIN lesson_teachers t ON t.school_id=a.school_id AND t.id=a.teacher_id
-        WHERE m.school_id=$1 AND m.grade_value=$3 AND m.classroom_value=$4
+        WHERE m.school_id=$1 AND m.grade_value=$2 AND m.classroom_value=$3
         GROUP BY a.subject_name,COALESCE(NULLIF(t.full_name,''),NULLIF(a.raw_teacher_name,''),''),m.grade_value,m.classroom_value
         ORDER BY a.subject_name,COALESCE(NULLIF(t.full_name,''),NULLIF(a.raw_teacher_name,''),'')`,
-      [user.school_id, studentId, student.rows[0].grade, student.rows[0].classroom])
+      [user.school_id, student.rows[0].grade, student.rows[0].classroom])
       const assignmentIds = subjects.rows.flatMap(subject => subject.assignmentIds)
       const grades = assignmentIds.length ? await client.query(`SELECT
           to_char(e.entry_date,'YYYY-MM-DD') AS date,a.subject_name AS subject,
