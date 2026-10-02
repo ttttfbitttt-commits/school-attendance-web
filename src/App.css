@@ -4741,3 +4741,13 @@ tbody td {
   .teacher-roster-card:not(.teacher-sheet-roster) .teacher-status-toggle { flex-wrap:nowrap; }
   .teacher-roster-card:not(.teacher-sheet-roster) .teacher-roster-table select { box-sizing:border-box; width:100%; min-width:0; max-width:100%; }
 }
+
+@media (max-width: 720px), (max-width: 950px) and (orientation: landscape) {
+  .teacher-sheet-roster .teacher-roster-table { width:760px; min-width:760px; table-layout:fixed; }
+  .teacher-sheet-roster .teacher-roster-table th:first-child,.teacher-sheet-roster .teacher-roster-table td:first-child { width:170px; min-width:170px; max-width:170px; white-space:normal; }
+  .teacher-sheet-roster .teacher-roster-table th:not(:first-child),.teacher-sheet-roster .teacher-roster-table td:not(:first-child) { width:59px; min-width:59px; max-width:59px; padding:4px 2px; text-align:center; white-space:normal; overflow-wrap:anywhere; }
+  .teacher-sheet-roster .teacher-roster-table th { font-size:10px; line-height:1.35; }
+  .teacher-sheet-roster .teacher-roster-table td:first-child strong { white-space:normal; overflow-wrap:anywhere; }
+  .teacher-sheet-roster .teacher-roster-table select,.teacher-sheet-roster .teacher-roster-table input[type="number"] { box-sizing:border-box; width:100%; min-width:0; max-width:100%; padding:4px 2px; font-size:10px; }
+  .teacher-sheet-roster .teacher-roster-table input[type="checkbox"] { width:17px; height:17px; }
+}
