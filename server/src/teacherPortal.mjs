@@ -166,6 +166,7 @@ function teacherAccountSummary(row) {
     accountActive: Boolean(row.accountActive),
     accountCreated: Boolean(row.userId),
     mustChangePassword: Boolean(row.mustChangePassword),
+    credentialsAvailable: Boolean(row.credentialsAvailable),
   }
 }
 

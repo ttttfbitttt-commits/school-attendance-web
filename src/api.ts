@@ -139,7 +139,7 @@ export type TeacherLessonReport = {
   records: Array<{ studentId: string; name: string; grade: string; classroom: string; status: 'present' | 'absent'; note: TeacherNote | '' }>
 }
 export type TeacherAdminOverview = {
-  teachers: Array<{ teacherId: string; name: string; identityNumber: string; assignments: number; accountActive: boolean; accountCreated: boolean; mustChangePassword: boolean }>
+  teachers: Array<{ teacherId: string; name: string; identityNumber: string; assignments: number; accountActive: boolean; accountCreated: boolean; mustChangePassword: boolean; credentialsAvailable: boolean }>
   classroomMappings: Array<{ classroomId: string; classroom: string; grade: string | null; classroomValue: string | null; mappingSource: 'automatic' | 'manual' | null }>
 }
 

@@ -68,7 +68,8 @@ export function TeacherAdminCenter({ schoolName }: { schoolName: string }) {
       setCredentials(result.credentials)
       setShowAllCredentials(false)
       setSelected([])
-      setNotice(`تم إنشاء ${result.created} حسابًا. سلّم كلمة المرور المؤقتة للمعلم مرة واحدة فقط.`)
+      setAccountPanel('credentials')
+      setNotice(`تم إنشاء ${result.created} حسابًا وحفظ بيانات الدخول المؤقتة للطباعة.`)
       await load()
     } catch { setError('تعذر إنشاء الحسابات. تحقق من استيراد بيانات المعلمين أولًا.') } finally { setBusy('') }
   }
@@ -100,7 +101,7 @@ export function TeacherAdminCenter({ schoolName }: { schoolName: string }) {
       setShowAllCredentials(false)
       setSelected([])
       setAccountPanel('credentials')
-      setNotice(`تمت إعادة إصدار ${result.reset} كلمة مرور مؤقتة. صدّر الملف قبل إخفاء البيانات.`)
+      setNotice(`تمت إعادة إصدار ${result.reset} كلمة مرور مؤقتة وحفظها للطباعة.`)
       await load()
     } catch { setError('تعذر إعادة إصدار بيانات الدخول المحددة.') } finally { setBusy('') }
   }
@@ -109,7 +110,12 @@ export function TeacherAdminCenter({ schoolName }: { schoolName: string }) {
     const option = options.find(value => `${value.grade}|||${value.classroom}` === choice)
     if (!option) { setError('اختر صفًا وفصلًا من بيانات الطلاب أولًا.'); return }
     setBusy(`map-${classroomId}`)
-    try { await api.saveTeacherClassroomMapping({ classroomId, grade: option.grade, classroom: option.classroom }); setNotice('تم ربط طلاب الفصل وحفظه.'); await load() } catch { setError('تعذر حفظ ربط الفصل.') } finally { setBusy('') }
+    try {
+      await api.saveTeacherClassroomMapping({ classroomId, grade: option.grade, classroom: option.classroom })
+      setMappingChoice(current => ({ ...current, [classroomId]: `${option.grade}|||${option.classroom}` }))
+      setNotice(`تم ربط الفصل بمجموعة: ${option.grade} — الفصل ${option.classroom}.`)
+      await load()
+    } catch { setError('تعذر حفظ ربط الفصل.') } finally { setBusy('') }
   }
   const loadReports = async () => {
     setBusy('reports'); setError('')
@@ -138,6 +144,7 @@ export function TeacherAdminCenter({ schoolName }: { schoolName: string }) {
   }
   const accountCount = overview?.teachers.length || 0
   const activeAccounts = (overview?.teachers || []).filter(teacher => teacher.accountCreated && teacher.accountActive).length
+  const availableCredentials = (overview?.teachers || []).filter(teacher => teacher.credentialsAvailable).length
 
   return <section className="teacher-admin" dir="rtl">
     <div className="teacher-admin-head"><div><span>إدارة المدرسة / المعلمون</span><h2>المعلمون</h2><p>الحسابات مرتبطة ببيانات المعلمين والجداول التي استوردتها في «سير الحصص».</p></div><UsersRound size={31} /></div>
@@ -147,7 +154,7 @@ export function TeacherAdminCenter({ schoolName }: { schoolName: string }) {
     {tab === 'accounts' && <>
       <div className="teacher-summary-cards">
         <button className={accountPanel === 'accounts' ? 'active' : ''} onClick={() => togglePanel('accounts')}><UsersRound size={24} /><span>حسابات الدخول</span><strong>{activeAccounts} / {accountCount}</strong><small>حسابات المعلمين المفعلة</small></button>
-        <button className={accountPanel === 'credentials' ? 'active' : ''} onClick={() => togglePanel('credentials')}><KeyRound size={24} /><span>بيانات الدخول الجديدة</span><strong>{credentials.length}</strong><small>تصدير كلمات المرور المؤقتة</small></button>
+        <button className={accountPanel === 'credentials' ? 'active' : ''} onClick={() => togglePanel('credentials')}><KeyRound size={24} /><span>بيانات الدخول المؤقتة</span><strong>{availableCredentials}</strong><small>حسابات بياناتها جاهزة للطباعة</small></button>
         <button className={accountPanel === 'mappings' ? 'active warning' : 'warning'} onClick={() => togglePanel('mappings')}><ShieldCheck size={24} /><span>مطابقة طلاب الفصول</span><strong>{unresolvedMappings.length}</strong><small>{unresolvedMappings.length ? 'فصل يحتاج ربطًا' : 'جميع الفصول مرتبطة'}</small></button>
       </div>
 
@@ -163,9 +170,9 @@ export function TeacherAdminCenter({ schoolName }: { schoolName: string }) {
         </article>)}</div>}
       </section>}
 
-          {accountPanel === 'credentials' && <section className="teacher-credentials"><div><ShieldCheck size={22} /><div><h3>بيانات دخول تسلّم مرة واحدة</h3><p>تبقى كلمات المرور المؤقتة متاحة حتى يغيّرها المعلم. صدّرها وسلّمها له بأمان.</p></div><button onClick={() => setCredentials([])}>إخفاء البيانات</button></div>{busy === 'credentials' ? <p className="teacher-empty">جارٍ تحميل بيانات الدخول…</p> : credentials.length ? <><div className="teacher-export-actions"><button className="outline-button" onClick={() => openPrintDocument('بيانات الدخول المؤقتة للمعلمين', credentialsHtml(credentials), schoolName)}><Printer size={17} /> PDF</button><button className="outline-button" onClick={exportCredentials}><FileDown size={17} /> تصدير إلى Excel</button></div><div className="teacher-credential-table-wrap"><table className="teacher-credential-table"><thead><tr><th>الاسم</th><th>رقم الهوية</th><th>كلمة المرور</th></tr></thead><tbody>{credentials.slice(0, showAllCredentials ? credentials.length : 12).map(credential => <tr key={credential.teacherId}><td>{credential.name}</td><td>{credential.identityNumber}</td><td>{credential.temporaryPassword}</td></tr>)}</tbody></table></div>{credentials.length > 12 && <button className="outline-button teacher-show-more" onClick={() => setShowAllCredentials(current => !current)}>{showAllCredentials ? 'عرض مختصر' : `عرض جميع البيانات (${credentials.length})`}</button>}</> : <p className="teacher-empty">لا توجد كلمات مرور مؤقتة متاحة. ربما غيّر المعلم كلمة مروره أو لم يُنشأ حسابه بعد.</p>}</section>}
+          {accountPanel === 'credentials' && <section className="teacher-credentials"><div><ShieldCheck size={22} /><div><h3>بيانات دخول المعلمين</h3><p>تُحفظ كلمات المرور المؤقتة مشفّرة حتى يغيّرها المعلم، لتبقى متاحة للعرض والطباعة من هذه الشاشة.</p></div></div>{busy === 'credentials' ? <p className="teacher-empty">جارٍ تحميل بيانات الدخول…</p> : credentials.length ? <><div className="teacher-export-actions"><button className="outline-button" onClick={() => openPrintDocument('بيانات الدخول المؤقتة للمعلمين', credentialsHtml(credentials), schoolName)}><Printer size={17} /> PDF</button><button className="outline-button" onClick={exportCredentials}><FileDown size={17} /> تصدير إلى Excel</button></div><div className="teacher-credential-table-wrap"><table className="teacher-credential-table"><thead><tr><th>الاسم</th><th>رقم الهوية</th><th>كلمة المرور</th></tr></thead><tbody>{credentials.slice(0, showAllCredentials ? credentials.length : 12).map(credential => <tr key={credential.teacherId}><td>{credential.name}</td><td>{credential.identityNumber}</td><td>{credential.temporaryPassword}</td></tr>)}</tbody></table></div>{credentials.length > 12 && <button className="outline-button teacher-show-more" onClick={() => setShowAllCredentials(current => !current)}>{showAllCredentials ? 'عرض مختصر' : `عرض جميع البيانات (${credentials.length})`}</button>}</> : <p className="teacher-empty">لا توجد كلمات مرور قابلة للطباعة للحسابات الحالية. كلمات المرور التي أُنشئت قبل إضافة الحفظ المشفّر لا يمكن استعادتها من بصمتها الأمنية؛ حدّد الحسابات ثم اختر «إعادة إصدار المحددين» لإنتاج كلمات مرور جديدة تحفظ وتظهر هنا.</p>}</section>}
 
-      {accountPanel === 'mappings' && <section className="teacher-admin-card teacher-mapping-card">{classroomMappings.length ? <><div className="teacher-section-head"><div><span>مطابقة الفصول</span><h3>مطابقة طلاب الفصول</h3></div></div><p className="teacher-help">اختر مجموعة الطلاب المناسبة لكل فصل ليظهر للمعلم طلاب فصله فقط. يظهر الربط المحفوظ في القائمة.</p><div className="teacher-mapping-list">{classroomMappings.map(mapping => <article key={mapping.classroomId}><strong>{mapping.classroom}</strong><select value={mappingChoice[mapping.classroomId] ?? (mapping.grade && mapping.classroomValue ? `${mapping.grade}|||${mapping.classroomValue}` : '')} onChange={event => setMappingChoice(current => ({ ...current, [mapping.classroomId]: event.target.value }))}><option value="">اختر الصف والفصل</option>{options.map(option => <option key={`${option.grade}-${option.classroom}`} value={`${option.grade}|||${option.classroom}`}>{option.grade} — الفصل {option.classroom} ({option.count} طالب)</option>)}</select><button className="primary-button" onClick={() => void saveMapping(mapping.classroomId)} disabled={busy === `map-${mapping.classroomId}`}>حفظ الربط</button></article>)}</div></> : <p className="teacher-empty">لا توجد فصول مستوردة لربطها ببيانات الطلاب.</p>}</section>}
+      {accountPanel === 'mappings' && <section className="teacher-admin-card teacher-mapping-card">{classroomMappings.length ? <><div className="teacher-section-head"><div><span>مطابقة الفصول</span><h3>مطابقة طلاب الفصول</h3></div></div><p className="teacher-help">اختر مجموعة الطلاب المناسبة لكل فصل ليظهر للمعلم طلاب فصله فقط. بعد الحفظ يظهر اسم الصف والفصل المرتبطين داخل الصف نفسه.</p><div className="teacher-mapping-list">{classroomMappings.map(mapping => <article key={mapping.classroomId}><div className="teacher-mapping-name"><strong>{mapping.classroom}</strong>{mapping.grade && mapping.classroomValue && <span>مرتبط بـ: {mapping.grade} — الفصل {mapping.classroomValue}</span>}</div><select value={mappingChoice[mapping.classroomId] ?? (mapping.grade && mapping.classroomValue ? `${mapping.grade}|||${mapping.classroomValue}` : '')} onChange={event => setMappingChoice(current => ({ ...current, [mapping.classroomId]: event.target.value }))}><option value="">اختر الصف والفصل</option>{options.map(option => <option key={`${option.grade}-${option.classroom}`} value={`${option.grade}|||${option.classroom}`}>{option.grade} — الفصل {option.classroom} ({option.count} طالب)</option>)}</select><button className="primary-button" onClick={() => void saveMapping(mapping.classroomId)} disabled={busy === `map-${mapping.classroomId}`}>{mapping.grade && mapping.classroomValue ? 'تحديث الربط' : 'حفظ الربط'}</button></article>)}</div></> : <p className="teacher-empty">لا توجد فصول مستوردة لربطها ببيانات الطلاب.</p>}</section>}
     </>}
 
     {tab === 'reports' && <section className="teacher-admin-card">
