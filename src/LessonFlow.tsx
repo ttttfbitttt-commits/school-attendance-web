@@ -813,8 +813,8 @@ export function LessonFlowCenter({ schoolName }: { schoolName: string }) {
           <div className="lesson-camera-card">
             <div><span className="panel-kicker">تصوير الباركود</span><h3>توجيه مساءلة حسب الحصة الحالية</h3></div>
             <div className="feature-actions">
-              <button type="button" className="primary-button" onClick={() => void startCamera()} disabled={cameraOn || !!busy}><Camera size={16} /> فتح الكاميرا</button>
               <button type="button" className="secondary-button" onClick={() => { setOpenLessonActionPanel(current => current === 'teacher-absence' ? null : 'teacher-absence'); setPendingAbsentTeacherIds(null); setError('') }} disabled={!!busy}>تسجيل غياب معلم اليوم</button>
+              <button type="button" className="primary-button" onClick={() => void startCamera()} disabled={cameraOn || !!busy}><Camera size={16} /> رصد المعلم بالباركود</button>
               <button type="button" className="secondary-button" onClick={() => { setOpenLessonActionPanel(current => current === 'waiting-teacher' ? null : 'waiting-teacher'); setManualObservationError('') }} disabled={!!busy}><Search size={16} /> رصد المعلم المنتظر</button>
               <button type="button" className="secondary-button" onClick={() => void openCancellation()} disabled={!!busy}><XCircle size={16} /> إلغاء مساءلة</button>
             </div>
