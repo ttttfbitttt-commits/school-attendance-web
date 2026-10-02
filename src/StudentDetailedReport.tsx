@@ -110,21 +110,55 @@ export function StudentDetailedReport({ students, schoolName, printDocument }: {
     if (!report) return
     const printableGroups = printSubject === 'all' ? groups : groups.filter(group => group.key === printSubject)
     if (!printableGroups.length) return
-    const groupHtml = printableGroups.map(group => {
+    const reportStyles = `<style>
+      .student-report-page{font-family:Tahoma,Arial,sans-serif;font-size:9pt;color:#172033}
+      .student-report-intro{margin:0 0 5mm;padding:3mm 4mm;border:1px solid #d7e2ec;background:#f7fafc;line-height:1.55}
+      .student-report-intro p{margin:0 0 1mm}
+      .student-report-intro p:last-child{margin-bottom:0}
+      .student-report-continuation{margin:0 0 4mm;padding:2mm 3mm;border-bottom:1px solid #d7e2ec;color:#334155;font-size:8.5pt}
+      .student-report-subject{margin:0 0 4mm;padding:0 0 3mm;border-bottom:1px solid #cbd5e1;break-inside:avoid-page;page-break-inside:avoid}
+      .student-report-subject h2{margin:0 0 1mm;color:#0c4277;font-size:12pt;line-height:1.3;break-after:avoid-page;page-break-after:avoid}
+      .student-report-teacher{margin:0 0 2mm;color:#475569;font-size:8.5pt;line-height:1.4}
+      .student-report-subject table{margin:0;width:100%;table-layout:fixed;font-size:8pt;break-inside:avoid-page;page-break-inside:avoid}
+      .student-report-subject th,.student-report-subject td{padding:2.5px 4px;line-height:1.35;overflow-wrap:anywhere}
+      .student-report-subject th:nth-child(1){width:19%}
+      .student-report-subject th:nth-child(2){width:25%}
+      .student-report-subject th:nth-child(3){width:30%}
+      .student-report-subject th:nth-child(4){width:26%}
+      .student-report-empty{text-align:center;color:#64748b}
+    </style>`
+    const subjectHtml = (group: SubjectGroup, keepTogether: boolean) => {
       const summary = groupSummary(group)
       const gradeRows = group.grades.flatMap(entry => entry.columns.map(column => `<tr><td>${escapeHtml(sheetTypeLabels[entry.sheetType])}</td><td>${escapeHtml(formatHijriDate(entry.date))}</td><td>${escapeHtml(column.label)}</td><td>${escapeHtml(gradeValue(entry, column))}</td></tr>`)).join('')
-      const lessonRows = group.records.map(record => `<tr><td>${escapeHtml(formatHijriDate(record.date))}</td><td>${record.periodNumber}</td><td>${statusLabel(record.status)}</td><td>${escapeHtml(record.note || '—')}</td></tr>`).join('')
-      return `<h2>المادة: ${escapeHtml(group.subject)}</h2>
-        <p><strong>المعلم:</strong> ${escapeHtml(group.teacherName)}　 <strong>الصف والفصل:</strong> ${escapeHtml(group.grade)} - ${escapeHtml(group.classroomValue)}</p>
-        <h3>درجات وأعمال الطالب</h3>${gradeRows ? `<table><thead><tr><th>القسم</th><th>التاريخ</th><th>البند</th><th>القيمة</th></tr></thead><tbody>${gradeRows}</tbody></table>` : '<p>لا توجد درجات أو أعمال مسجلة ضمن الفترة المحددة.</p>'}
-        <h3>الحضور وملاحظات الحصص</h3><p>أيام الغياب عن حصص المادة: ${summary.absenceDays}　 <strong>عدد الملاحظات: ${summary.noteCount}</strong></p>
-        ${lessonRows ? `<table><thead><tr><th>التاريخ الهجري</th><th>الحصة</th><th>الحالة</th><th>الملاحظة</th></tr></thead><tbody>${lessonRows}</tbody></table>` : '<p>لا توجد سجلات حصص ضمن الفترة المحددة.</p>'}`
-    }).join('<hr/>')
-    const contents = `<section class="page"><h1>تقرير مفصل عن الطالب</h1>
-      <div class="heading"><p><strong>اسم الطالب:</strong> ${escapeHtml(report.student.name)}</p>
-      <p><strong>الصف والفصل:</strong> ${escapeHtml(report.student.grade)} - ${escapeHtml(report.student.classroom)}</p>
-      <p><strong>أيام الغياب عن المدرسة:</strong> ${report.summary.schoolAbsenceDays}　 <strong>أيام التأخر عن المدرسة:</strong> ${report.summary.schoolLateDays}</p>
-      <p><strong>الفترة الهجرية:</strong> ${escapeHtml(formatHijriDate(report.from))} إلى ${escapeHtml(formatHijriDate(report.to))}</p></div>${groupHtml}</section>`
+      const attendanceRows = [
+        `<tr><td>ملخص الحضور</td><td>—</td><td>أيام الغياب عن المادة</td><td>${summary.absenceDays}</td></tr>`,
+        `<tr><td>ملخص الحضور</td><td>—</td><td>عدد الملاحظات</td><td>${summary.noteCount}</td></tr>`,
+        ...group.records.map(record => `<tr><td>سجل الحصة</td><td>${escapeHtml(formatHijriDate(record.date))}</td><td>الحصة ${record.periodNumber} · ${statusLabel(record.status)}</td><td>${escapeHtml(record.note || '—')}</td></tr>`),
+      ]
+      const rows = [
+        gradeRows || '<tr><td>الدرجات والأعمال</td><td colspan="3" class="student-report-empty">لا توجد درجات أو أعمال مسجلة ضمن الفترة المحددة.</td></tr>',
+        group.records.length ? attendanceRows.join('') : '<tr><td>الحضور والحصص</td><td colspan="3" class="student-report-empty">لا توجد سجلات حصص ضمن الفترة المحددة.</td></tr>',
+      ].join('')
+      return `<article class="student-report-subject${keepTogether ? '' : ' student-report-long'}"><h2>المادة: ${escapeHtml(group.subject)}</h2>
+        <p class="student-report-teacher"><strong>المعلم:</strong> ${escapeHtml(group.teacherName)}　 <strong>الصف والفصل:</strong> ${escapeHtml(group.grade)} - ${escapeHtml(group.classroomValue)}</p>
+        <table><thead><tr><th>القسم</th><th>التاريخ الهجري</th><th>البيان</th><th>القيمة / الملاحظة</th></tr></thead><tbody>${rows}</tbody></table></article>`
+    }
+    const pages: SubjectGroup[][] = []
+    let pageGroups: SubjectGroup[] = []
+    let pageWeight = 8
+    for (const group of printableGroups) {
+      const gradeRowCount = group.grades.reduce((count, entry) => count + entry.columns.length, 0)
+      const groupWeight = 3 + Math.max(gradeRowCount, 1) + Math.max(group.records.length, 1)
+      if (pageGroups.length && pageWeight + groupWeight > 40) {
+        pages.push(pageGroups)
+        pageGroups = []
+        pageWeight = 3
+      }
+      pageGroups.push(group)
+      pageWeight += groupWeight
+    }
+    if (pageGroups.length) pages.push(pageGroups)
+    const contents = `${reportStyles}<style>.student-report-long,.student-report-long table{break-inside:auto!important;page-break-inside:auto!important}</style>${pages.map((groupsOnPage, pageIndex) => `<section class="page"><div class="student-report-page">${pageIndex === 0 ? `<div class="student-report-intro"><p><strong>اسم الطالب:</strong> ${escapeHtml(report.student.name)}　 <strong>الصف والفصل:</strong> ${escapeHtml(report.student.grade)} - ${escapeHtml(report.student.classroom)}</p><p><strong>أيام الغياب المدرسي:</strong> ${report.summary.schoolAbsenceDays}　 <strong>أيام التأخر المدرسي:</strong> ${report.summary.schoolLateDays}</p><p><strong>الفترة الهجرية:</strong> ${escapeHtml(formatHijriDate(report.from))} إلى ${escapeHtml(formatHijriDate(report.to))}</p></div>` : `<div class="student-report-continuation"><strong>${escapeHtml(report.student.name)}</strong>　${escapeHtml(report.student.grade)} - ${escapeHtml(report.student.classroom)}　·　متابعة التقرير</div>`}${groupsOnPage.map(group => { const groupWeight = 3 + Math.max(group.grades.reduce((count, entry) => count + entry.columns.length, 0), 1) + Math.max(group.records.length, 1); return subjectHtml(group, groupWeight <= 34) }).join('')}</div></section>`).join('')}`
     printDocument('تقرير مفصل عن الطالب', contents, schoolName)
   }
 
