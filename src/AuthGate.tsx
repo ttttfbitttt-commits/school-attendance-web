@@ -16,6 +16,12 @@ export function AuthGate({ children }: { children: (account: Account, logout: ()
   const [error, setError] = useState('')
   const [schoolChoices, setSchoolChoices] = useState<Array<{ id: string; name: string }>>([])
   const [selectedSchoolId, setSelectedSchoolId] = useState('')
+  const [schoolName, setSchoolName] = useState('')
+  const [administratorName, setAdministratorName] = useState('')
+  const [schoolEmail, setSchoolEmail] = useState('')
+  const [schoolPassword, setSchoolPassword] = useState('')
+  const [teacherIdentityNumber, setTeacherIdentityNumber] = useState('')
+  const [teacherPassword, setTeacherPassword] = useState('')
 
   useEffect(() => {
     api.me().then(({ user }) => setAccount(user)).catch(() => {}).finally(() => setLoading(false))
@@ -25,19 +31,18 @@ export function AuthGate({ children }: { children: (account: Account, logout: ()
     event.preventDefault()
     setError('')
     setRegistrationSent(false)
-    const values = new FormData(event.currentTarget)
     try {
       if (mode === 'teacher') {
-        const result = await api.teacherLogin(String(values.get('teacherIdentityNumber') || ''), String(values.get('teacherPassword') || ''), selectedSchoolId)
+        const result = await api.teacherLogin(teacherIdentityNumber, teacherPassword, selectedSchoolId)
         setAccount(result.user)
         return
       }
       if (registering) {
-        await api.register(String(values.get('name') || ''), String(values.get('school') || ''), String(values.get('email') || ''), String(values.get('schoolPassword') || ''))
+        await api.register(administratorName, schoolName, schoolEmail, schoolPassword)
         setRegistrationSent(true)
         return
       }
-      const result = await api.login(String(values.get('email') || ''), String(values.get('schoolPassword') || ''))
+      const result = await api.login(schoolEmail, schoolPassword)
       setAccount(result.user)
     } catch (reason) {
       const apiError = reason as Error & { code?: string; data?: { schools?: Array<{ id: string; name: string }> } }
@@ -98,28 +103,43 @@ export function AuthGate({ children }: { children: (account: Account, logout: ()
   </section></main>
   if (account) return <>{children(account, logout)}</>
 
+  function switchMode(nextMode: LoginMode, nextRegistering: boolean) {
+    setMode(nextMode)
+    setRegistering(nextRegistering)
+    setRegistrationSent(false)
+    setSchoolChoices([])
+    setSelectedSchoolId('')
+    setError('')
+    setSchoolName('')
+    setAdministratorName('')
+    setSchoolEmail('')
+    setSchoolPassword('')
+    setTeacherIdentityNumber('')
+    setTeacherPassword('')
+  }
+
   const teacher = mode === 'teacher'
   return <main className="auth-page" dir="rtl"><section className="auth-card">
     <div className="auth-icon"><School size={30} /></div>
     <h1>{teacher ? 'بوابة المعلم' : 'نظام الحصر'}</h1>
     <p>{teacher ? 'ادخل برقم الهوية وكلمة المرور التي سلّمتها لك إدارة مدرستك.' : 'الانضباط أول خطوات النجاح'}</p>
     <div className="auth-tabs auth-tabs-three">
-      <button className={mode === 'admin' && !registering ? 'active' : ''} type="button" onClick={() => { setMode('admin'); setRegistering(false); setRegistrationSent(false); setSchoolChoices([]); setSelectedSchoolId(''); setError('') }}>دخول المدرسة</button>
-      <button className={mode === 'teacher' ? 'active' : ''} type="button" onClick={() => { setMode('teacher'); setRegistering(false); setRegistrationSent(false); setSchoolChoices([]); setSelectedSchoolId(''); setError('') }}>دخول المعلم</button>
-      <button className={mode === 'admin' && registering ? 'active' : ''} type="button" onClick={() => { setMode('admin'); setRegistering(true); setRegistrationSent(false); setSchoolChoices([]); setSelectedSchoolId(''); setError('') }}>تسجيل مدرسة</button>
+      <button className={mode === 'admin' && !registering ? 'active' : ''} type="button" onClick={() => switchMode('admin', false)}>دخول المدرسة</button>
+      <button className={mode === 'teacher' ? 'active' : ''} type="button" onClick={() => switchMode('teacher', false)}>دخول المعلم</button>
+      <button className={mode === 'admin' && registering ? 'active' : ''} type="button" onClick={() => switchMode('admin', true)}>تسجيل مدرسة</button>
     </div>
     <form key={teacher ? 'teacher-login' : registering ? 'school-registration' : 'school-login'} onSubmit={submit} autoComplete="on">
       {teacher ? <>
-        <label><UserRound size={16} /> رقم الهوية<input name="teacherIdentityNumber" type="tel" inputMode="numeric" autoComplete="off" required /></label>
-        <label><LockKeyhole size={16} /> كلمة المرور<input name="teacherPassword" type="password" autoComplete="section-teacher current-password" minLength={8} required /></label>
+        <label><UserRound size={16} /> رقم الهوية<input name="teacherIdentityNumber" type="tel" inputMode="numeric" autoComplete="off" value={teacherIdentityNumber} onChange={event => setTeacherIdentityNumber(event.target.value)} required /></label>
+        <label><LockKeyhole size={16} /> كلمة المرور<input name="teacherPassword" type="password" autoComplete="section-teacher current-password" value={teacherPassword} onChange={event => setTeacherPassword(event.target.value)} minLength={8} required /></label>
         {schoolChoices.length > 0 && <label>المدرسة<select value={selectedSchoolId} onChange={event => setSelectedSchoolId(event.target.value)}>{schoolChoices.map(school => <option key={school.id} value={school.id}>{school.name}</option>)}</select></label>}
       </> : <>
         {registering && <>
-          <label><UserRound size={16} /> اسم المسؤول<input name="name" required /></label>
-          <label><School size={16} /> اسم المدرسة<input name="school" required /></label>
+          <label><UserRound size={16} /> اسم المسؤول<input name="name" value={administratorName} onChange={event => setAdministratorName(event.target.value)} required /></label>
+          <label><School size={16} /> اسم المدرسة<input name="school" value={schoolName} onChange={event => setSchoolName(event.target.value)} required /></label>
         </>}
-        <label>البريد الإلكتروني<input name="email" type="email" autoComplete={registering ? 'section-school email' : 'section-school username'} required /></label>
-        <label><LockKeyhole size={16} /> كلمة المرور<input name="schoolPassword" type="password" autoComplete={registering ? 'section-school new-password' : 'section-school current-password'} minLength={12} required /></label>
+        <label>البريد الإلكتروني<input name="email" type="email" autoComplete={registering ? 'section-school email' : 'section-school username'} value={schoolEmail} onChange={event => setSchoolEmail(event.target.value)} required /></label>
+        <label><LockKeyhole size={16} /> كلمة المرور<input name="schoolPassword" type="password" autoComplete={registering ? 'section-school new-password' : 'section-school current-password'} value={schoolPassword} onChange={event => setSchoolPassword(event.target.value)} minLength={12} required /></label>
         {registering && <small>استخدم 12 حرفًا على الأقل.</small>}
       </>}
       {registrationSent && <div className="auth-success" role="status">إذا كان البريد صالحاً وغير مسجل، أرسلنا رابط تأكيد. افتحه واضغط زر التأكيد لإكمال التسجيل.</div>}
