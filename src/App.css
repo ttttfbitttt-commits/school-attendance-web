@@ -2578,7 +2578,8 @@ tbody td {
 .student-detail-print { display:flex; align-items:end; gap:10px; margin:0 0 16px; }
 .student-detail-print label { flex:1; }
 .student-detail-subjects { display:grid; gap:12px; }
-.student-detail-subject { padding:13px; border:1px solid #dbe5ee; border-radius:10px; background:#fff; }
+.student-detail-subjects { min-width:0; }
+.student-detail-subject { min-width:0; padding:13px; border:1px solid #dbe5ee; border-radius:10px; background:#fff; }
 .student-detail-subject-head { display:flex; justify-content:space-between; align-items:flex-start; gap:12px; }
 .student-detail-subject-head h3,.student-detail-subject-head p { margin:0; }
 .student-detail-subject-head h3 { color:var(--blue-dark); font-size:16px; }
@@ -2606,7 +2607,7 @@ tbody td {
   .student-detail-summary-table .outline-button { padding:7px 6px; font-size:11px; }
   .student-detail-subject-head { flex-direction:column; gap:6px; }
   .student-detail-subject .responsive-data-table { min-width:520px; }
-  .student-detail-subject .table-wrap { overflow-x:auto; }
+  .student-detail-subject .table-wrap { width:100%; min-width:0; max-width:100%; overflow-x:auto; }
   .student-detail-suggestions button { flex-direction:column; gap:3px; }
   .report-date { width: 100%; margin-top: 10px; }
   .daily-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
