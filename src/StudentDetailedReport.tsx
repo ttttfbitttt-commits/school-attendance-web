@@ -148,8 +148,8 @@ export function StudentDetailedReport({ students, schoolName, printDocument }: {
     let pageWeight = 8
     for (const group of printableGroups) {
       const gradeRowCount = group.grades.reduce((count, entry) => count + entry.columns.length, 0)
-      const groupWeight = 3 + Math.max(gradeRowCount, 1) + Math.max(group.records.length, 1)
-      if (pageGroups.length && pageWeight + groupWeight > 40) {
+      const groupWeight = 8 + Math.max(gradeRowCount, 1) + Math.max(group.records.length, 1)
+      if (pageGroups.length && pageWeight + groupWeight > 50) {
         pages.push(pageGroups)
         pageGroups = []
         pageWeight = 3
