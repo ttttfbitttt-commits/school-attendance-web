@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import * as XLSX from 'xlsx'
 import { CheckCircle2, Download, FileText, Mail, Printer, RefreshCw, Save, Send, ShieldCheck, XCircle } from 'lucide-react'
-import { api, type MessageLog } from './api'
+import { api, type LessonIncidentReportRow, type MessageLog } from './api'
 import { StudentDetailedReport } from './StudentDetailedReport'
 import { HijriDatePicker } from './HijriDatePicker'
 import { formatHijriDate, formatHijriDateTime } from './dateUtils'
@@ -10,6 +10,7 @@ export type FeatureStudent = { id: string; name: string; phone: string; grade: s
 export type FeatureAttendance = { studentId: string; status: 'present' | 'late' }
 
 const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Riyadh' }).format(new Date())
+const reportWeekday = (weekday: number) => ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'][weekday - 1] || '—'
 const escapeHtml = (value: unknown) => String(value ?? '').replace(/[&<>'"]/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[character] || character))
 const maskPhone = (phone: string) => phone.length > 4 ? `${phone.slice(0, 3)}••••${phone.slice(-3)}` : phone
 const formatDateTime = (value: string) => formatHijriDateTime(value)
@@ -421,7 +422,7 @@ function HistoryCounts({ type, students, schoolName }: { type: 'absence' | 'late
   return <section className="panel history-count-panel"><div className="panel-header"><div><span className="panel-kicker">ملخص تراكمي</span><h2>{title}</h2><p>ابحث وحدد الطلاب، أو افتح بطاقة لعرض فئتها.</p></div></div><div className="count-card-grid">{buckets.map(bucket => <button className={`count-card ${bucket.tone}`} type="button" key={bucket.tone} onClick={() => setShownRows(bucket.rows)}><span>{bucket.label.replace('غياب', type === 'late' ? 'تأخر' : 'غياب')}</span><strong>{bucket.rows.length} طالب</strong></button>)}</div><div className="student-picker"><input value={search} onChange={event => setSearch(event.target.value)} placeholder="ابحث باسم الطالب..." />{matches.map(student => <label key={student.id}><input type="checkbox" checked={selected.has(student.id)} onChange={() => setSelected(current => { const next = new Set(current); next.has(student.id) ? next.delete(student.id) : next.add(student.id); return next })} /> {student.name} · {student.grade} · {student.classroom}</label>)}<button type="button" className="primary-button" onClick={() => void load([...selected])} disabled={!selected.size}><CheckCircle2 size={16} /> تأكيد الطلاب المحددين</button><button type="button" className="secondary-button" onClick={() => { setSelected(new Set()); void load() }}>عرض الجميع</button></div><div className="feature-actions"><button type="button" className="export-btn csv" onClick={() => downloadWorkbook(title, [['الطالب','الصف','الفصل','الجوال','عدد الأيام','بعذر','بدون عذر'], ...shownRows.map(row => [row.name,row.grade,row.classroom,row.phone,row.days,row.excusedDays,row.unexcusedDays])], title, schoolName, title)} disabled={!shownRows.length}><Download size={16} /> Excel</button><button type="button" className="export-btn pdf" onClick={() => void printHistories(shownRows)} disabled={!shownRows.length}><Printer size={16} /> PDF لجميع الظاهرين</button></div><div className="daily-list">{shownRows.map(row => <button type="button" className="history-row" key={row.studentId} onClick={() => void open(row)}><span><strong>{row.name}</strong><small>{row.grade} · {row.classroom} · <bdi>{row.phone}</bdi></small></span><strong>{row.days} يومًا</strong></button>)}{!shownRows.length && <p className="report-empty-state">لا توجد بيانات ضمن هذا الاختيار.</p>}</div>{history && <div className="report-modal-overlay"><section className="report-modal"><header className="report-modal-header"><div><span className="panel-kicker">تفاصيل الطالب</span><h2>{history.student.name}</h2><p>{history.student.grade} · {history.student.classroom} · <bdi>{history.student.phone}</bdi></p></div><button type="button" className="modal-close-button" onClick={() => setHistory(null)}>×</button></header><div className="report-modal-actions"><button type="button" className="export-btn csv" onClick={() => downloadWorkbook(`${reportTitle}_${history.student.name}`, [['التاريخ','الحالة', ...(type === 'late' ? ['الوقت'] : [])], ...history.days.map(day => [day.date,statusText(day.status), ...(type === 'late' ? [day.time || '—'] : [])])], reportTitle, schoolName, `${reportTitle} - ${history.student.name}`)}>Excel</button><button type="button" className="export-btn pdf" onClick={() => void printHistories([{ studentId: history.student.studentId, name: history.student.name, grade: history.student.grade, classroom: history.student.classroom, phone: history.student.phone, days: history.days.length, excusedDays: 0, unexcusedDays: 0 }])}>PDF</button></div><div className="absence-detail-list">{history.days.map(day => <article className="absence-day-card" key={day.date}><strong>{day.date}</strong><span>{statusText(day.status)}{type === 'late' && day.time ? ` · ${day.time}` : ''}</span></article>)}</div></section></div>}</section>
 }
 
-type ReportSection = 'pending' | 'phones' | 'absences' | 'absence-history' | 'lates' | 'late-history' | 'student-detail'
+type ReportSection = 'pending' | 'phones' | 'absences' | 'absence-history' | 'lates' | 'late-history' | 'student-detail' | 'incidents'
 
 export function ReportsCenter({ students, schoolName }: { students: FeatureStudent[]; schoolName: string }) {
   const [activeReport, setActiveReport] = useState<ReportSection>('pending')
@@ -431,6 +432,10 @@ export function ReportsCenter({ students, schoolName }: { students: FeatureStude
   const [lateDate, setLateDate] = useState(today())
   const [absences, setAbsences] = useState<DailyRow[]>([])
   const [lates, setLates] = useState<DailyRow[]>([])
+  const [incidentReport, setIncidentReport] = useState<LessonIncidentReportRow[]>([])
+  const [incidentReportLoading, setIncidentReportLoading] = useState(false)
+  const [updatingIncidentResponseId, setUpdatingIncidentResponseId] = useState('')
+  const [incidentReportNotice, setIncidentReportNotice] = useState('')
   const [notice, setNotice] = useState('')
   const [dailyStatusNotice, setDailyStatusNotice] = useState('')
   const [updatingDailyStatus, setUpdatingDailyStatus] = useState(false)
@@ -451,6 +456,21 @@ export function ReportsCenter({ students, schoolName }: { students: FeatureStude
   useEffect(() => {
     void Promise.all([loadToday(), loadAbsences(), loadLates()]).catch(() => setNotice('تعذر تحميل بعض بيانات التقارير.'))
   }, [])
+
+  useEffect(() => {
+    if (activeReport !== 'incidents') return
+    let ignored = false
+    setIncidentReportLoading(true)
+    setIncidentReportNotice('')
+    void api.lessonIncidentReport().then(result => {
+      if (!ignored) setIncidentReport(result.incidents)
+    }).catch(() => {
+      if (!ignored) setIncidentReportNotice('تعذر تحميل تقرير المساءلات. حاول تحديثه.')
+    }).finally(() => {
+      if (!ignored) setIncidentReportLoading(false)
+    })
+    return () => { ignored = true }
+  }, [activeReport])
 
   useEffect(() => {
     if (!focusDailyAbsenceLog || activeReport !== 'absences') return
@@ -563,6 +583,43 @@ export function ReportsCenter({ students, schoolName }: { students: FeatureStude
     schoolName,
   )
 
+  const updateIncidentResponse = async (incidentId: string, status: LessonIncidentReportRow['schoolResponseStatus']) => {
+    if (updatingIncidentResponseId) return
+    setUpdatingIncidentResponseId(incidentId)
+    setIncidentReportNotice('')
+    try {
+      await api.setLessonIncidentResponse(incidentId, status)
+      setIncidentReport(current => current.map(incident => incident.id === incidentId ? { ...incident, schoolResponseStatus: status } : incident))
+      setIncidentReportNotice('تم حفظ حالة الرد.')
+    } catch {
+      setIncidentReportNotice('تعذر حفظ حالة الرد. حاول مرة أخرى.')
+    } finally {
+      setUpdatingIncidentResponseId('')
+    }
+  }
+
+  const incidentReportRows = incidentReport.map(incident => [
+    incident.teacherName,
+    reportWeekday(incident.weekday),
+    formatHijriDate(incident.incidentDate),
+    incident.classroom,
+    incident.periodNumber,
+    incident.schoolResponseStatus === 'replied' ? 'تم الرد' : incident.schoolResponseStatus === 'not_replied' ? 'لم يتم الرد' : 'غير محدد',
+  ])
+
+  const exportIncidentReportExcel = () => downloadWorkbook(
+    `تقرير_المساءلات_${today()}`,
+    [['اسم المعلم', 'اليوم', 'التاريخ الهجري', 'الصف', 'الحصة', 'الرد على المساءلة'], ...incidentReportRows],
+    'المساءلات', schoolName, 'تقرير المساءلات',
+  )
+
+  const exportIncidentReportPdf = () => openPrintDocument(
+    'تقرير المساءلات',
+    `<section class="page"><p class="meta">إجمالي المساءلات غير الملغاة: ${incidentReport.length}</p><table><thead><tr><th>اسم المعلم</th><th>اليوم</th><th>التاريخ الهجري</th><th>الصف</th><th>الحصة</th><th>الرد على المساءلة</th></tr></thead><tbody>${incidentReportRows.length ? incidentReportRows.map(row => `<tr>${row.map(value => `<td>${escapeHtml(value)}</td>`).join('')}</tr>`).join('') : '<tr><td colspan="6">لا توجد مساءلات.</td></tr>'}</tbody></table></section>`,
+    schoolName,
+    'landscape',
+  )
+
   const tabs: Array<{ id: ReportSection; label: string; count?: number | null }> = [
     { id: 'pending', label: 'غياب اليوم', count: todayMissingCount },
     { id: 'absences', label: 'سجل الغياب', count: absenceDate === today() ? todayConfirmedCount : absences.length },
@@ -570,6 +627,7 @@ export function ReportsCenter({ students, schoolName }: { students: FeatureStude
     { id: 'lates', label: 'سجل التأخر', count: lates.length },
     { id: 'late-history', label: 'أيام التأخر' },
     { id: 'student-detail', label: 'التقرير المفصل للطالب' },
+    { id: 'incidents', label: 'تقارير المساءلات', count: incidentReportLoading ? null : incidentReport.length },
     { id: 'phones', label: 'هواتف الطلاب', count: students.length },
   ]
 
@@ -606,6 +664,36 @@ export function ReportsCenter({ students, schoolName }: { students: FeatureStude
           <button className="export-btn pdf" type="button" onClick={exportPendingPdf} disabled={todayMissingCount === null}><Printer size={16} /> PDF</button>
         </div>
         {todayMissingCount === 0 && <p className="report-empty-state">لا يوجد طالب بانتظار تسجيل الحضور الآن.</p>}
+      </section>}
+
+      {activeReport === 'incidents' && <section className="panel incident-report-panel">
+        <div className="panel-header">
+          <div><span className="panel-kicker">متابعة وكيل المدرسة</span><h2>تقارير المساءلات</h2><p>حدّث حالة الرد بحسب إفادة وكيل المدرسة. تظهر السجلات السابقة «غير محدد» حتى تحديثها، والحالة مستقلة عن اعتماد المساءلة.</p></div>
+          <div className="pending-absence-count" role="status" aria-live="polite" aria-atomic="true"><span>المساءلات غير الملغاة</span><strong>{incidentReportLoading ? '…' : incidentReport.length}</strong></div>
+        </div>
+        <div className="feature-actions daily-actions">
+          <button className="export-btn csv" type="button" onClick={exportIncidentReportExcel} disabled={incidentReportLoading}><Download size={16} /> Excel</button>
+          <button className="export-btn pdf" type="button" onClick={exportIncidentReportPdf} disabled={incidentReportLoading}><Printer size={16} /> PDF</button>
+        </div>
+        {incidentReportNotice && <p className="report-status-notice" role="status">{incidentReportNotice}</p>}
+        {incidentReportLoading ? <p className="report-empty-state">جارٍ تحميل المساءلات...</p> : <div className="incident-report-table-scroll">
+          <table className="incident-report-table">
+            <thead><tr><th>اسم المعلم</th><th>اليوم</th><th>التاريخ</th><th>الصف</th><th>الحصة</th><th>الرد على المساءلة</th></tr></thead>
+            <tbody>{incidentReport.map(incident => <tr key={incident.id}>
+              <td>{incident.teacherName}</td>
+              <td>{reportWeekday(incident.weekday)}</td>
+              <td>{formatHijriDate(incident.incidentDate)}</td>
+              <td>{incident.classroom}</td>
+              <td>{incident.periodNumber}</td>
+              <td><select className="incident-response-select" aria-label={`حالة الرد على مساءلة ${incident.teacherName}`} value={incident.schoolResponseStatus} disabled={updatingIncidentResponseId === incident.id} onChange={event => void updateIncidentResponse(incident.id, event.target.value as LessonIncidentReportRow['schoolResponseStatus'])}>
+                <option value="unrecorded">غير محدد</option>
+                <option value="not_replied">لم يتم الرد</option>
+                <option value="replied">تم الرد</option>
+              </select></td>
+            </tr>)}</tbody>
+          </table>
+          {!incidentReport.length && <p className="report-empty-state">لا توجد مساءلات غير ملغاة.</p>}
+        </div>}
       </section>}
 
       {activeReport === 'phones' && <section className="panel">

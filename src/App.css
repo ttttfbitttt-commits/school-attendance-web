@@ -4106,6 +4106,49 @@ tbody td {
   min-width: 0;
 }
 
+.incident-report-table-scroll {
+  width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+}
+
+.incident-report-table {
+  width: 100%;
+  min-width: 720px;
+  border-collapse: collapse;
+}
+
+.incident-report-table th,
+.incident-report-table td {
+  padding: 11px 12px;
+  border-bottom: 1px solid #dbe5ee;
+  text-align: right;
+  white-space: nowrap;
+}
+
+.incident-report-table th {
+  color: #23415f;
+  background: #f3f7fb;
+  font-weight: 750;
+}
+
+.incident-response-select {
+  min-width: 135px;
+  min-height: 40px;
+  padding: 7px 10px;
+  border: 1px solid #cbd8e5;
+  border-radius: 6px;
+  color: #183b5b;
+  background: #fff;
+  font: inherit;
+}
+
+.report-status-notice {
+  margin: 10px 0;
+  color: #176b46;
+  font-size: 14px;
+}
+
 @media (max-width: 580px) {
   .report-section-tabs {
     grid-template-columns: repeat(2, minmax(0, 1fr));

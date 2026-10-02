@@ -96,6 +96,17 @@ export type LessonIncident = {
   detectedAt: string
   confirmedAt: string | null
 }
+export type LessonIncidentReportRow = {
+  id: string
+  teacherName: string
+  incidentDate: string
+  weekday: number
+  classroomId: string
+  classroom: string
+  periodNumber: number
+  schoolResponseStatus: 'replied' | 'not_replied' | 'unrecorded'
+  schoolResponseUpdatedAt: string | null
+}
 export type TeacherDayAbsence = { teacherId: string; name: string; identityNumber: string; date: string }
 export type LessonScanPreview = {
   confirmationToken: string
@@ -208,6 +219,9 @@ export const api = {
   createManualLessonIncident: (payload: { classroomId: string; periodNumber: number; teacherId: string; incidentDate: string }) =>
     request<{ incident: LessonIncident; existing: boolean }>('/lesson-flow/incidents/manual', { method: 'POST', body: JSON.stringify(payload) }),
   lessonIncidents: (date?: string) => request<{ incidents: LessonIncident[] }>(`/lesson-flow/incidents${date ? `?date=${encodeURIComponent(date)}` : ''}`),
+  lessonIncidentReport: () => request<{ incidents: LessonIncidentReportRow[] }>('/lesson-flow/incidents/report'),
+  setLessonIncidentResponse: (id: string, status: LessonIncidentReportRow['schoolResponseStatus']) =>
+    request<{ ok: boolean }>(`/lesson-flow/incidents/${encodeURIComponent(id)}/school-response`, { method: 'PUT', body: JSON.stringify({ status }) }),
   confirmLessonIncident: (id: string) => request<{ ok: boolean }>(`/lesson-flow/incidents/${encodeURIComponent(id)}/confirm`, { method: 'POST', body: JSON.stringify({}) }),
   cancelLessonIncident: (id: string, note = '') => request<{ ok: boolean }>(`/lesson-flow/incidents/${encodeURIComponent(id)}/cancel`, { method: 'POST', body: JSON.stringify({ note }) }),
   deleteLessonIncident: (id: string) => request<{ ok: boolean }>(`/lesson-flow/incidents/${encodeURIComponent(id)}`, { method: 'DELETE' }),

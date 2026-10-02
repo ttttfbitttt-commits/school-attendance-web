@@ -282,6 +282,9 @@ export async function migrateLessonFlow(pool) {
       teacher_name text NOT NULL,
       identity_number text NOT NULL,
       status text NOT NULL DEFAULT 'draft' CHECK (status IN ('draft','confirmed','cancelled')),
+      school_response_status text NOT NULL DEFAULT 'unrecorded' CHECK (school_response_status IN ('replied','not_replied','unrecorded')),
+      school_response_updated_by uuid REFERENCES users(id) ON DELETE SET NULL,
+      school_response_updated_at timestamptz,
       cancel_note text NOT NULL DEFAULT '' CHECK (length(cancel_note) <= 500),
       detected_by uuid REFERENCES users(id) ON DELETE SET NULL,
       detected_at timestamptz NOT NULL DEFAULT now(),
@@ -290,6 +293,9 @@ export async function migrateLessonFlow(pool) {
       cancelled_by uuid REFERENCES users(id) ON DELETE SET NULL,
       cancelled_at timestamptz
     );
+    ALTER TABLE teacher_incidents ADD COLUMN IF NOT EXISTS school_response_status text NOT NULL DEFAULT 'unrecorded' CHECK (school_response_status IN ('replied','not_replied','unrecorded'));
+    ALTER TABLE teacher_incidents ADD COLUMN IF NOT EXISTS school_response_updated_by uuid REFERENCES users(id) ON DELETE SET NULL;
+    ALTER TABLE teacher_incidents ADD COLUMN IF NOT EXISTS school_response_updated_at timestamptz;
     CREATE TABLE IF NOT EXISTS teacher_day_absences (
       id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
       school_id uuid NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
@@ -363,6 +369,29 @@ export async function handleLessonFlowRequest(context) {
     const result = await scoped(user.school_id, async client => client.query(
       'DELETE FROM teacher_day_absences WHERE school_id=$1 AND teacher_id=$2 AND absence_date=$3', [user.school_id, teacherId, date]))
     json(res, 200, { ok: true, removed: result.rowCount })
+    return true
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/lesson-flow/incidents/report') {
+    const incidents = await scoped(user.school_id, async client => (await client.query(`SELECT i.id,i.teacher_name AS "teacherName",i.incident_date AS "incidentDate",
+        i.weekday,i.classroom_id AS "classroomId",c.name AS classroom,i.period_number AS "periodNumber",
+        i.school_response_status AS "schoolResponseStatus",i.school_response_updated_at AS "schoolResponseUpdatedAt"
+      FROM teacher_incidents i JOIN lesson_classrooms c ON c.id=i.classroom_id
+      WHERE i.school_id=$1 AND i.status IN ('draft','confirmed')
+      ORDER BY i.incident_date DESC,i.detected_at DESC`, [user.school_id])).rows)
+    json(res, 200, { incidents: incidents.map(incident => ({ ...incident, weekday: Number(incident.weekday) })) })
+    return true
+  }
+
+  const incidentResponse = /^\/api\/lesson-flow\/incidents\/([0-9a-f-]{36})\/school-response$/i.exec(url.pathname)
+  if (req.method === 'PUT' && incidentResponse) {
+    const status = (await body(req)).status
+    if (status !== 'replied' && status !== 'not_replied' && status !== 'unrecorded') { json(res, 400, { error: 'invalid_school_response_status' }); return true }
+    const result = await scoped(user.school_id, async client => client.query(`UPDATE teacher_incidents
+      SET school_response_status=$1,school_response_updated_by=$2,school_response_updated_at=now()
+      WHERE school_id=$3 AND id=$4 AND status IN ('draft','confirmed') RETURNING id`, [status, user.user_id, user.school_id, incidentResponse[1]]))
+    if (!result.rowCount) { json(res, 404, { error: 'incident_not_found_or_locked' }); return true }
+    json(res, 200, { ok: true })
     return true
   }
 
