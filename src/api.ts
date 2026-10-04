@@ -123,7 +123,7 @@ export type LessonScanPreview = {
   endTime: string
 }
 export type TeacherPortalScheduleItem = { assignmentId: string; classroomId: string; classroom: string; weekday: number; periodNumber: number; subject: string; startTime: string | null; endTime: string | null }
-export type TeacherPortalDashboard = { schoolName: string; teacher: { name: string; identityNumber: string }; date: string; weekday: number; schedule: TeacherPortalScheduleItem[]; weekSchedule: TeacherPortalScheduleItem[] }
+export type TeacherPortalDashboard = { schoolName: string; teacher: { name: string; identityNumber: string }; date: string; weekday: number; schedule: TeacherPortalScheduleItem[]; weekSchedule: TeacherPortalScheduleItem[]; periodNumbers: number[] }
 export type TeacherNote = 'هروب من الحصة' | 'نائم أثناء الدرس' | 'لم يحل الواجب' | 'عدم التفاعل والمشاركة' | 'مشارك فعال' | 'لم يحضر الكتاب أو أوراق العمل' | 'استخدام الجوال أثناء الحصة' | 'الحديث مع زملائه أثناء الدرس'
 export type TeacherSheetColumn = { id: string; label: string; type: 'score' | 'text' | 'choice' | 'boolean'; maxScore: number | null; choices: string[] }
 export type TeacherSheetType = 'followup' | 'homework' | 'tests'
