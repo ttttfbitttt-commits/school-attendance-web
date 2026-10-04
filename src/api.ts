@@ -166,6 +166,7 @@ export type BehaviorStudent = {
   grade: string
   classroom: string
   phone?: string
+  stage: 'primary' | 'middle' | 'secondary' | 'unknown'
   violationCount?: number
   pendingCount?: number
   descriptiveOnly: boolean
@@ -200,6 +201,7 @@ export type BehaviorRecord = {
   cancellationReason?: string
   date: string
   mode: 'in_person' | 'remote'
+  stage: 'primary' | 'middle' | 'secondary' | 'unspecified'
   location?: string
   description?: string
   sensitive: boolean
@@ -317,12 +319,12 @@ export const api = {
   setTeacherAccountStatus: (teacherId: string, active: boolean) => request<{ ok: boolean }>('/teacher-portal/admin/accounts/status', { method: 'PATCH', body: JSON.stringify({ teacherId, active }) }),
   teacherAdminReports: (filters: { date?: string; teacherId?: string; note?: string; classroomId?: string } = {}) => request<{ reports: TeacherLessonReport[] }>(`/teacher-portal/admin/reports?${new URLSearchParams(Object.entries(filters).filter(([, value]) => value).map(([key, value]) => [key, value || '']))}`),
   behaviorOverview: () => request<BehaviorOverview>('/behavior/overview'),
-  behaviorCatalog: (filters: { category?: BehaviorCategory; mode?: 'in_person' | 'remote'; q?: string } = {}) =>
+  behaviorCatalog: (filters: { category?: BehaviorCategory; mode?: 'in_person' | 'remote'; stage?: 'primary' | 'middle' | 'secondary'; q?: string } = {}) =>
     request<{ version: string; rules: BehaviorRule[] }>(`/behavior/catalog?${new URLSearchParams(Object.entries(filters).filter(([, value]) => value).map(([key, value]) => [key, value || '']))}`),
   behaviorStudents: (q = '') => request<{ students: BehaviorStudent[] }>(`/behavior/students${q ? `?q=${encodeURIComponent(q)}` : ''}`),
-  behaviorPreview: (payload: { ruleCode: string; studentIds: string[]; mode: 'in_person' | 'remote' }) =>
+  behaviorPreview: (payload: { ruleCode: string; studentIds: string[]; mode: 'in_person' | 'remote'; stage: 'primary' | 'middle' | 'secondary' }) =>
     request<{ rule: BehaviorRule; students: BehaviorPreviewStudent[] }>('/behavior/preview', { method: 'POST', body: JSON.stringify(payload) }),
-  createBehaviorIncident: (payload: { date: string; mode: 'in_person' | 'remote'; ruleCode: string; studentIds: string[]; location?: string; description?: string }) =>
+  createBehaviorIncident: (payload: { date: string; mode: 'in_person' | 'remote'; stage: 'primary' | 'middle' | 'secondary'; ruleCode: string; studentIds: string[]; location?: string; description?: string }) =>
     request<{ incidentId: string; records: string[] }>('/behavior/incidents', { method: 'POST', body: JSON.stringify(payload) }),
   behaviorRecords: (filters: { status?: BehaviorStatus; category?: BehaviorCategory; studentId?: string; from?: string; to?: string } = {}) =>
     request<{ records: BehaviorRecord[] }>(`/behavior/records?${new URLSearchParams(Object.entries(filters).filter(([, value]) => value).map(([key, value]) => [key, value || '']))}`),

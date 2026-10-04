@@ -1,5 +1,6 @@
 const CATALOG_VERSION = '1447.1'
 const MODES = new Set(['in_person', 'remote'])
+const EDUCATION_STAGES = new Set(['primary', 'middle', 'secondary'])
 const RECORD_STATUSES = new Set(['pending', 'approved', 'cancelled'])
 const ACTION_STATES = new Set(['required', 'executed', 'not_executed'])
 
@@ -22,12 +23,16 @@ function normalizeArabic(value) {
 function gradeProfile(grade, schoolName = '') {
   const value = normalizeArabic(grade)
   const school = normalizeArabic(schoolName)
-  const primary = /ابتد/.test(value) || /ابتد/.test(school)
-  const middleSecondary = /متوسط|ثانو/.test(value) || /متوسط|ثانو/.test(school)
+  const stage = /ابتد/.test(value) ? 'primary'
+    : /متوسط/.test(value) ? 'middle'
+      : /ثانو/.test(value) ? 'secondary'
+        : /ابتد/.test(school) ? 'primary'
+          : /متوسط/.test(school) ? 'middle'
+            : /ثانو/.test(school) ? 'secondary' : 'unknown'
   const firstOrSecond = /(^|\s)(اول|الاول|الاولي|1|١|ثاني|الثاني|الثانيه|2|٢)(\s|$)/.test(value)
-  if (primary) return { scope: 'primary', descriptiveOnly: firstOrSecond }
-  if (middleSecondary) return { scope: 'middle_secondary', descriptiveOnly: false }
-  return { scope: 'unknown', descriptiveOnly: false }
+  if (stage === 'primary') return { stage, scope: 'primary', descriptiveOnly: firstOrSecond }
+  if (stage === 'middle' || stage === 'secondary') return { stage, scope: 'middle_secondary', descriptiveOnly: false }
+  return { stage: 'unknown', scope: 'unknown', descriptiveOnly: false }
 }
 
 const firstDegreeProcedures = [
@@ -155,6 +160,7 @@ export async function migrateBehavior(adminPool) {
       school_id uuid NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
       incident_date date NOT NULL,
       mode text NOT NULL CHECK (mode IN ('in_person','remote')),
+      education_stage text NOT NULL DEFAULT 'unspecified',
       location text NOT NULL DEFAULT '',
       description text NOT NULL DEFAULT '',
       status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','approved','cancelled')),
@@ -242,6 +248,12 @@ export async function migrateBehavior(adminPool) {
     CREATE INDEX IF NOT EXISTS behavior_movements_student ON behavior_score_movements(school_id,student_id,status,created_at);
     CREATE INDEX IF NOT EXISTS behavior_incidents_date ON behavior_incidents(school_id,incident_date DESC);
   `)
+  await adminPool.query("ALTER TABLE behavior_incidents ADD COLUMN IF NOT EXISTS education_stage text NOT NULL DEFAULT 'unspecified'")
+  await adminPool.query(`DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='behavior_incidents'::regclass AND conname='behavior_incidents_stage_check') THEN
+      ALTER TABLE behavior_incidents ADD CONSTRAINT behavior_incidents_stage_check CHECK (education_stage IN ('unspecified','primary','middle','secondary'));
+    END IF;
+  END $$`)
 
   for (const [code, title, degree, stageScope, mode, article, page] of catalogSeeds) {
     await adminPool.query(`INSERT INTO behavior_catalog_rules(code,rule_version,category,title,degree,stage_scope,mode,deduction_amount,official_article,official_page,procedures,sensitive)
@@ -265,11 +277,13 @@ export async function handleBehaviorRequest({ req, res, url, user, pool, body, j
   if (req.method === 'GET' && url.pathname === '/api/behavior/catalog') {
     const category = clean(url.searchParams.get('category'), 30)
     const mode = clean(url.searchParams.get('mode'), 30)
+    const stage = clean(url.searchParams.get('stage'), 30)
     const query = clean(url.searchParams.get('q'), 120)
     const values = []
     const clauses = ['active=true']
     if (category) { values.push(category); clauses.push(`category=$${values.length}`) }
     if (mode) { values.push(mode); clauses.push(`mode=$${values.length}`) }
+    if (EDUCATION_STAGES.has(stage)) { values.push(stage === 'primary' ? 'primary' : 'middle_secondary'); clauses.push(`$${values.length}=ANY(stage_scope)`) }
     if (query) { values.push(`%${query}%`); clauses.push(`title ILIKE $${values.length}`) }
     const rows = (await pool.query(`SELECT * FROM behavior_catalog_rules WHERE ${clauses.join(' AND ')} ORDER BY category,degree NULLS LAST,title`, values)).rows
     json(res, 200, { version: CATALOG_VERSION, rules: rows.map(ruleRow) })
@@ -286,7 +300,7 @@ export async function handleBehaviorRequest({ req, res, url, user, pool, body, j
         FROM behavior_student_records WHERE school_id=$1`, [user.school_id])).rows[0]
       const recent = (await client.query(`SELECT r.id,r.student_id AS "studentId",s.name,s.grade,s.classroom,r.rule_code AS "ruleCode",r.rule_title AS "ruleTitle",
         r.category,r.degree,r.recurrence_number AS recurrence,r.procedure_name AS "procedureName",r.descriptive_only AS "descriptiveOnly",r.proposed_amount AS amount,r.status,
-        to_char(i.incident_date,'YYYY-MM-DD') AS date,i.mode,i.sensitive,r.created_at AS "createdAt"
+        to_char(i.incident_date,'YYYY-MM-DD') AS date,i.mode,i.education_stage AS stage,i.sensitive,r.created_at AS "createdAt"
         FROM behavior_student_records r JOIN behavior_incidents i ON i.id=r.incident_id AND i.school_id=r.school_id
         JOIN students s ON s.school_id=r.school_id AND s.id=r.student_id
         WHERE r.school_id=$1 ORDER BY r.created_at DESC LIMIT 12`, [user.school_id])).rows
@@ -307,15 +321,20 @@ export async function handleBehaviorRequest({ req, res, url, user, pool, body, j
         WHERE s.school_id=$1 AND s.active=true AND ($2='' OR s.name ILIKE '%'||$2||'%' OR s.id ILIKE '%'||$2||'%')
         GROUP BY s.school_id,s.id ORDER BY s.grade,s.classroom,s.name LIMIT 500`, [user.school_id, search])).rows,
     }))
-    json(res, 200, { students: result.rows.map(row => ({ ...row, descriptiveOnly: gradeProfile(row.grade, result.schoolName).descriptiveOnly })) })
+    json(res, 200, { students: result.rows.map(row => {
+      const profile = gradeProfile(row.grade, result.schoolName)
+      return { ...row, stage: profile.stage, descriptiveOnly: profile.descriptiveOnly }
+    }) })
     return true
   }
 
   if (req.method === 'POST' && url.pathname === '/api/behavior/preview') {
     const input = await body(req)
     const rule = await catalogRule(pool, clean(input.ruleCode, 100))
+    const stage = EDUCATION_STAGES.has(String(input.stage || '')) ? String(input.stage) : null
     const studentIds = [...new Set(Array.isArray(input.studentIds) ? input.studentIds.map(value => clean(value, 100)).filter(Boolean) : [])].slice(0, 500)
-    if (!rule || !studentIds.length || !MODES.has(String(input.mode || '')) || rule.mode !== input.mode) { json(res, 400, { error: 'invalid_behavior_preview' }); return true }
+    const requiredScope = stage === 'primary' ? 'primary' : 'middle_secondary'
+    if (!rule || !stage || !rule.stageScope.includes(requiredScope) || !studentIds.length || !MODES.has(String(input.mode || '')) || rule.mode !== input.mode) { json(res, 400, { error: 'invalid_behavior_preview' }); return true }
     const preview = await scoped(user.school_id, async client => {
       const schoolName = (await client.query('SELECT name FROM schools WHERE id=$1', [user.school_id])).rows[0]?.name || ''
       const students = (await client.query('SELECT id,name,grade,classroom FROM students WHERE school_id=$1 AND active=true AND id=ANY($2::text[]) ORDER BY name', [user.school_id, studentIds])).rows
@@ -323,7 +342,7 @@ export async function handleBehaviorRequest({ req, res, url, user, pool, body, j
       const items = []
       for (const student of students) {
         const profile = gradeProfile(student.grade, schoolName)
-        const applicable = profile.scope === 'unknown' || rule.stageScope.includes(profile.scope)
+        const applicable = (profile.stage === 'unknown' || profile.stage === stage) && (profile.scope === 'unknown' || rule.stageScope.includes(profile.scope))
         const approved = Number((await client.query(`SELECT COUNT(*)::int AS count FROM behavior_student_records
           WHERE school_id=$1 AND student_id=$2 AND rule_code=$3 AND status='approved'`, [user.school_id, student.id, rule.code])).rows[0].count)
         const procedure = rule.category === 'violation' ? rule.procedures[approved] : null
@@ -343,8 +362,10 @@ export async function handleBehaviorRequest({ req, res, url, user, pool, body, j
     const rule = await catalogRule(pool, clean(input.ruleCode, 100))
     const incidentDate = validDate(input.date)
     const mode = MODES.has(String(input.mode || '')) ? String(input.mode) : null
+    const stage = EDUCATION_STAGES.has(String(input.stage || '')) ? String(input.stage) : null
     const studentIds = [...new Set(Array.isArray(input.studentIds) ? input.studentIds.map(value => clean(value, 100)).filter(Boolean) : [])].slice(0, 500)
-    if (!rule || !incidentDate || !mode || rule.mode !== mode || !studentIds.length) { json(res, 400, { error: 'invalid_behavior_incident' }); return true }
+    const requiredScope = stage === 'primary' ? 'primary' : 'middle_secondary'
+    if (!rule || !incidentDate || !mode || !stage || !rule.stageScope.includes(requiredScope) || rule.mode !== mode || !studentIds.length) { json(res, 400, { error: 'invalid_behavior_incident' }); return true }
     const saved = await scoped(user.school_id, async client => {
       const schoolName = (await client.query('SELECT name FROM schools WHERE id=$1', [user.school_id])).rows[0]?.name || ''
       const students = (await client.query('SELECT id,name,grade,classroom FROM students WHERE school_id=$1 AND active=true AND id=ANY($2::text[])', [user.school_id, studentIds])).rows
@@ -352,15 +373,15 @@ export async function handleBehaviorRequest({ req, res, url, user, pool, body, j
       const prepared = []
       for (const student of students) {
         const profile = gradeProfile(student.grade, schoolName)
-        if (profile.scope !== 'unknown' && !rule.stageScope.includes(profile.scope)) return { error: 'rule_not_applicable', student: student.name }
+        if ((profile.stage !== 'unknown' && profile.stage !== stage) || (profile.scope !== 'unknown' && !rule.stageScope.includes(profile.scope))) return { error: 'rule_not_applicable', student: student.name }
         const approved = Number((await client.query(`SELECT COUNT(*)::int AS count FROM behavior_student_records
           WHERE school_id=$1 AND student_id=$2 AND rule_code=$3 AND status='approved'`, [user.school_id, student.id, rule.code])).rows[0].count)
         const procedure = rule.category === 'violation' ? rule.procedures[approved] : { name: 'اعتماد السلوك المتميز', items: ['مراجعة الشاهد واعتماد الاستحقاق.'], deduct: false }
         if (!procedure) return { error: 'procedure_sequence_exhausted', student: student.name }
         prepared.push({ student, profile, recurrence: approved + 1, procedure })
       }
-      const incident = (await client.query(`INSERT INTO behavior_incidents(school_id,incident_date,mode,location,description,sensitive,created_by)
-        VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id`, [user.school_id, incidentDate, mode, clean(input.location, 200), clean(input.description, 1500), rule.sensitive, user.user_id])).rows[0]
+      const incident = (await client.query(`INSERT INTO behavior_incidents(school_id,incident_date,mode,education_stage,location,description,sensitive,created_by)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`, [user.school_id, incidentDate, mode, stage, clean(input.location, 200), clean(input.description, 1500), rule.sensitive, user.user_id])).rows[0]
       const records = []
       for (const item of prepared) {
         const proposed = rule.category === 'distinguished' ? rule.distinguishedScore : (item.profile.descriptiveOnly || !item.procedure.deduct ? 0 : rule.deduction)
@@ -370,7 +391,7 @@ export async function handleBehaviorRequest({ req, res, url, user, pool, body, j
         for (const [index, label] of item.procedure.items.entries()) await client.query(`INSERT INTO behavior_action_steps(school_id,record_id,sequence_number,label) VALUES($1,$2,$3,$4)`, [user.school_id, record.id, index + 1, label])
         records.push(record.id)
       }
-      await writeAudit(client, user.school_id, user.user_id, 'incident', incident.id, 'created', { ruleCode: rule.code, students: studentIds.length, date: incidentDate })
+      await writeAudit(client, user.school_id, user.user_id, 'incident', incident.id, 'created', { ruleCode: rule.code, students: studentIds.length, date: incidentDate, stage })
       return { incidentId: incident.id, records }
     })
     if (saved.error) { json(res, 409, saved); return true }
@@ -394,7 +415,7 @@ export async function handleBehaviorRequest({ req, res, url, user, pool, body, j
       if (to) { values.push(to); clauses.push(`i.incident_date <= $${values.length}`) }
       return (await client.query(`SELECT r.id,r.student_id AS "studentId",s.name,s.grade,s.classroom,r.rule_code AS "ruleCode",r.rule_title AS "ruleTitle",r.category,r.degree,
         r.recurrence_number AS recurrence,r.procedure_name AS "procedureName",r.procedure_snapshot AS actions,r.descriptive_only AS "descriptiveOnly",r.proposed_amount AS amount,r.status,
-        r.cancellation_reason AS "cancellationReason",to_char(i.incident_date,'YYYY-MM-DD') AS date,i.mode,i.location,i.description,i.sensitive,
+        r.cancellation_reason AS "cancellationReason",to_char(i.incident_date,'YYYY-MM-DD') AS date,i.mode,i.education_stage AS stage,i.location,i.description,i.sensitive,
         COALESCE((SELECT jsonb_agg(jsonb_build_object('id',a.id,'sequence',a.sequence_number,'label',a.label,'state',a.state,'reason',a.reason,'evidence',a.evidence_ref) ORDER BY a.sequence_number) FROM behavior_action_steps a WHERE a.school_id=r.school_id AND a.record_id=r.id),'[]'::jsonb) AS "actionSteps"
         FROM behavior_student_records r JOIN behavior_incidents i ON i.id=r.incident_id AND i.school_id=r.school_id
         JOIN students s ON s.school_id=r.school_id AND s.id=r.student_id WHERE ${clauses.join(' AND ')} ORDER BY i.incident_date DESC,r.created_at DESC LIMIT 500`, values)).rows
@@ -527,8 +548,8 @@ export async function handleBehaviorRequest({ req, res, url, user, pool, body, j
         FROM behavior_student_records r JOIN behavior_incidents i ON i.school_id=r.school_id AND i.id=r.incident_id WHERE r.school_id=$1 AND r.student_id=$2 ORDER BY i.incident_date DESC,r.created_at DESC`, [user.school_id, studentId])).rows
       const movementRows = (await client.query(`SELECT bucket,COALESCE(SUM(amount),0) AS total FROM behavior_score_movements WHERE school_id=$1 AND student_id=$2 AND status='approved' GROUP BY bucket`, [user.school_id, studentId])).rows
       const movements = (await client.query(`SELECT id,movement_type AS type,bucket,amount,reason,evidence_ref AS evidence,source_movement_id AS "sourceMovementId",created_at AS "createdAt" FROM behavior_score_movements WHERE school_id=$1 AND student_id=$2 AND status='approved' ORDER BY created_at DESC`, [user.school_id, studentId])).rows
-      const descriptiveOnly = gradeProfile(student.grade, schoolName).descriptiveOnly
-      return { student: { ...student, descriptiveOnly }, scores: descriptiveOnly ? null : scoreFromRows(movementRows), records, movements }
+      const studentGradeProfile = gradeProfile(student.grade, schoolName)
+      return { student: { ...student, stage: studentGradeProfile.stage, descriptiveOnly: studentGradeProfile.descriptiveOnly }, scores: studentGradeProfile.descriptiveOnly ? null : scoreFromRows(movementRows), records, movements }
     })
     json(res, profile ? 200 : 404, profile || { error: 'student_not_found' })
     return true
