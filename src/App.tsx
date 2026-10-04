@@ -28,6 +28,7 @@ import {
   Save,
   Search,
   Settings,
+  ShieldAlert,
   Sparkles,
   Square,
   Trash2,
@@ -45,6 +46,7 @@ import { LessonFlowCenter } from './LessonFlow'
 import { AlmadarSettings, downloadWorkbook, MessageCenter, reportBrandHeader, ReportsCenter } from './SchoolFeatures'
 import { TeacherAdminCenter } from './TeacherAdmin'
 import { TeacherPortal } from './TeacherPortal'
+import { BehaviorCenter } from './BehaviorCenter'
 
 type Student = {
   id: string
@@ -175,7 +177,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
   const [attendanceSearch, setAttendanceSearch] = useState('')
   const [attendanceStudentSearch, setAttendanceStudentSearch] = useState('')
   const [scanInput, setScanInput] = useState('')
-  const [activeNav, setActiveNav] = useState<'dashboard' | 'students' | 'attendance' | 'lessons' | 'teachers' | 'reports' | 'messages'>('attendance')
+  const [activeNav, setActiveNav] = useState<'dashboard' | 'students' | 'attendance' | 'behavior' | 'lessons' | 'teachers' | 'reports' | 'messages'>('attendance')
   const [manualAttendanceSelection, setManualAttendanceSelection] = useState<Student[]>([])
   const [manualAttendanceSubmitting, setManualAttendanceSubmitting] = useState(false)
   const [isImporting, setIsImporting] = useState(false)
@@ -1379,7 +1381,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
     setTimeout(() => URL.revokeObjectURL(url), 600000)
   }
 
-  const pageLabel = activeNav === 'dashboard' ? 'إعدادات المدرسة' : activeNav === 'attendance' ? 'سجل الحضور' : activeNav === 'lessons' ? 'سير الحصص' : activeNav === 'teachers' ? 'المعلمون' : activeNav === 'reports' ? 'التقارير' : activeNav === 'messages' ? 'الرسائل' : 'إدارة الطلاب'
+  const pageLabel = activeNav === 'dashboard' ? 'إعدادات المدرسة' : activeNav === 'attendance' ? 'سجل الحضور' : activeNav === 'behavior' ? 'سجل السلوك' : activeNav === 'lessons' ? 'سير الحصص' : activeNav === 'teachers' ? 'المعلمون' : activeNav === 'reports' ? 'التقارير' : activeNav === 'messages' ? 'الرسائل' : 'إدارة الطلاب'
   return (
     <div className="app-shell" dir="rtl">
       {isMobileMenuOpen && (
@@ -1448,6 +1450,17 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
           >
             <BarChart3 size={18} />
             <span>سجل الحضور</span>
+          </button>
+
+          <button
+            className={activeNav === 'behavior' ? 'nav-item active' : 'nav-item'}
+            onClick={() => {
+              setActiveNav('behavior')
+              setIsMobileMenuOpen(false)
+            }}
+          >
+            <ShieldAlert size={18} />
+            <span>سجل السلوك</span>
           </button>
 
           <button
@@ -1967,6 +1980,8 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
         {activeNav === 'lessons' && <LessonFlowCenter schoolName={schoolSettings.schoolName} />}
 
         {activeNav === 'teachers' && <TeacherAdminCenter schoolName={schoolSettings.schoolName} />}
+
+        {activeNav === 'behavior' && <BehaviorCenter school={schoolSettings} role={account.role === 'admin' ? 'admin' : 'staff'} />}
 
         {activeNav === 'messages' && <MessageCenter students={students} attendance={scanLog} schoolName={schoolSettings.schoolName} />}
 

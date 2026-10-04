@@ -6,6 +6,7 @@ import { handleFeatureRequest, migrateFeatures } from './features.mjs'
 import { migrateEmailVerification, requestSchoolRegistration, verifySchoolRegistration } from './emailVerification.mjs'
 import { handleLessonFlowRequest, migrateLessonFlow } from './lessonFlow.mjs'
 import { handleTeacherPortalRequest, migrateTeacherPortal } from './teacherPortal.mjs'
+import { handleBehaviorRequest, migrateBehavior } from './behavior.mjs'
 
 const { Pool } = pg
 if (!process.env.DATABASE_URL || !process.env.RUNTIME_DATABASE_URL || !process.env.AUTH_DATABASE_URL) {
@@ -129,7 +130,10 @@ async function configureDatabaseRoles() {
     message_logs, absence_records, absence_corrections, lesson_teachers, lesson_classrooms, lesson_schedule_imports,
     lesson_name_mappings, lesson_time_slots, lesson_schedule_assignments, teacher_incidents, teacher_day_absences,
     teacher_classroom_student_maps, teacher_lesson_sessions, teacher_lesson_student_records,
-    teacher_sheet_configs, teacher_sheet_entries TO attendance_app`)
+    teacher_sheet_configs, teacher_sheet_entries, behavior_incidents, behavior_student_records,
+    behavior_action_steps, behavior_score_movements, behavior_audit_logs TO attendance_app`)
+  await adminPool.query('GRANT SELECT ON behavior_catalog_rules TO attendance_app')
+  await adminPool.query('GRANT USAGE, SELECT ON SEQUENCE behavior_audit_logs_id_seq TO attendance_app')
   await adminPool.query('GRANT SELECT, INSERT, UPDATE ON schools, users, memberships TO attendance_auth')
   await adminPool.query('GRANT SELECT, INSERT, DELETE ON sessions TO attendance_auth')
   await adminPool.query('GRANT SELECT, INSERT, UPDATE, DELETE ON teacher_login_accounts TO attendance_auth')
@@ -159,6 +163,11 @@ async function enforceTenantRowSecurity() {
     ['teacher_lesson_student_records', 'school_id', 'teacher_lesson_student_records_school_scope'],
     ['teacher_sheet_configs', 'school_id', 'teacher_sheet_configs_school_scope'],
     ['teacher_sheet_entries', 'school_id', 'teacher_sheet_entries_school_scope'],
+    ['behavior_incidents', 'school_id', 'behavior_incidents_school_scope'],
+    ['behavior_student_records', 'school_id', 'behavior_student_records_school_scope'],
+    ['behavior_action_steps', 'school_id', 'behavior_action_steps_school_scope'],
+    ['behavior_score_movements', 'school_id', 'behavior_score_movements_school_scope'],
+    ['behavior_audit_logs', 'school_id', 'behavior_audit_logs_school_scope'],
   ]
   for (const [table, schoolColumn, policy] of tables) {
     await adminPool.query(`ALTER TABLE ${table} ENABLE ROW LEVEL SECURITY`)
@@ -177,6 +186,7 @@ async function migrateDatabase() {
   await migrateEmailVerification(adminPool)
   await migrateLessonFlow(adminPool)
   await migrateTeacherPortal(adminPool)
+  await migrateBehavior(adminPool)
   await enforceTenantRowSecurity()
   await configureDatabaseRoles()
 }
@@ -268,6 +278,7 @@ const server = http.createServer(async (req, res) => {
       return json(res,200,{ok:true})
     }
     if (await handleLessonFlowRequest({ req, res, url, user, pool, body, json, scoped, todayRiyadh })) return
+    if (await handleBehaviorRequest({ req, res, url, user, pool, body, json, scoped, todayRiyadh })) return
     if (await handleFeatureRequest({ req, res, url, user, pool, body, json, scoped, todayRiyadh })) return
     return json(res, 404, { error: 'not_found' })
   } catch (error) {

@@ -143,6 +143,79 @@ export type TeacherAdminOverview = {
   classroomMappings: Array<{ classroomId: string; classroom: string; grade: string | null; classroomValue: string | null; mappingSource: 'automatic' | 'manual' | null }>
 }
 
+export type BehaviorCategory = 'violation' | 'distinguished'
+export type BehaviorStatus = 'pending' | 'approved' | 'cancelled'
+export type BehaviorRule = {
+  code: string
+  version: string
+  category: BehaviorCategory
+  title: string
+  degree: number | null
+  stageScope: string[]
+  mode: 'in_person' | 'remote'
+  deduction: number
+  distinguishedScore: number
+  article: number | null
+  page: number | null
+  procedures: Array<{ name: string; deduct: boolean; items: string[] }>
+  sensitive: boolean
+}
+export type BehaviorStudent = {
+  id: string
+  name: string
+  grade: string
+  classroom: string
+  phone?: string
+  violationCount?: number
+  pendingCount?: number
+  descriptiveOnly: boolean
+}
+export type BehaviorPreviewStudent = BehaviorStudent & {
+  applicable: boolean
+  recurrence: number
+  exhausted: boolean
+  procedureName: string
+  actions: string[]
+  deduction: number
+  distinguishedScore: number
+}
+export type BehaviorActionStep = { id: string; sequence: number; label: string; state: 'required' | 'executed' | 'not_executed'; reason: string; evidence: string }
+export type BehaviorRecord = {
+  id: string
+  studentId: string
+  name: string
+  grade: string
+  classroom: string
+  ruleCode: string
+  ruleTitle: string
+  category: BehaviorCategory
+  degree: number | null
+  recurrence: number
+  procedureName: string
+  actions?: string[]
+  actionSteps?: BehaviorActionStep[]
+  descriptiveOnly: boolean
+  amount: number
+  status: BehaviorStatus
+  cancellationReason?: string
+  date: string
+  mode: 'in_person' | 'remote'
+  location?: string
+  description?: string
+  sensitive: boolean
+  createdAt?: string
+}
+export type BehaviorOverview = {
+  counts: { pending: number; violations: number; distinguished: number; students: number }
+  recent: BehaviorRecord[]
+}
+export type BehaviorStudentProfile = {
+  student: BehaviorStudent
+  scores: { positiveScore: number; distinguishedScore: number; totalScore: number } | null
+  records: Array<Pick<BehaviorRecord, 'id' | 'ruleTitle' | 'ruleCode' | 'category' | 'degree' | 'recurrence' | 'procedureName' | 'status' | 'date'>>
+  movements: Array<{ id: string; type: 'deduction' | 'compensation' | 'distinguished' | 'reversal'; bucket: 'positive' | 'distinguished'; amount: number; reason: string; evidence: string; sourceMovementId: string | null; createdAt: string }>
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`/api${path}`, {
     credentials: 'include',
@@ -243,4 +316,21 @@ export const api = {
   resetTeacherAccounts: (teacherIds: string[]) => request<{ ok: boolean; reset: number; credentials: Array<{ teacherId: string; name: string; identityNumber: string; temporaryPassword: string }> }>('/teacher-portal/admin/accounts/bulk-reset', { method: 'POST', body: JSON.stringify({ teacherIds }) }),
   setTeacherAccountStatus: (teacherId: string, active: boolean) => request<{ ok: boolean }>('/teacher-portal/admin/accounts/status', { method: 'PATCH', body: JSON.stringify({ teacherId, active }) }),
   teacherAdminReports: (filters: { date?: string; teacherId?: string; note?: string; classroomId?: string } = {}) => request<{ reports: TeacherLessonReport[] }>(`/teacher-portal/admin/reports?${new URLSearchParams(Object.entries(filters).filter(([, value]) => value).map(([key, value]) => [key, value || '']))}`),
+  behaviorOverview: () => request<BehaviorOverview>('/behavior/overview'),
+  behaviorCatalog: (filters: { category?: BehaviorCategory; mode?: 'in_person' | 'remote'; q?: string } = {}) =>
+    request<{ version: string; rules: BehaviorRule[] }>(`/behavior/catalog?${new URLSearchParams(Object.entries(filters).filter(([, value]) => value).map(([key, value]) => [key, value || '']))}`),
+  behaviorStudents: (q = '') => request<{ students: BehaviorStudent[] }>(`/behavior/students${q ? `?q=${encodeURIComponent(q)}` : ''}`),
+  behaviorPreview: (payload: { ruleCode: string; studentIds: string[]; mode: 'in_person' | 'remote' }) =>
+    request<{ rule: BehaviorRule; students: BehaviorPreviewStudent[] }>('/behavior/preview', { method: 'POST', body: JSON.stringify(payload) }),
+  createBehaviorIncident: (payload: { date: string; mode: 'in_person' | 'remote'; ruleCode: string; studentIds: string[]; location?: string; description?: string }) =>
+    request<{ incidentId: string; records: string[] }>('/behavior/incidents', { method: 'POST', body: JSON.stringify(payload) }),
+  behaviorRecords: (filters: { status?: BehaviorStatus; category?: BehaviorCategory; studentId?: string; from?: string; to?: string } = {}) =>
+    request<{ records: BehaviorRecord[] }>(`/behavior/records?${new URLSearchParams(Object.entries(filters).filter(([, value]) => value).map(([key, value]) => [key, value || '']))}`),
+  approveBehaviorRecord: (recordId: string) => request<{ ok: boolean; recurrence: number; amount: number }>(`/behavior/records/${encodeURIComponent(recordId)}/approve`, { method: 'POST', body: '{}' }),
+  cancelBehaviorRecord: (recordId: string, reason: string) => request<{ ok: boolean }>(`/behavior/records/${encodeURIComponent(recordId)}/cancel`, { method: 'POST', body: JSON.stringify({ reason }) }),
+  updateBehaviorAction: (recordId: string, actionId: string, payload: { state: BehaviorActionStep['state']; reason?: string; evidence?: string }) =>
+    request<{ ok: boolean }>(`/behavior/records/${encodeURIComponent(recordId)}/actions/${encodeURIComponent(actionId)}`, { method: 'PUT', body: JSON.stringify(payload) }),
+  behaviorStudentProfile: (studentId: string) => request<BehaviorStudentProfile>(`/behavior/students/${encodeURIComponent(studentId)}`),
+  createBehaviorCompensation: (payload: { sourceMovementId: string; amount: number; evidence: string; reason?: string }) =>
+    request<{ ok: boolean; amount: number; remaining: number }>('/behavior/compensations', { method: 'POST', body: JSON.stringify(payload) }),
 }
