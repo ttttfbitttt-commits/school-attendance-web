@@ -277,6 +277,11 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
 
   useEffect(() => { void loadDashboard() }, [date])
   useEffect(() => { void api.teacherSheets().then(result => setSheets(result.sheets)).catch(() => setSheets([])) }, [])
+  useEffect(() => {
+    if (!printPreview) return
+    document.body.classList.add('teacher-print-mode')
+    return () => document.body.classList.remove('teacher-print-mode')
+  }, [printPreview])
 
   const openLesson = async (item: TeacherPortalScheduleItem, sheetType: TeacherSheetOpenType = 'followup', sheetOnly = false, targetTab?: TeacherTab) => {
     setBusy(`lesson-${item.assignmentId}`)
@@ -461,7 +466,7 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
     </>}
     {activeTab === 'sheets' && <section className="teacher-card"><div className="teacher-section-head"><div><span>إدارة الكشوف</span><h2>الكشوف</h2><p>جهز كشف كل مادة مرة واحدة، أو ابدأ المتابعة مباشرة.</p></div><FileSpreadsheet size={30} /></div>{sheetMode === 'menu' && <div className="teacher-sheet-menu"><button type="button" onClick={() => { setLesson(null); setSelected(null); setSheetOnlyView(false); setSheetMode('setup') }}><FileSpreadsheet size={30} /><strong>إعداد الكشوف</strong><small>أنشئ الأعمدة والدرجات لكل مادة</small></button><button type="button" onClick={() => setSheetMode('start')}><BookOpenCheck size={30} /><strong>بدء المتابعة</strong><small>اختر المادة والفصل والكشف ثم افتح الطلاب</small></button></div>}{sheetMode === 'setup' && <><button type="button" className="outline-button teacher-sheet-back" onClick={() => setSheetMode('menu')}>العودة إلى الكشوف</button><TeacherSheetsSetup sheets={sheets} onSaved={config => setSheets(current => current.map(subject => subject.subject === config.subject ? { ...subject, configs: [...subject.configs.filter(item => item.sheetType !== config.sheetType), config] } : subject))} onDeleted={(subjectName, sheetType) => setSheets(current => current.map(subject => subject.subject === subjectName ? { ...subject, configs: subject.configs.filter(config => config.sheetType !== sheetType) } : subject))} /></>}{sheetMode === 'start' && <><button type="button" className="outline-button teacher-sheet-back" onClick={() => setSheetMode('menu')}>العودة إلى الكشوف</button><TeacherSheetStart sheets={sheets} schedule={dashboard?.weekSchedule || []} onOpen={(item, type) => void openLesson(item, type, true)} /></>}{sheetMode !== 'setup' && sheetOnlyView && lesson && selected && <TeacherSheetRoster lesson={lesson} selected={selected} states={states} updateSheetValue={updateSheetValue} exportSheet={exportSheet} printSheet={printSheet} saveLesson={saveLesson} busy={busy} />}</section>}
     {activeTab === 'reports' && <TeacherReportsTab key={reportsKey} schedule={dashboard?.weekSchedule || []} />}
-    {printPreview && <div className="teacher-print-overlay" role="dialog" aria-modal="true" aria-label="معاينة الطباعة"><div className="teacher-print-preview" dangerouslySetInnerHTML={{ __html: printPreview }} /><div className="teacher-print-actions"><button type="button" className="outline-button" onClick={() => setPrintPreview('')}>إغلاق والعودة</button><button type="button" className="primary-button" onClick={() => window.print()}><Printer size={16} /> طباعة / حفظ PDF</button></div></div>}
+    {printPreview && <div className="teacher-print-overlay" role="dialog" aria-modal="true" aria-label="معاينة الطباعة"><div className="teacher-print-actions"><button type="button" className="outline-button" onClick={() => setPrintPreview('')}>إغلاق والعودة</button><button type="button" className="primary-button" onClick={() => window.print()}><Printer size={16} /> طباعة / حفظ PDF</button></div><div className="teacher-print-preview" dangerouslySetInnerHTML={{ __html: printPreview }} /></div>}
     </div>
   </main>
 }

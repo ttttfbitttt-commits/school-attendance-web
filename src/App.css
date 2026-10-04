@@ -4893,3 +4893,41 @@ tbody td {
   .teacher-sheet-column-row .teacher-sheet-score-input,.teacher-sheet-column-row input[placeholder] { grid-area:extra; width:100%; min-width:0; box-sizing:border-box; }
   .teacher-sheet-column-row .icon-button { grid-area:delete; justify-self:stretch; align-self:stretch; width:40px; height:42px; }
 }
+
+body.teacher-print-mode { overflow:hidden; }
+body.teacher-print-mode .teacher-print-actions { position:sticky; z-index:2; top:0; width:100%; box-sizing:border-box; margin:0 auto 12px; padding:10px; border-radius:12px; background:#fff; box-shadow:0 8px 24px rgba(15,35,52,.16); }
+body.teacher-print-mode .teacher-print-preview { width:100%; box-sizing:border-box; }
+
+@media print {
+  @page { size:A4 landscape; margin:7mm; }
+  html,body { width:auto!important; height:auto!important; margin:0!important; background:#fff!important; }
+  body.teacher-print-mode { overflow:visible!important; }
+  body.teacher-print-mode .teacher-portal { display:block!important; width:100%!important; min-height:0!important; padding:0!important; background:#fff!important; }
+  body.teacher-print-mode .teacher-sidebar,
+  body.teacher-print-mode .teacher-mobile-nav-button,
+  body.teacher-print-mode .teacher-sidebar-backdrop { display:none!important; }
+  body.teacher-print-mode .teacher-workspace { display:block!important; width:100%!important; min-width:0!important; }
+  body.teacher-print-mode .teacher-workspace>:not(.teacher-print-overlay) { display:none!important; }
+  body.teacher-print-mode .teacher-print-overlay { position:static!important; display:block!important; width:100%!important; min-height:0!important; padding:0!important; overflow:visible!important; background:#fff!important; }
+  body.teacher-print-mode .teacher-print-actions { display:none!important; }
+  body.teacher-print-mode .teacher-print-preview { width:100%!important; max-width:none!important; margin:0!important; padding:0!important; overflow:visible!important; }
+  body.teacher-print-mode .teacher-week-print { width:100%!important; min-width:0!important; break-inside:avoid!important; page-break-inside:avoid!important; }
+  body.teacher-print-mode .teacher-week-print header { padding:0 0 3mm!important; border-bottom-width:1mm!important; }
+  body.teacher-print-mode .teacher-week-print header h1 { margin:1mm 0!important; font-size:18px!important; }
+  body.teacher-print-mode .teacher-week-print header p { font-size:10px!important; }
+  body.teacher-print-mode .teacher-week-print-meta { gap:2mm!important; margin:3mm 0!important; }
+  body.teacher-print-mode .teacher-week-print-meta>div { gap:1mm!important; padding:2mm 3mm!important; border-radius:2mm!important; }
+  body.teacher-print-mode .teacher-week-print-meta span { font-size:8px!important; }
+  body.teacher-print-mode .teacher-week-print-meta strong { font-size:10px!important; }
+  body.teacher-print-mode .teacher-week-print table { width:100%!important; break-inside:avoid!important; page-break-inside:avoid!important; }
+  body.teacher-print-mode .teacher-week-print thead th { height:9mm!important; padding:1.5mm!important; font-size:9px!important; }
+  body.teacher-print-mode .teacher-week-print tbody th,
+  body.teacher-print-mode .teacher-week-print tbody td { height:16mm!important; padding:1.5mm!important; }
+  body.teacher-print-mode .teacher-week-print tbody th { width:27mm!important; }
+  body.teacher-print-mode .teacher-week-print tbody th strong { font-size:10px!important; }
+  body.teacher-print-mode .teacher-week-print tbody th small { margin-top:1mm!important; font-size:7px!important; }
+  body.teacher-print-mode .teacher-week-print-lesson { gap:.5mm!important; padding:1mm!important; }
+  body.teacher-print-mode .teacher-week-print-lesson strong { font-size:9px!important; }
+  body.teacher-print-mode .teacher-week-print-lesson small { font-size:7px!important; }
+  body.teacher-print-mode .teacher-week-print footer { margin-top:2mm!important; font-size:7px!important; }
+}
