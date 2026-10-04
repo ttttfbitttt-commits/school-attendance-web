@@ -1,9 +1,10 @@
 import { useEffect, useState } from 'react'
-import { BarChart3, BookOpenCheck, CalendarDays, Check, Copy, FileSpreadsheet, KeyRound, LayoutDashboard, LogOut, Menu, Plus, Printer, Save, Trash2, UserRound, X } from 'lucide-react'
+import { BarChart3, BookOpenCheck, CalendarDays, Check, Copy, FileSpreadsheet, KeyRound, LayoutDashboard, LogOut, Menu, Plus, Printer, Save, Send, Trash2, UserRound, X } from 'lucide-react'
 import { api, type Account, type TeacherLesson, type TeacherLessonReport, type TeacherNote, type TeacherPortalDashboard, type TeacherPortalScheduleItem, type TeacherSheetColumn, type TeacherSheetConfig, type TeacherSheetOpenType, type TeacherSheetSubject, type TeacherSheetType } from './api'
 import { HijriDatePicker } from './HijriDatePicker'
 import { formatHijriDate } from './dateUtils'
 import * as XLSX from 'xlsx'
+import { TeacherReferralCenter } from './StudentReferrals'
 
 const notes: TeacherNote[] = ['هروب من الحصة', 'نائم أثناء الدرس', 'لم يحل الواجب', 'عدم التفاعل والمشاركة', 'مشارك فعال', 'لم يحضر الكتاب أو أوراق العمل', 'استخدام الجوال أثناء الحصة', 'الحديث مع زملائه أثناء الدرس']
 const dayNames = ['', 'الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت']
@@ -19,7 +20,7 @@ const teacherSchedulePeriods = (schedule: TeacherPortalScheduleItem[], configure
 const displaySheetValue = (value: string | number | boolean | undefined, type?: TeacherSheetColumn['type']) => type === 'boolean' && value === undefined ? '✓' : value === true ? '✓' : value === false ? '✗' : value ?? ''
 
 type StudentState = { status: 'present' | 'absent'; note: TeacherNote | ''; sheetValues: Record<string, string | number | boolean> }
-type TeacherTab = 'home' | 'schedule' | 'sheets' | 'reports' | 'password'
+type TeacherTab = 'home' | 'schedule' | 'referrals' | 'sheets' | 'reports' | 'password'
 type RenderSheetColumn = TeacherSheetColumn & { key: string; sheetType: TeacherSheetType }
 const getSheetColumns = (lesson: TeacherLesson): RenderSheetColumn[] => lesson.sheetConfigs.flatMap(config => config.columns.map(column => ({ ...column, key: `${config.sheetType}:${column.id}`, sheetType: config.sheetType })))
 
@@ -424,6 +425,7 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
       <nav className="teacher-sidebar-nav" aria-label="أقسام بوابة المعلم">
         <button type="button" className={activeTab === 'home' ? 'active' : ''} onClick={() => navigate('home')}><LayoutDashboard size={18} /> الرئيسية</button>
         <button type="button" className={activeTab === 'schedule' ? 'active' : ''} onClick={() => navigate('schedule')}><CalendarDays size={18} /> جدولي</button>
+        <button type="button" className={activeTab === 'referrals' ? 'active' : ''} onClick={() => navigate('referrals')}><Send size={18} /> إحالة طالب</button>
         <button type="button" className={activeTab === 'sheets' ? 'active' : ''} onClick={() => navigate('sheets')}><FileSpreadsheet size={18} /> الكشوف</button>
         <button type="button" className={activeTab === 'reports' ? 'active' : ''} onClick={() => navigate('reports')}><BarChart3 size={18} /> التقارير</button>
         <button type="button" className={activeTab === 'password' ? 'active' : ''} onClick={() => navigate('password')}><KeyRound size={18} /> كلمة المرور</button>
@@ -464,6 +466,7 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
       <TeacherWeekSchedule date={date} schedule={dashboard?.weekSchedule || []} periodNumbers={dashboard?.periodNumbers || []} selected={selected} busy={busy} onOpen={item => void openLesson(item, 'followup', false, 'schedule')} onExportExcel={exportWeekSchedule} onPrintPdf={printWeekSchedule} />
       {lesson && selected && <TeacherFollowupRoster lesson={lesson} selected={selected} activeLessonDate={activeLessonDate} states={states} updateStudent={updateStudent} exportSheet={exportSheet} printSheet={printSheet} saveLesson={() => void saveLesson()} busy={busy} />}
     </>}
+    {activeTab === 'referrals' && <TeacherReferralCenter date={date} schedule={dashboard?.schedule || []} schoolName={dashboard?.schoolName || 'المدرسة'} />}
     {activeTab === 'sheets' && <section className="teacher-card"><div className="teacher-section-head"><div><span>إدارة الكشوف</span><h2>الكشوف</h2><p>جهز كشف كل مادة مرة واحدة، أو ابدأ المتابعة مباشرة.</p></div><FileSpreadsheet size={30} /></div>{sheetMode === 'menu' && <div className="teacher-sheet-menu"><button type="button" onClick={() => { setLesson(null); setSelected(null); setSheetOnlyView(false); setSheetMode('setup') }}><FileSpreadsheet size={30} /><strong>إعداد الكشوف</strong><small>أنشئ الأعمدة والدرجات لكل مادة</small></button><button type="button" onClick={() => setSheetMode('start')}><BookOpenCheck size={30} /><strong>بدء المتابعة</strong><small>اختر المادة والفصل والكشف ثم افتح الطلاب</small></button></div>}{sheetMode === 'setup' && <><button type="button" className="outline-button teacher-sheet-back" onClick={() => setSheetMode('menu')}>العودة إلى الكشوف</button><TeacherSheetsSetup sheets={sheets} onSaved={config => setSheets(current => current.map(subject => subject.subject === config.subject ? { ...subject, configs: [...subject.configs.filter(item => item.sheetType !== config.sheetType), config] } : subject))} onDeleted={(subjectName, sheetType) => setSheets(current => current.map(subject => subject.subject === subjectName ? { ...subject, configs: subject.configs.filter(config => config.sheetType !== sheetType) } : subject))} /></>}{sheetMode === 'start' && <><button type="button" className="outline-button teacher-sheet-back" onClick={() => setSheetMode('menu')}>العودة إلى الكشوف</button><TeacherSheetStart sheets={sheets} schedule={dashboard?.weekSchedule || []} onOpen={(item, type) => void openLesson(item, type, true)} /></>}{sheetMode !== 'setup' && sheetOnlyView && lesson && selected && <TeacherSheetRoster lesson={lesson} selected={selected} states={states} updateSheetValue={updateSheetValue} exportSheet={exportSheet} printSheet={printSheet} saveLesson={saveLesson} busy={busy} />}</section>}
     {activeTab === 'reports' && <TeacherReportsTab key={reportsKey} schedule={dashboard?.weekSchedule || []} />}
     {printPreview && <div className="teacher-print-overlay" role="dialog" aria-modal="true" aria-label="معاينة الطباعة"><div className="teacher-print-actions"><button type="button" className="outline-button" onClick={() => setPrintPreview('')}>إغلاق والعودة</button><button type="button" className="primary-button" onClick={() => window.print()}><Printer size={16} /> طباعة / حفظ PDF</button></div><div className="teacher-print-preview" dangerouslySetInnerHTML={{ __html: printPreview }} /></div>}

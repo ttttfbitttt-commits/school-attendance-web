@@ -142,6 +142,17 @@ export type TeacherAdminOverview = {
   teachers: Array<{ teacherId: string; name: string; identityNumber: string; assignments: number; accountActive: boolean; accountCreated: boolean; mustChangePassword: boolean; credentialsAvailable: boolean }>
   classroomMappings: Array<{ classroomId: string; classroom: string; grade: string | null; classroomValue: string | null; mappingSource: 'automatic' | 'manual' | null }>
 }
+export type StudentReferralReason = 'homework' | 'disruption' | 'late' | 'academic_weakness' | 'other'
+export type StudentReferralStatus = 'submitted' | 'viewed' | 'under_review' | 'referred_to_counselor' | 'completed'
+export type StudentReferral = {
+  id: string; referenceNumber: string; teacherId: string; teacherName: string; studentId: string; studentName: string
+  grade: string; classroom: string; classroomId: string; classroomName: string; assignmentId: string; subject: string
+  date: string; weekday: number; periodNumber: number; reason: StudentReferralReason; otherReason: string; problemDescription: string
+  status: StudentReferralStatus; referredToCounselor: boolean; viceAction: string; vicePrincipalName: string
+  counselorAction: string; counselorName: string; createdAt: string; viewedAt: string | null; viceActionAt: string | null
+  counselorActionAt: string | null; completedAt: string | null
+  events: Array<{ id: number; type: string; actorRole: string; note: string; createdAt: string }>
+}
 
 export type BehaviorCategory = 'violation' | 'distinguished'
 export type BehaviorStatus = 'pending' | 'approved' | 'cancelled'
@@ -318,6 +329,13 @@ export const api = {
   resetTeacherAccounts: (teacherIds: string[]) => request<{ ok: boolean; reset: number; credentials: Array<{ teacherId: string; name: string; identityNumber: string; temporaryPassword: string }> }>('/teacher-portal/admin/accounts/bulk-reset', { method: 'POST', body: JSON.stringify({ teacherIds }) }),
   setTeacherAccountStatus: (teacherId: string, active: boolean) => request<{ ok: boolean }>('/teacher-portal/admin/accounts/status', { method: 'PATCH', body: JSON.stringify({ teacherId, active }) }),
   teacherAdminReports: (filters: { date?: string; teacherId?: string; note?: string; classroomId?: string } = {}) => request<{ reports: TeacherLessonReport[] }>(`/teacher-portal/admin/reports?${new URLSearchParams(Object.entries(filters).filter(([, value]) => value).map(([key, value]) => [key, value || '']))}`),
+  studentReferrals: (filters: { status?: StudentReferralStatus | ''; teacherId?: string; from?: string; to?: string; q?: string } = {}) =>
+    request<{ schoolName: string; referrals: StudentReferral[] }>(`/student-referrals?${new URLSearchParams(Object.entries(filters).filter(([, value]) => value).map(([key, value]) => [key, value || '']))}`),
+  createStudentReferral: (payload: { assignmentId: string; classroomId: string; studentId: string; date: string; periodNumber: number; reason: StudentReferralReason; otherReason?: string; problemDescription: string }) =>
+    request<{ ok: boolean; id: string }>('/student-referrals', { method: 'POST', body: JSON.stringify(payload) }),
+  markStudentReferralViewed: (id: string) => request<{ ok: boolean; changed: boolean }>(`/student-referrals/${encodeURIComponent(id)}/viewed`, { method: 'POST', body: '{}' }),
+  updateStudentReferral: (id: string, payload: { status: Exclude<StudentReferralStatus, 'submitted' | 'viewed'>; referredToCounselor: boolean; viceAction: string; vicePrincipalName: string; counselorAction?: string; counselorName?: string; eventNote?: string }) =>
+    request<{ ok: boolean }>(`/student-referrals/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(payload) }),
   behaviorOverview: () => request<BehaviorOverview>('/behavior/overview'),
   behaviorCatalog: (filters: { category?: BehaviorCategory; mode?: 'in_person' | 'remote'; stage?: 'primary' | 'middle' | 'secondary'; q?: string } = {}) =>
     request<{ version: string; rules: BehaviorRule[] }>(`/behavior/catalog?${new URLSearchParams(Object.entries(filters).filter(([, value]) => value).map(([key, value]) => [key, value || '']))}`),
