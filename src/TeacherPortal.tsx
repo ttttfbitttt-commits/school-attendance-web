@@ -11,6 +11,11 @@ const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Riyadh' }
 const periodLabel = (period: number) => `الحصة ${['', 'الأولى', 'الثانية', 'الثالثة', 'الرابعة', 'الخامسة', 'السادسة', 'السابعة', 'الثامنة', 'التاسعة', 'العاشرة'][period] || period}`
 const weekdayForDate = (value: string) => { const day = new Date(`${value}T12:00:00Z`).getUTCDay(); return day === 0 ? 1 : day + 1 }
 const dateForWeekday = (value: string, weekday: number) => { const date = new Date(`${value}T12:00:00Z`); date.setUTCDate(date.getUTCDate() + weekday - weekdayForDate(value)); return date.toISOString().slice(0, 10) }
+const teacherSchoolDays = [1, 2, 3, 4, 5]
+const teacherSchedulePeriods = (schedule: TeacherPortalScheduleItem[], configured: number[]) => {
+  const lastScheduledPeriod = Math.max(0, ...schedule.map(item => item.periodNumber))
+  return configured.length ? configured : Array.from({ length: lastScheduledPeriod }, (_, index) => index + 1)
+}
 const displaySheetValue = (value: string | number | boolean | undefined, type?: TeacherSheetColumn['type']) => type === 'boolean' && value === undefined ? '✓' : value === true ? '✓' : value === false ? '✗' : value ?? ''
 
 type StudentState = { status: 'present' | 'absent'; note: TeacherNote | ''; sheetValues: Record<string, string | number | boolean> }
@@ -83,19 +88,17 @@ function TeacherSheetRoster({ lesson, selected, states, updateSheetValue, export
   return <section className="teacher-card teacher-roster-card teacher-sheet-roster"><div className="teacher-section-head"><div><span>{lesson.assignment.subject} · {lesson.mapping.grade} · الفصل {lesson.mapping.classroom}</span><h2>كشف {lesson.assignment.subject} — {selected.classroom}</h2></div><div className="teacher-report-actions"><button className="outline-button" onClick={exportSheet}><FileSpreadsheet size={16} /> Excel</button><button className="outline-button" onClick={printSheet}><Printer size={16} /> PDF</button><button className="primary-button" onClick={saveLesson} disabled={busy === 'save'}><Save size={17} /> {busy === 'save' ? 'جارٍ الحفظ…' : 'حفظ الكشف'}</button></div></div><div className="teacher-roster-table-wrap"><table className="teacher-roster-table"><thead><tr><th>الطالب</th>{getSheetColumns(lesson).map(column => <th key={column.key}>{column.label}{column.type === 'score' && column.maxScore !== null ? ` / ${column.maxScore}` : ''}</th>)}</tr><tr className="teacher-sheet-bulk-row"><th>تطبيق على الجميع</th>{getSheetColumns(lesson).map(column => <th key={column.key}>{column.type === 'boolean' && <select defaultValue="" onChange={event => { if (event.target.value) applyColumnValue(column, event.target.value === 'true') }} aria-label={`تطبيق ${column.label} على الجميع`}><option value="">اختر</option><option value="true">✓ الكل</option><option value="false">✗ الكل</option></select>}{column.type === 'score' && <input type="number" min="0" max={column.maxScore ?? undefined} placeholder="الكل" onChange={event => { if (event.target.value !== '') applyColumnValue(column, event.target.value) }} aria-label={`درجة ${column.label} للجميع`} />}</th>)}</tr></thead><tbody>{lesson.students.map(student => { const state = states[student.id] || { status: 'present' as const, note: '' as const, sheetValues: {} }; return <tr key={student.id}><td><strong>{student.name}</strong><small>{student.grade} · {student.classroom}</small></td>{getSheetColumns(lesson).map(column => <td key={column.key} className="teacher-sheet-cell">{column.type === 'score' && <input type="number" min="0" max={column.maxScore ?? undefined} value={String(state.sheetValues[column.key] ?? '')} onChange={event => updateSheetValue(student.id, column.key, event.target.value)} aria-label={`${column.label} لـ ${student.name}`} />}{column.type === 'text' && <input value={String(state.sheetValues[column.key] ?? '')} onChange={event => updateSheetValue(student.id, column.key, event.target.value)} aria-label={`${column.label} لـ ${student.name}`} />}{column.type === 'choice' && <select value={String(state.sheetValues[column.key] ?? '')} onChange={event => updateSheetValue(student.id, column.key, event.target.value)} aria-label={`${column.label} لـ ${student.name}`}><option value="">اختر</option>{column.choices.map(choice => <option key={choice} value={choice}>{choice}</option>)}</select>}{column.type === 'boolean' && <input type="checkbox" checked={state.sheetValues[column.key] !== false} onChange={event => updateSheetValue(student.id, column.key, event.target.checked)} aria-label={`${column.label} لـ ${student.name}`} />}</td>)}</tr> })}</tbody></table></div><div className="teacher-roster-save-bottom"><button className="outline-button" onClick={exportSheet}><FileSpreadsheet size={16} /> Excel</button><button className="outline-button" onClick={printSheet}><Printer size={16} /> PDF</button><button className="primary-button" onClick={saveLesson} disabled={busy === 'save'}><Save size={17} /> {busy === 'save' ? 'جارٍ الحفظ…' : 'حفظ الكشف'}</button></div></section>
 }
 
-function TeacherWeekSchedule({ date, schedule, periodNumbers, selected, busy, onOpen }: { date: string; schedule: TeacherPortalScheduleItem[]; periodNumbers: number[]; selected: TeacherPortalScheduleItem | null; busy: string; onOpen: (item: TeacherPortalScheduleItem) => void }) {
-  const schoolDays = [1, 2, 3, 4, 5]
-  const firstDate = dateForWeekday(date, schoolDays[0])
-  const lastDate = dateForWeekday(date, schoolDays[schoolDays.length - 1])
-  const lastScheduledPeriod = Math.max(0, ...schedule.map(item => item.periodNumber))
-  const periods = periodNumbers.length ? periodNumbers : Array.from({ length: lastScheduledPeriod }, (_, index) => index + 1)
+function TeacherWeekSchedule({ date, schedule, periodNumbers, selected, busy, onOpen, onExportExcel, onPrintPdf }: { date: string; schedule: TeacherPortalScheduleItem[]; periodNumbers: number[]; selected: TeacherPortalScheduleItem | null; busy: string; onOpen: (item: TeacherPortalScheduleItem) => void; onExportExcel: () => void; onPrintPdf: () => void }) {
+  const firstDate = dateForWeekday(date, teacherSchoolDays[0])
+  const lastDate = dateForWeekday(date, teacherSchoolDays[teacherSchoolDays.length - 1])
+  const periods = teacherSchedulePeriods(schedule, periodNumbers)
 
   return <section className="teacher-card teacher-week-card">
-    <div className="teacher-section-head teacher-week-heading"><div><span>جدول هذا الأسبوع</span><h2>من {formatHijriDate(firstDate)} إلى {formatHijriDate(lastDate)}</h2><p>اضغط على اسم الفصل لفتح متابعة الحصة في يومها وتاريخها المحددين.</p></div><CalendarDays size={28} /></div>
+    <div className="teacher-section-head teacher-week-heading"><div className="teacher-week-title"><CalendarDays size={28} /><div><span>جدول هذا الأسبوع</span><h2>من {formatHijriDate(firstDate)} إلى {formatHijriDate(lastDate)}</h2><p>اضغط على اسم الفصل لفتح متابعة الحصة في يومها وتاريخها المحددين.</p></div></div><div className="teacher-report-actions"><button type="button" className="outline-button" onClick={onExportExcel} disabled={!periods.length}><FileSpreadsheet size={16} /> Excel</button><button type="button" className="outline-button" onClick={onPrintPdf} disabled={!periods.length}><Printer size={16} /> PDF</button></div></div>
     {!periods.length ? <p className="teacher-empty">لا توجد حصص مسندة إلى جدولك الأسبوعي.</p> : <div className="teacher-week-table-wrap" role="region" aria-label="الجدول الأسبوعي" tabIndex={0}>
       <table className="teacher-week-table">
         <thead><tr><th>اليوم</th>{periods.map(period => <th key={period}>{periodLabel(period)}</th>)}</tr></thead>
-        <tbody>{schoolDays.map(weekday => {
+        <tbody>{teacherSchoolDays.map(weekday => {
           const lessonDate = dateForWeekday(date, weekday)
           return <tr key={weekday} className={lessonDate === today() ? 'today' : ''}>
             <th><strong>{dayNames[weekday]}</strong><small>{formatHijriDate(lessonDate)}</small></th>
@@ -321,6 +324,51 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
     XLSX.writeFile(workbook, `كشف-${lesson.assignment.subject}-${activeLessonDate}.xlsx`)
   }
 
+  const exportWeekSchedule = () => {
+    if (!dashboard) return
+    const periods = teacherSchedulePeriods(dashboard.weekSchedule, dashboard.periodNumbers || [])
+    if (!periods.length) return
+    const firstDate = dateForWeekday(date, teacherSchoolDays[0])
+    const lastDate = dateForWeekday(date, teacherSchoolDays[teacherSchoolDays.length - 1])
+    const rows: Array<Array<string>> = [
+      ['الجدول الأسبوعي للمعلم'],
+      [`المدرسة: ${dashboard.schoolName}`],
+      [`المعلم: ${dashboard.teacher.name}`],
+      [`الأسبوع: من ${formatHijriDate(firstDate)} إلى ${formatHijriDate(lastDate)}`],
+      [],
+      ['اليوم', ...periods.map(periodLabel)],
+      ...teacherSchoolDays.map(weekday => [
+        `${dayNames[weekday]}\n${formatHijriDate(dateForWeekday(date, weekday))}`,
+        ...periods.map(period => dashboard.weekSchedule
+          .filter(item => item.weekday === weekday && item.periodNumber === period)
+          .map(item => `${item.classroom}${item.subject ? `\n${item.subject}` : ''}`)
+          .join('\n')),
+      ]),
+    ]
+    const worksheet = XLSX.utils.aoa_to_sheet(rows)
+    worksheet['!merges'] = [0, 1, 2, 3].map(row => ({ s: { r: row, c: 0 }, e: { r: row, c: periods.length } }))
+    worksheet['!cols'] = [{ wch: 24 }, ...periods.map(() => ({ wch: 21 }))]
+    worksheet['!rows'] = [{ hpt: 28 }, { hpt: 21 }, { hpt: 21 }, { hpt: 23 }, { hpt: 8 }, { hpt: 25 }, ...teacherSchoolDays.map(() => ({ hpt: 48 }))]
+    const workbook = XLSX.utils.book_new()
+    workbook.Workbook = { Views: [{ RTL: true }] }
+    XLSX.utils.book_append_sheet(workbook, worksheet, 'الجدول الأسبوعي')
+    XLSX.writeFile(workbook, `جدول-${dashboard.teacher.name}-${firstDate}-${lastDate}.xlsx`)
+  }
+
+  const printWeekSchedule = () => {
+    if (!dashboard) return
+    const periods = teacherSchedulePeriods(dashboard.weekSchedule, dashboard.periodNumbers || [])
+    if (!periods.length) return
+    const firstDate = dateForWeekday(date, teacherSchoolDays[0])
+    const lastDate = dateForWeekday(date, teacherSchoolDays[teacherSchoolDays.length - 1])
+    const escape = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character] || character))
+    const rows = teacherSchoolDays.map(weekday => `<tr><th><strong>${escape(dayNames[weekday])}</strong><small>${escape(formatHijriDate(dateForWeekday(date, weekday)))}</small></th>${periods.map(period => {
+      const items = dashboard.weekSchedule.filter(item => item.weekday === weekday && item.periodNumber === period)
+      return `<td>${items.length ? items.map(item => `<div class="teacher-week-print-lesson"><strong>${escape(item.classroom)}</strong><small>${escape(item.subject || 'بدون مادة')}</small></div>`).join('') : '<span class="teacher-week-print-empty">—</span>'}</td>`
+    }).join('')}</tr>`).join('')
+    setPrintPreview(`<section class="teacher-week-print"><header><span>بوابة المعلم</span><h1>الجدول الأسبوعي</h1><p>${escape(dashboard.schoolName)}</p></header><div class="teacher-week-print-meta"><div><span>اسم المعلم</span><strong>${escape(dashboard.teacher.name)}</strong></div><div><span>الفترة</span><strong>من ${escape(formatHijriDate(firstDate))} إلى ${escape(formatHijriDate(lastDate))}</strong></div></div><table><thead><tr><th>اليوم</th>${periods.map(period => `<th>${escape(periodLabel(period))}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table><footer>تم استخراج الجدول من بوابة المعلم</footer></section>`)
+  }
+
   const printSheet = () => {
     if (!lesson || !selected) return
     const columns = sheetOnlyView ? getSheetColumns(lesson) : []
@@ -408,12 +456,12 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
     {lesson && selected && <TeacherFollowupRoster lesson={lesson} selected={selected} activeLessonDate={activeLessonDate} states={states} updateStudent={updateStudent} exportSheet={exportSheet} printSheet={printSheet} saveLesson={() => void saveLesson()} busy={busy} />}
     </>}
     {activeTab === 'schedule' && <>
-      <TeacherWeekSchedule date={date} schedule={dashboard?.weekSchedule || []} periodNumbers={dashboard?.periodNumbers || []} selected={selected} busy={busy} onOpen={item => void openLesson(item, 'followup', false, 'schedule')} />
+      <TeacherWeekSchedule date={date} schedule={dashboard?.weekSchedule || []} periodNumbers={dashboard?.periodNumbers || []} selected={selected} busy={busy} onOpen={item => void openLesson(item, 'followup', false, 'schedule')} onExportExcel={exportWeekSchedule} onPrintPdf={printWeekSchedule} />
       {lesson && selected && <TeacherFollowupRoster lesson={lesson} selected={selected} activeLessonDate={activeLessonDate} states={states} updateStudent={updateStudent} exportSheet={exportSheet} printSheet={printSheet} saveLesson={() => void saveLesson()} busy={busy} />}
     </>}
     {activeTab === 'sheets' && <section className="teacher-card"><div className="teacher-section-head"><div><span>إدارة الكشوف</span><h2>الكشوف</h2><p>جهز كشف كل مادة مرة واحدة، أو ابدأ المتابعة مباشرة.</p></div><FileSpreadsheet size={30} /></div>{sheetMode === 'menu' && <div className="teacher-sheet-menu"><button type="button" onClick={() => { setLesson(null); setSelected(null); setSheetOnlyView(false); setSheetMode('setup') }}><FileSpreadsheet size={30} /><strong>إعداد الكشوف</strong><small>أنشئ الأعمدة والدرجات لكل مادة</small></button><button type="button" onClick={() => setSheetMode('start')}><BookOpenCheck size={30} /><strong>بدء المتابعة</strong><small>اختر المادة والفصل والكشف ثم افتح الطلاب</small></button></div>}{sheetMode === 'setup' && <><button type="button" className="outline-button teacher-sheet-back" onClick={() => setSheetMode('menu')}>العودة إلى الكشوف</button><TeacherSheetsSetup sheets={sheets} onSaved={config => setSheets(current => current.map(subject => subject.subject === config.subject ? { ...subject, configs: [...subject.configs.filter(item => item.sheetType !== config.sheetType), config] } : subject))} onDeleted={(subjectName, sheetType) => setSheets(current => current.map(subject => subject.subject === subjectName ? { ...subject, configs: subject.configs.filter(config => config.sheetType !== sheetType) } : subject))} /></>}{sheetMode === 'start' && <><button type="button" className="outline-button teacher-sheet-back" onClick={() => setSheetMode('menu')}>العودة إلى الكشوف</button><TeacherSheetStart sheets={sheets} schedule={dashboard?.weekSchedule || []} onOpen={(item, type) => void openLesson(item, type, true)} /></>}{sheetMode !== 'setup' && sheetOnlyView && lesson && selected && <TeacherSheetRoster lesson={lesson} selected={selected} states={states} updateSheetValue={updateSheetValue} exportSheet={exportSheet} printSheet={printSheet} saveLesson={saveLesson} busy={busy} />}</section>}
     {activeTab === 'reports' && <TeacherReportsTab key={reportsKey} schedule={dashboard?.weekSchedule || []} />}
-    {printPreview && <div className="teacher-print-overlay" role="dialog" aria-modal="true" aria-label="معاينة الكشف"><div className="teacher-print-preview" dangerouslySetInnerHTML={{ __html: printPreview }} /><div className="teacher-print-actions"><button type="button" className="outline-button" onClick={() => setPrintPreview('')}>إغلاق والعودة للكشف</button><button type="button" className="primary-button" onClick={() => window.print()}><Printer size={16} /> طباعة / حفظ PDF</button></div></div>}
+    {printPreview && <div className="teacher-print-overlay" role="dialog" aria-modal="true" aria-label="معاينة الطباعة"><div className="teacher-print-preview" dangerouslySetInnerHTML={{ __html: printPreview }} /><div className="teacher-print-actions"><button type="button" className="outline-button" onClick={() => setPrintPreview('')}>إغلاق والعودة</button><button type="button" className="primary-button" onClick={() => window.print()}><Printer size={16} /> طباعة / حفظ PDF</button></div></div>}
     </div>
   </main>
 }
