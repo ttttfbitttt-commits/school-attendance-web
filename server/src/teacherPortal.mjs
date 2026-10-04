@@ -1,6 +1,6 @@
 import crypto from 'node:crypto'
 
-const NOTE_OPTIONS = new Set(['هروب من الحصة', 'نائم أثناء الدرس', 'لم يحل الواجب', 'لم يشارك', 'مشارك فعال', 'لم يحضر الكتاب أو المذكرة', 'استخدام الجوال أثناء الحصة'])
+const NOTE_OPTIONS = new Set(['هروب من الحصة', 'نائم أثناء الدرس', 'لم يحل الواجب', 'عدم التفاعل والمشاركة', 'مشارك فعال', 'لم يحضر الكتاب أو أوراق العمل', 'استخدام الجوال أثناء الحصة', 'الحديث مع زملائه أثناء الدرس'])
 const ATTENDANCE_OPTIONS = new Set(['present', 'absent'])
 const SHEET_TYPES = new Set(['followup', 'homework', 'tests'])
 const SHEET_OPEN_TYPES = new Set([...SHEET_TYPES, 'combined'])
@@ -275,13 +275,18 @@ export async function migrateTeacherPortal(adminPool) {
     CREATE INDEX IF NOT EXISTS teacher_sheet_entries_lookup ON teacher_sheet_entries(school_id,teacher_id,assignment_id,entry_date);
   `)
   await adminPool.query('ALTER TABLE teacher_lesson_student_records DROP CONSTRAINT IF EXISTS teacher_lesson_student_records_note_check')
+  await adminPool.query('ALTER TABLE teacher_lesson_student_records DROP CONSTRAINT IF EXISTS teacher_lesson_student_records_note_check_v2')
   await adminPool.query(`UPDATE teacher_lesson_student_records SET note=CASE note
-    WHEN 'هرب' THEN 'هروب من الحصة' WHEN 'نائم' THEN 'نائم أثناء الدرس' ELSE note END
-    WHERE note IN ('هرب','نائم')`)
+    WHEN 'هرب' THEN 'هروب من الحصة'
+    WHEN 'نائم' THEN 'نائم أثناء الدرس'
+    WHEN 'لم يشارك' THEN 'عدم التفاعل والمشاركة'
+    WHEN 'لم يحضر الكتاب أو المذكرة' THEN 'لم يحضر الكتاب أو أوراق العمل'
+    ELSE note END
+    WHERE note IN ('هرب','نائم','لم يشارك','لم يحضر الكتاب أو المذكرة')`)
   await adminPool.query(`DO $$ BEGIN
-    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='teacher_lesson_student_records'::regclass AND conname='teacher_lesson_student_records_note_check_v2') THEN
-      ALTER TABLE teacher_lesson_student_records ADD CONSTRAINT teacher_lesson_student_records_note_check_v2
-        CHECK (note IN ('','هروب من الحصة','نائم أثناء الدرس','لم يحل الواجب','لم يشارك','مشارك فعال','لم يحضر الكتاب أو المذكرة','استخدام الجوال أثناء الحصة'));
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='teacher_lesson_student_records'::regclass AND conname='teacher_lesson_student_records_note_check_v3') THEN
+      ALTER TABLE teacher_lesson_student_records ADD CONSTRAINT teacher_lesson_student_records_note_check_v3
+        CHECK (note IN ('','هروب من الحصة','نائم أثناء الدرس','لم يحل الواجب','عدم التفاعل والمشاركة','مشارك فعال','لم يحضر الكتاب أو أوراق العمل','استخدام الجوال أثناء الحصة','الحديث مع زملائه أثناء الدرس'));
     END IF;
   END $$`)
 }
