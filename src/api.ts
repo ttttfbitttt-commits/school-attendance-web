@@ -143,14 +143,14 @@ export type TeacherAdminOverview = {
   classroomMappings: Array<{ classroomId: string; classroom: string; grade: string | null; classroomValue: string | null; mappingSource: 'automatic' | 'manual' | null }>
 }
 export type StudentReferralReason = 'homework' | 'disruption' | 'late' | 'academic_weakness' | 'other'
-export type StudentReferralStatus = 'submitted' | 'viewed' | 'under_review' | 'referred_to_counselor' | 'completed'
+export type StudentReferralStatus = 'submitted' | 'viewed' | 'under_review' | 'referred_to_counselor' | 'completed' | 'cancelled'
 export type StudentReferral = {
   id: string; referenceNumber: string; teacherId: string; teacherName: string; studentId: string; studentName: string
   grade: string; classroom: string; classroomId: string; classroomName: string; assignmentId: string; subject: string
   date: string; weekday: number; periodNumber: number; reason: StudentReferralReason; otherReason: string; problemDescription: string
   status: StudentReferralStatus; referredToCounselor: boolean; viceAction: string; vicePrincipalName: string
   counselorAction: string; counselorName: string; createdAt: string; viewedAt: string | null; viceActionAt: string | null
-  counselorActionAt: string | null; completedAt: string | null
+  counselorActionAt: string | null; completedAt: string | null; cancelledAt: string | null
   events: Array<{ id: number; type: string; actorRole: string; note: string; createdAt: string }>
 }
 
@@ -333,8 +333,9 @@ export const api = {
     request<{ schoolName: string; referrals: StudentReferral[] }>(`/student-referrals?${new URLSearchParams(Object.entries(filters).filter(([, value]) => value).map(([key, value]) => [key, value || '']))}`),
   createStudentReferral: (payload: { assignmentId: string; classroomId: string; studentId: string; date: string; periodNumber: number; reason: StudentReferralReason; otherReason?: string; problemDescription: string }) =>
     request<{ ok: boolean; id: string }>('/student-referrals', { method: 'POST', body: JSON.stringify(payload) }),
+  cancelStudentReferral: (id: string) => request<{ ok: boolean }>(`/student-referrals/${encodeURIComponent(id)}/cancel`, { method: 'POST', body: '{}' }),
   markStudentReferralViewed: (id: string) => request<{ ok: boolean; changed: boolean }>(`/student-referrals/${encodeURIComponent(id)}/viewed`, { method: 'POST', body: '{}' }),
-  updateStudentReferral: (id: string, payload: { status: Exclude<StudentReferralStatus, 'submitted' | 'viewed'>; referredToCounselor: boolean; viceAction: string; vicePrincipalName: string; counselorAction?: string; counselorName?: string; eventNote?: string }) =>
+  updateStudentReferral: (id: string, payload: { status: Exclude<StudentReferralStatus, 'submitted' | 'viewed' | 'cancelled'>; referredToCounselor: boolean; viceAction: string; vicePrincipalName: string; counselorAction?: string; counselorName?: string; eventNote?: string }) =>
     request<{ ok: boolean }>(`/student-referrals/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(payload) }),
   behaviorOverview: () => request<BehaviorOverview>('/behavior/overview'),
   behaviorCatalog: (filters: { category?: BehaviorCategory; mode?: 'in_person' | 'remote'; stage?: 'primary' | 'middle' | 'secondary'; q?: string } = {}) =>

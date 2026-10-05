@@ -3,7 +3,7 @@ import crypto from 'node:crypto'
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const DATE = /^\d{4}-\d{2}-\d{2}$/
 const REASONS = new Set(['homework', 'disruption', 'late', 'academic_weakness', 'other'])
-const STATUSES = new Set(['submitted', 'viewed', 'under_review', 'referred_to_counselor', 'completed'])
+const STATUSES = new Set(['submitted', 'viewed', 'under_review', 'referred_to_counselor', 'completed', 'cancelled'])
 
 const clean = (value, limit = 2000) => String(value || '').replace(/\s+/g, ' ').trim().slice(0, limit)
 const validId = value => UUID.test(String(value || ''))
@@ -42,7 +42,7 @@ export async function migrateStudentReferrals(adminPool) {
       reason text NOT NULL CHECK (reason IN ('homework','disruption','late','academic_weakness','other')),
       other_reason text NOT NULL DEFAULT '',
       problem_description text NOT NULL DEFAULT '',
-      status text NOT NULL DEFAULT 'submitted' CHECK (status IN ('submitted','viewed','under_review','referred_to_counselor','completed')),
+      status text NOT NULL DEFAULT 'submitted' CHECK (status IN ('submitted','viewed','under_review','referred_to_counselor','completed','cancelled')),
       referred_to_counselor boolean NOT NULL DEFAULT false,
       vice_action text NOT NULL DEFAULT '',
       vice_principal_name text NOT NULL DEFAULT '',
@@ -57,6 +57,8 @@ export async function migrateStudentReferrals(adminPool) {
       counselor_action_by uuid REFERENCES users(id) ON DELETE SET NULL,
       counselor_action_at timestamptz,
       completed_at timestamptz,
+      cancelled_by uuid REFERENCES users(id) ON DELETE SET NULL,
+      cancelled_at timestamptz,
       updated_at timestamptz NOT NULL DEFAULT now(),
       UNIQUE (school_id,reference_number),
       UNIQUE (school_id,teacher_id,student_id,referral_date,period_number)
@@ -76,6 +78,15 @@ export async function migrateStudentReferrals(adminPool) {
     );
     CREATE INDEX IF NOT EXISTS student_referral_events_referral ON student_referral_events(school_id,referral_id,created_at);
   `)
+  await adminPool.query('ALTER TABLE student_referrals ADD COLUMN IF NOT EXISTS cancelled_by uuid REFERENCES users(id) ON DELETE SET NULL')
+  await adminPool.query('ALTER TABLE student_referrals ADD COLUMN IF NOT EXISTS cancelled_at timestamptz')
+  await adminPool.query('ALTER TABLE student_referrals DROP CONSTRAINT IF EXISTS student_referrals_status_check')
+  await adminPool.query(`DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='student_referrals'::regclass AND conname='student_referrals_status_check_v2') THEN
+      ALTER TABLE student_referrals ADD CONSTRAINT student_referrals_status_check_v2
+        CHECK (status IN ('submitted','viewed','under_review','referred_to_counselor','completed','cancelled'));
+    END IF;
+  END $$`)
 }
 
 export async function handleStudentReferralRequest({ req, res, url, user, body, json, scoped }) {
@@ -107,13 +118,28 @@ export async function handleStudentReferralRequest({ req, res, url, user, body, 
         r.problem_description AS "problemDescription",r.status,r.referred_to_counselor AS "referredToCounselor",
         r.vice_action AS "viceAction",r.vice_principal_name AS "vicePrincipalName",r.counselor_action AS "counselorAction",
         r.counselor_name AS "counselorName",r.created_at AS "createdAt",r.viewed_at AS "viewedAt",
-        r.vice_action_at AS "viceActionAt",r.counselor_action_at AS "counselorActionAt",r.completed_at AS "completedAt",
+        r.vice_action_at AS "viceActionAt",r.counselor_action_at AS "counselorActionAt",r.completed_at AS "completedAt",r.cancelled_at AS "cancelledAt",
         COALESCE((SELECT jsonb_agg(jsonb_build_object('id',e.id,'type',e.event_type,'actorRole',e.actor_role,'note',e.note,'createdAt',e.created_at) ORDER BY e.created_at)
           FROM student_referral_events e WHERE e.school_id=r.school_id AND e.referral_id=r.id),'[]'::jsonb) AS events
         FROM student_referrals r WHERE ${where.join(' AND ')} ORDER BY r.referral_date DESC,r.created_at DESC LIMIT 5000`, values)).rows
       return { schoolName: school.rows[0]?.name || '', referrals: rows.map(rowReferral) }
     })
     json(res, 200, result)
+    return true
+  }
+
+  const cancelMatch = url.pathname.match(/^\/api\/student-referrals\/([0-9a-f-]+)\/cancel$/i)
+  if (req.method === 'POST' && cancelMatch) {
+    if (!isTeacher || !validId(cancelMatch[1])) { json(res, 403, { error: 'forbidden' }); return true }
+    const cancelled = await scoped(user.school_id, async client => {
+      const result = await client.query(`UPDATE student_referrals SET status='cancelled',cancelled_by=$1,cancelled_at=now(),updated_at=now()
+        WHERE school_id=$2 AND id=$3 AND teacher_id=$4 AND status NOT IN ('completed','cancelled') RETURNING id`,
+      [user.user_id, user.school_id, cancelMatch[1], user.teacher_id])
+      if (result.rowCount) await addEvent(client, user.school_id, cancelMatch[1], user, 'cancelled', 'ألغى المعلم الإحالة، وتم تحديثها مباشرة في حساب المدرسة.')
+      return Boolean(result.rowCount)
+    })
+    if (!cancelled) { json(res, 409, { error: 'referral_cannot_be_cancelled' }); return true }
+    json(res, 200, { ok: true })
     return true
   }
 
@@ -190,7 +216,7 @@ export async function handleStudentReferralRequest({ req, res, url, user, body, 
     const counselorAction = clean(input.counselorAction, 3000)
     const counselorName = clean(input.counselorName, 180)
     const referredToCounselor = Boolean(input.referredToCounselor)
-    if (!STATUSES.has(status) || status === 'submitted' || status === 'viewed' || !viceAction || !vicePrincipalName || (status === 'completed' && referredToCounselor && (!counselorAction || !counselorName))) {
+    if (!STATUSES.has(status) || status === 'submitted' || status === 'viewed' || status === 'cancelled' || !viceAction || !vicePrincipalName || (status === 'completed' && referredToCounselor && (!counselorAction || !counselorName))) {
       json(res, 400, { error: 'invalid_referral_action' }); return true
     }
     const changed = await scoped(user.school_id, async client => {
@@ -198,7 +224,7 @@ export async function handleStudentReferralRequest({ req, res, url, user, body, 
         counselor_action=$5,counselor_name=$6,viewed_by=COALESCE(viewed_by,$7),viewed_at=COALESCE(viewed_at,now()),
         vice_action_by=$7,vice_action_at=now(),counselor_action_by=CASE WHEN $5<>'' THEN $7 ELSE counselor_action_by END,
         counselor_action_at=CASE WHEN $5<>'' THEN now() ELSE counselor_action_at END,completed_at=CASE WHEN $1='completed' THEN now() ELSE NULL END,updated_at=now()
-        WHERE school_id=$8 AND id=$9 RETURNING id`,
+        WHERE school_id=$8 AND id=$9 AND status <> 'cancelled' RETURNING id`,
       [status, referredToCounselor, viceAction, vicePrincipalName, counselorAction, counselorName, user.user_id, user.school_id, updateMatch[1]])
       if (result.rowCount) await addEvent(client, user.school_id, updateMatch[1], user, status, clean(input.eventNote, 1000) || 'تم تحديث إجراء الإحالة وحالتها.')
       return Boolean(result.rowCount)
