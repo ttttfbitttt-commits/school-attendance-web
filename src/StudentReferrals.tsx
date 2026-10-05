@@ -170,12 +170,13 @@ export function TeacherReferralCenter({ date, schedule, schoolName, teacherName 
     })
   }
   const cancelReferral = async (item: StudentReferral) => {
-    if (!window.confirm(`هل تريد إلغاء إحالة الطالب ${item.studentName}؟ ستُلغى مباشرة في حساب المدرسة.`)) return
+    if (!window.confirm(`هل تريد إلغاء إحالة الطالب ${item.studentName}؟ ستُحذف نهائيًا من سجل إحالاتك ومن سجل المدرسة.`)) return
     setBusy('cancel'); setError(''); setNotice('')
     try {
       await api.cancelStudentReferral(item.id)
       setSelected(null)
-      setNotice('تم إلغاء الإحالة وتحديث حالتها مباشرة في حساب المدرسة.')
+      setReferrals(current => current.filter(referral => referral.id !== item.id))
+      setNotice('تم إلغاء الإحالة وحذفها من سجل إحالاتك ومن سجل المدرسة.')
       await loadRecords()
     } catch { setError('تعذر إلغاء الإحالة. قد تكون الإحالة مكتملة أو تم تحديثها بالفعل.') } finally { setBusy('') }
   }
@@ -215,7 +216,7 @@ export function SchoolReferralCenter({ schoolName }: { schoolName: string }) {
   }
   useEffect(() => {
     void load()
-    const refresh = window.setInterval(() => void load(true), 15000)
+    const refresh = window.setInterval(() => void load(true), 5000)
     return () => window.clearInterval(refresh)
   }, [])
   const filtered = useMemo(() => referrals.filter(item => (!status || item.status === status) && (!query.trim() || `${item.studentName} ${item.studentId} ${item.teacherName} ${item.classroomName}`.includes(query.trim()))), [referrals, query, status])
@@ -226,7 +227,7 @@ export function SchoolReferralCenter({ schoolName }: { schoolName: string }) {
     <div className="referral-school-head"><div><span>المتابعة الرسمية</span><h2>إحالات الطلاب</h2><p>استقبال إحالات المعلمين، توثيق إجراء الوكيل والمرشد، ومتابعة الحالة حتى الإكمال.</p></div><Send size={32} /></div>
     <div className="referral-stat-cards"><div><strong>{counts.new}</strong><span>إحالات جديدة</span></div><div><strong>{counts.active}</strong><span>قيد المتابعة</span></div><div><strong>{counts.completed}</strong><span>مكتملة ومؤرشفة</span></div><div><strong>{referrals.length}</strong><span>إجمالي السجل</span></div></div>
     <div className="referral-school-panel">
-      <div className="referral-toolbar"><label className="referral-search"><Search size={17} /><input value={query} onChange={event => setQuery(event.target.value)} placeholder="ابحث بالطالب أو المعلم أو الفصل" /></label><select value={status} onChange={event => setStatus(event.target.value as StudentReferralStatus | '')}><option value="">جميع الحالات</option>{(Object.entries(statusLabels) as Array<[StudentReferralStatus, string]>).map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select><button className="outline-button" onClick={() => exportReferralExcel(filtered, schoolName)} disabled={!filtered.length}><FileSpreadsheet size={16} /> Excel</button><button className="outline-button" onClick={() => exportReferralPdf(filtered, schoolName)} disabled={!filtered.length}><Printer size={16} /> PDF</button><button className="icon-button" onClick={() => void load()} title="تحديث"><RefreshCw size={17} /></button></div>
+      <div className="referral-toolbar"><label className="referral-search"><Search size={17} /><input value={query} onChange={event => setQuery(event.target.value)} placeholder="ابحث بالطالب أو المعلم أو الفصل" /></label><select value={status} onChange={event => setStatus(event.target.value as StudentReferralStatus | '')}><option value="">جميع الحالات</option>{(Object.entries(statusLabels) as Array<[StudentReferralStatus, string]>).filter(([value]) => value !== 'cancelled').map(([value, label]) => <option value={value} key={value}>{label}</option>)}</select><button className="outline-button" onClick={() => exportReferralExcel(filtered, schoolName)} disabled={!filtered.length}><FileSpreadsheet size={16} /> Excel</button><button className="outline-button" onClick={() => exportReferralPdf(filtered, schoolName)} disabled={!filtered.length}><Printer size={16} /> PDF</button><button className="icon-button" onClick={() => void load()} title="تحديث"><RefreshCw size={17} /></button></div>
       {error && <p className="teacher-notice error">{error}</p>}{busy ? <div className="referral-empty">جارٍ تحميل الإحالات…</div> : <ReferralList referrals={filtered} emptyText="لا توجد إحالات مطابقة." onOpen={open} />}
     </div>
     {selected && <ReferralDetail referral={selected} schoolMode onClose={() => setSelected(null)} onSaved={() => void saved()} onPrint={setPreview} />}

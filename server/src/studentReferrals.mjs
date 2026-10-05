@@ -87,6 +87,7 @@ export async function migrateStudentReferrals(adminPool) {
         CHECK (status IN ('submitted','viewed','under_review','referred_to_counselor','completed','cancelled'));
     END IF;
   END $$`)
+  await adminPool.query("DELETE FROM student_referrals WHERE status='cancelled'")
 }
 
 export async function handleStudentReferralRequest({ req, res, url, user, body, json, scoped }) {
@@ -99,7 +100,7 @@ export async function handleStudentReferralRequest({ req, res, url, user, body, 
     const filters = Object.fromEntries(url.searchParams)
     const result = await scoped(user.school_id, async client => {
       const values = [user.school_id]
-      const where = ['r.school_id=$1']
+      const where = ["r.school_id=$1", "r.status<>'cancelled'"]
       const add = value => { values.push(value); return `$${values.length}` }
       if (isTeacher) where.push(`r.teacher_id=${add(user.teacher_id)}`)
       if (filters.status && STATUSES.has(filters.status)) where.push(`r.status=${add(filters.status)}`)
@@ -132,10 +133,9 @@ export async function handleStudentReferralRequest({ req, res, url, user, body, 
   if (req.method === 'POST' && cancelMatch) {
     if (!isTeacher || !validId(cancelMatch[1])) { json(res, 403, { error: 'forbidden' }); return true }
     const cancelled = await scoped(user.school_id, async client => {
-      const result = await client.query(`UPDATE student_referrals SET status='cancelled',cancelled_by=$1,cancelled_at=now(),updated_at=now()
-        WHERE school_id=$2 AND id=$3 AND teacher_id=$4 AND status NOT IN ('completed','cancelled') RETURNING id`,
-      [user.user_id, user.school_id, cancelMatch[1], user.teacher_id])
-      if (result.rowCount) await addEvent(client, user.school_id, cancelMatch[1], user, 'cancelled', 'ألغى المعلم الإحالة، وتم تحديثها مباشرة في حساب المدرسة.')
+      const result = await client.query(`DELETE FROM student_referrals
+        WHERE school_id=$1 AND id=$2 AND teacher_id=$3 AND status NOT IN ('completed','cancelled') RETURNING id`,
+      [user.school_id, cancelMatch[1], user.teacher_id])
       return Boolean(result.rowCount)
     })
     if (!cancelled) { json(res, 409, { error: 'referral_cannot_be_cancelled' }); return true }
