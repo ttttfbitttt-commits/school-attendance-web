@@ -452,10 +452,11 @@ export async function handleTeacherPortalRequest(context) {
           e.grade_value AS grade,e.classroom_value AS classroom,e.values
         FROM teacher_sheet_entries e
         JOIN lesson_schedule_assignments historical_assignment ON historical_assignment.id=e.assignment_id AND historical_assignment.school_id=e.school_id
-        WHERE e.school_id=$1 AND e.config_id=ANY($2::uuid[]) AND e.teacher_id=$3 AND e.classroom_id=$4
-          AND historical_assignment.subject_name=$5
-          AND ($6::date IS NULL OR e.entry_date >= $6::date) AND ($7::date IS NULL OR e.entry_date <= $7::date)
-        ORDER BY e.updated_at DESC`, [user.school_id, configs.map(config => config.id), user.teacher_id, classroomId, subject, from, to])).rows
+        WHERE e.school_id=$1 AND e.config_id=ANY($2::uuid[]) AND e.teacher_id=$3
+          AND (e.classroom_id=$4 OR (e.grade_value=$5 AND e.classroom_value=$6))
+          AND historical_assignment.subject_name=$7
+          AND ($8::date IS NULL OR e.entry_date >= $8::date) AND ($9::date IS NULL OR e.entry_date <= $9::date)
+        ORDER BY e.updated_at DESC,e.entry_date DESC`, [user.school_id, configs.map(config => config.id), user.teacher_id, classroomId, roster.mapping?.grade || '', roster.mapping?.classroom || '', subject, from, to])).rows
       const typeById = new Map(configs.map(config => [config.id, config.sheetType]))
       const values = new Map()
       for (const entry of entries) {
@@ -528,14 +529,17 @@ export async function handleTeacherPortalRequest(context) {
         JOIN teacher_lesson_student_records r ON r.lesson_session_id=s.id
         WHERE s.school_id=$1 AND s.teacher_id=$2 AND s.classroom_id=$3 AND s.session_date=$4 AND s.period_number=$5`, [user.school_id, user.teacher_id, classroomId, date, periodNumber])
       const states = new Map(saved.rows.map(row => [row.studentId, row]))
+      // The sheet is cumulative. A grade may have been entered on any earlier lesson date,
+      // so opening today's lesson must load every value already saved for this subject and class.
       const entries = sheetConfigs.length ? (await client.query(`SELECT e.config_id AS "configId",e.student_id AS "studentId",e.student_name AS "studentName",
           e.grade_value AS grade,e.classroom_value AS classroom,e.values
         FROM teacher_sheet_entries e
         JOIN lesson_schedule_assignments historical_assignment ON historical_assignment.id=e.assignment_id AND historical_assignment.school_id=e.school_id
-        WHERE e.school_id=$1 AND e.config_id=ANY($2::uuid[]) AND e.teacher_id=$3 AND e.classroom_id=$4 AND e.entry_date=$5
-          AND historical_assignment.weekday=$6 AND historical_assignment.period_number=$7
-          AND historical_assignment.subject_name=$8
-        ORDER BY e.updated_at DESC`, [user.school_id, sheetConfigs.map(config => config.id), user.teacher_id, classroomId, date, weekday, periodNumber, assignment.rows[0].subject || ''])).rows : []
+        WHERE e.school_id=$1 AND e.config_id=ANY($2::uuid[]) AND e.teacher_id=$3
+          AND (e.classroom_id=$4 OR (e.grade_value=$5 AND e.classroom_value=$6))
+          AND historical_assignment.subject_name=$7
+        ORDER BY e.updated_at DESC,e.entry_date DESC`, [user.school_id, sheetConfigs.map(config => config.id), user.teacher_id, classroomId,
+          roster.mapping.grade, roster.mapping.classroom, assignment.rows[0].subject || ''])).rows : []
       const typeById = new Map(sheetConfigs.map(config => [config.id, config.sheetType]))
       const valuesByStudent = new Map()
       for (const entry of entries) {
@@ -591,11 +595,12 @@ export async function handleTeacherPortalRequest(context) {
           e.student_id AS "studentId",e.student_name AS "studentName",e.grade_value AS grade,e.classroom_value AS classroom
         FROM teacher_sheet_entries e
         JOIN lesson_schedule_assignments historical_assignment ON historical_assignment.id=e.assignment_id AND historical_assignment.school_id=e.school_id
-        WHERE e.school_id=$1 AND e.config_id=ANY($2::uuid[]) AND e.teacher_id=$3 AND e.classroom_id=$4 AND e.entry_date=$5
-          AND historical_assignment.weekday=$6 AND historical_assignment.period_number=$7
-          AND historical_assignment.subject_name=$8
-        ORDER BY e.student_id,e.updated_at DESC`,
-      [user.school_id, sheetConfigs.map(config => config.id), user.teacher_id, classroomId, date, weekday, periodNumber, assignment.rows[0].subject || ''])).rows : []
+        WHERE e.school_id=$1 AND e.config_id=ANY($2::uuid[]) AND e.teacher_id=$3
+          AND (e.classroom_id=$4 OR (e.grade_value=$5 AND e.classroom_value=$6))
+          AND historical_assignment.subject_name=$7
+        ORDER BY e.student_id,e.updated_at DESC,e.entry_date DESC`,
+      [user.school_id, sheetConfigs.map(config => config.id), user.teacher_id, classroomId,
+        roster.mapping.grade, roster.mapping.classroom, assignment.rows[0].subject || ''])).rows : []
       const editableStudents = rosterWithHistoricalStudents(roster.students, [...historicalRecords, ...historicalEntries])
       const allowed = new Map(editableStudents.map(student => [student.id, student]))
       const payload = new Map()
