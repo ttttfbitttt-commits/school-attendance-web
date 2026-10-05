@@ -124,6 +124,17 @@ export type LessonScanPreview = {
 }
 export type TeacherPortalScheduleItem = { assignmentId: string; classroomId: string; classroom: string; weekday: number; periodNumber: number; subject: string; startTime: string | null; endTime: string | null }
 export type TeacherPortalDashboard = { schoolName: string; teacher: { name: string; identityNumber: string }; date: string; weekday: number; schedule: TeacherPortalScheduleItem[]; weekSchedule: TeacherPortalScheduleItem[]; periodNumbers: number[] }
+export type TeacherCooperationContributor = { teacherId: string; name: string; count: number; firstTime: string; lastTime: string }
+export type TeacherCooperationScan = { id: string; studentId: string; studentName: string; grade: string; classroom: string; periodNumber: number; status: 'present' | 'late'; time: string }
+export type TeacherCooperationStatus = {
+  date: string; configured: boolean; available: boolean; activePeriod: 1 | 2 | null; windowStart: string; windowEnd: string
+  periods: Array<{ periodNumber: 1 | 2; startTime: string; endTime: string }>
+  contributors: TeacherCooperationContributor[]; ownCount: number; recent: TeacherCooperationScan[]
+}
+export type TeacherCooperationEntry = {
+  id: string; teacherId: string; teacherName: string; studentId: string; studentName: string; grade: string; classroom: string
+  date: string; periodNumber: 1 | 2; status: 'present' | 'late'; time: string
+}
 export type TeacherNote = 'هروب من الحصة' | 'نائم أثناء الدرس' | 'لم يحل الواجب' | 'عدم التفاعل والمشاركة' | 'مشارك فعال' | 'لم يحضر الكتاب أو أوراق العمل' | 'استخدام الجوال أثناء الحصة' | 'الحديث مع زملائه أثناء الدرس'
 export type TeacherSheetColumn = { id: string; label: string; type: 'score' | 'text' | 'choice' | 'boolean'; maxScore: number | null; choices: string[] }
 export type TeacherSheetType = 'followup' | 'homework' | 'tests'
@@ -257,7 +268,7 @@ export const api = {
   students: () => request<{ students: unknown[] }>('/students'),
   saveStudents: (students: unknown[]) => request<{ ok: boolean }>('/students', { method: 'PUT', body: JSON.stringify({ students }) }),
   attendance: () => request<{ records: unknown[] }>('/attendance'),
-  markAttendance: (studentId: string, status: 'present' | 'late') => request<{ ok: boolean }>('/attendance', { method: 'POST', body: JSON.stringify({ studentId, status }) }),
+  markAttendance: (studentId: string, status: 'present' | 'late') => request<{ ok: boolean; duplicate?: boolean }>('/attendance', { method: 'POST', body: JSON.stringify({ studentId, status }) }),
   markAttendanceBulk: (studentIds: string[], status: 'present' | 'late') => request<{ ok: boolean; created: string[]; duplicates: string[]; missing: string[] }>('/attendance/bulk', { method: 'POST', body: JSON.stringify({ studentIds, status }) }),
   clearAttendance: (date: string) => request<{ ok: boolean }>(`/attendance?date=${encodeURIComponent(date)}`, { method: 'DELETE' }),
   almadar: () => request<{ account: AlmadarAccount }>('/almadar'),
@@ -329,6 +340,9 @@ export const api = {
   resetTeacherAccounts: (teacherIds: string[]) => request<{ ok: boolean; reset: number; credentials: Array<{ teacherId: string; name: string; identityNumber: string; temporaryPassword: string }> }>('/teacher-portal/admin/accounts/bulk-reset', { method: 'POST', body: JSON.stringify({ teacherIds }) }),
   setTeacherAccountStatus: (teacherId: string, active: boolean) => request<{ ok: boolean }>('/teacher-portal/admin/accounts/status', { method: 'PATCH', body: JSON.stringify({ teacherId, active }) }),
   teacherAdminReports: (filters: { date?: string; teacherId?: string; note?: string; classroomId?: string } = {}) => request<{ reports: TeacherLessonReport[] }>(`/teacher-portal/admin/reports?${new URLSearchParams(Object.entries(filters).filter(([, value]) => value).map(([key, value]) => [key, value || '']))}`),
+  teacherCooperationStatus: () => request<TeacherCooperationStatus>('/teacher-cooperation/status'),
+  scanTeacherCooperation: (code: string) => request<{ outcome: 'created' | 'duplicate'; student: { id: string; name: string; grade: string; classroom: string }; attendance: { status: 'present' | 'late'; time: string }; periodNumber: 1 | 2 }>('/teacher-cooperation/scan', { method: 'POST', body: JSON.stringify({ code }) }),
+  teacherCooperationReport: (filters: { from?: string; to?: string; teacherId?: string; periodNumber?: string } = {}) => request<{ schoolName: string; principalName: string; entries: TeacherCooperationEntry[]; teachers: Array<{ teacherId: string; name: string }> }>(`/teacher-cooperation/report?${new URLSearchParams(Object.entries(filters).filter(([, value]) => value).map(([key, value]) => [key, value || '']))}`),
   studentReferrals: (filters: { status?: StudentReferralStatus | ''; teacherId?: string; from?: string; to?: string; q?: string } = {}) =>
     request<{ schoolName: string; referrals: StudentReferral[] }>(`/student-referrals?${new URLSearchParams(Object.entries(filters).filter(([, value]) => value).map(([key, value]) => [key, value || '']))}`),
   createStudentReferral: (payload: { assignmentId: string; classroomId: string; studentId: string; date: string; periodNumber: number; reason: StudentReferralReason; otherReason?: string; problemDescription: string }) =>

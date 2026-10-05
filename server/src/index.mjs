@@ -8,6 +8,7 @@ import { handleLessonFlowRequest, migrateLessonFlow } from './lessonFlow.mjs'
 import { handleTeacherPortalRequest, migrateTeacherPortal } from './teacherPortal.mjs'
 import { handleBehaviorRequest, migrateBehavior } from './behavior.mjs'
 import { handleStudentReferralRequest, migrateStudentReferrals } from './studentReferrals.mjs'
+import { handleTeacherCooperationRequest, migrateTeacherCooperation } from './teacherCooperation.mjs'
 
 const { Pool } = pg
 if (!process.env.DATABASE_URL || !process.env.RUNTIME_DATABASE_URL || !process.env.AUTH_DATABASE_URL) {
@@ -133,7 +134,7 @@ async function configureDatabaseRoles() {
     teacher_classroom_student_maps, teacher_lesson_sessions, teacher_lesson_student_records,
     teacher_sheet_configs, teacher_sheet_entries, behavior_incidents, behavior_student_records,
     behavior_action_steps, behavior_score_movements, behavior_audit_logs, student_referrals,
-    student_referral_events TO attendance_app`)
+    student_referral_events, teacher_attendance_contributions TO attendance_app`)
   await adminPool.query('GRANT SELECT ON behavior_catalog_rules TO attendance_app')
   await adminPool.query('GRANT USAGE, SELECT ON SEQUENCE behavior_audit_logs_id_seq TO attendance_app')
   await adminPool.query('GRANT USAGE, SELECT ON SEQUENCE student_referral_events_id_seq TO attendance_app')
@@ -173,6 +174,7 @@ async function enforceTenantRowSecurity() {
     ['behavior_audit_logs', 'school_id', 'behavior_audit_logs_school_scope'],
     ['student_referrals', 'school_id', 'student_referrals_school_scope'],
     ['student_referral_events', 'school_id', 'student_referral_events_school_scope'],
+    ['teacher_attendance_contributions', 'school_id', 'teacher_attendance_contributions_school_scope'],
   ]
   for (const [table, schoolColumn, policy] of tables) {
     await adminPool.query(`ALTER TABLE ${table} ENABLE ROW LEVEL SECURITY`)
@@ -193,6 +195,7 @@ async function migrateDatabase() {
   await migrateTeacherPortal(adminPool)
   await migrateBehavior(adminPool)
   await migrateStudentReferrals(adminPool)
+  await migrateTeacherCooperation(adminPool)
   await enforceTenantRowSecurity()
   await configureDatabaseRoles()
 }
@@ -235,6 +238,7 @@ const server = http.createServer(async (req, res) => {
     const user = await auth(req)
     if (!user) return json(res, 401, { error: 'unauthorized' })
     if (req.method === 'GET' && url.pathname === '/api/me') return json(res, 200, { user: account(user) })
+    if (await handleTeacherCooperationRequest({ req, res, url, user, body, json, scoped })) return
     if (await handleStudentReferralRequest({ req, res, url, user, body, json, scoped, todayRiyadh })) return
     if (await handleTeacherPortalRequest({ req, res, url, user, pool, authPool, body, json, scoped, todayRiyadh, passwordHash })) return
     // Teacher accounts are intentionally isolated from the administrative attendance APIs.
@@ -275,7 +279,7 @@ const server = http.createServer(async (req, res) => {
         return c.query(`INSERT INTO attendance_logs(school_id,student_id,attendance_date,recorded_by,status) VALUES($1,$2,$3,$4,$5) ON CONFLICT(school_id,student_id,attendance_date) DO NOTHING RETURNING attendance_date,recorded_at`,[user.school_id,studentId,attendanceDate,user.user_id,status])
       })
       if (!result) return json(res,404,{error:'student_not_found'})
-      return json(res, result.rowCount ? 201 : 409, { ok: Boolean(result.rowCount) })
+      return json(res, result.rowCount ? 201 : 200, { ok: Boolean(result.rowCount), duplicate: !result.rowCount })
     }
     if (req.method === 'DELETE' && url.pathname === '/api/attendance') {
       if (user.role !== 'admin') return json(res,403,{error:'forbidden'})

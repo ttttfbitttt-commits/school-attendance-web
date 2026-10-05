@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
-import { BarChart3, BookOpenCheck, CalendarDays, Check, Copy, FileSpreadsheet, KeyRound, LayoutDashboard, LogOut, Menu, Plus, Printer, Save, Send, Trash2, UserRound, X } from 'lucide-react'
-import { api, type Account, type TeacherLesson, type TeacherLessonReport, type TeacherNote, type TeacherPortalDashboard, type TeacherPortalScheduleItem, type TeacherSheetColumn, type TeacherSheetConfig, type TeacherSheetOpenType, type TeacherSheetSubject, type TeacherSheetType } from './api'
+import { BarChart3, BookOpenCheck, CalendarDays, Check, Copy, FileSpreadsheet, Handshake, KeyRound, LayoutDashboard, LogOut, Menu, Plus, Printer, Save, Send, Trash2, UserRound, X } from 'lucide-react'
+import { api, type Account, type TeacherCooperationStatus, type TeacherLesson, type TeacherLessonReport, type TeacherNote, type TeacherPortalDashboard, type TeacherPortalScheduleItem, type TeacherSheetColumn, type TeacherSheetConfig, type TeacherSheetOpenType, type TeacherSheetSubject, type TeacherSheetType } from './api'
 import { HijriDatePicker } from './HijriDatePicker'
 import { formatHijriDate } from './dateUtils'
 import * as XLSX from 'xlsx'
 import { TeacherReferralCenter } from './StudentReferrals'
+import { TeacherCooperationPanel } from './TeacherCooperation'
 
 const notes: TeacherNote[] = ['هروب من الحصة', 'نائم أثناء الدرس', 'لم يحل الواجب', 'عدم التفاعل والمشاركة', 'مشارك فعال', 'لم يحضر الكتاب أو أوراق العمل', 'استخدام الجوال أثناء الحصة', 'الحديث مع زملائه أثناء الدرس']
 const dayNames = ['', 'الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت']
@@ -20,7 +21,7 @@ const teacherSchedulePeriods = (schedule: TeacherPortalScheduleItem[], configure
 const displaySheetValue = (value: string | number | boolean | undefined, type?: TeacherSheetColumn['type']) => type === 'boolean' && value === undefined ? '✓' : value === true ? '✓' : value === false ? '✗' : value ?? ''
 
 type StudentState = { status: 'present' | 'absent'; note: TeacherNote | ''; sheetValues: Record<string, string | number | boolean> }
-type TeacherTab = 'home' | 'schedule' | 'referrals' | 'sheets' | 'reports' | 'password'
+type TeacherTab = 'home' | 'schedule' | 'cooperation' | 'referrals' | 'sheets' | 'reports' | 'password'
 type RenderSheetColumn = TeacherSheetColumn & { key: string; sheetType: TeacherSheetType }
 const getSheetColumns = (lesson: TeacherLesson): RenderSheetColumn[] => lesson.sheetConfigs.flatMap(config => config.columns.map(column => ({ ...column, key: `${config.sheetType}:${column.id}`, sheetType: config.sheetType })))
 
@@ -269,6 +270,17 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
   const [selectedSheetType, setSelectedSheetType] = useState<TeacherSheetOpenType>('followup')
   const [printPreview, setPrintPreview] = useState('')
   const [reportsKey, setReportsKey] = useState(0)
+  const [cooperationStatus, setCooperationStatus] = useState<TeacherCooperationStatus | null>(null)
+  const [thanksClosed, setThanksClosed] = useState(false)
+
+  const loadCooperationStatus = async () => {
+    try {
+      const next = await api.teacherCooperationStatus()
+      setCooperationStatus(next)
+      setThanksClosed(Boolean(localStorage.getItem(`teacher-cooperation-thanks:${account.schoolId}:${next.date}`)))
+      if (!next.available) setActiveTab(current => current === 'cooperation' ? 'home' : current)
+    } catch { /* لا نحجب بقية بوابة المعلم عند تعذر تحديث شريط التعاون */ }
+  }
 
   const loadDashboard = async () => {
     setBusy('dashboard')
@@ -278,6 +290,11 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
 
   useEffect(() => { void loadDashboard() }, [date])
   useEffect(() => { void api.teacherSheets().then(result => setSheets(result.sheets)).catch(() => setSheets([])) }, [])
+  useEffect(() => {
+    void loadCooperationStatus()
+    const refresh = window.setInterval(() => void loadCooperationStatus(), 15000)
+    return () => window.clearInterval(refresh)
+  }, [])
   useEffect(() => {
     if (!printPreview) return
     document.body.classList.add('teacher-print-mode')
@@ -425,6 +442,7 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
       <nav className="teacher-sidebar-nav" aria-label="أقسام بوابة المعلم">
         <button type="button" className={activeTab === 'home' ? 'active' : ''} onClick={() => navigate('home')}><LayoutDashboard size={18} /> الرئيسية</button>
         <button type="button" className={activeTab === 'schedule' ? 'active' : ''} onClick={() => navigate('schedule')}><CalendarDays size={18} /> جدولي</button>
+        {cooperationStatus?.available && <button type="button" className={`teacher-cooperation-nav ${activeTab === 'cooperation' ? 'active' : ''}`} onClick={() => navigate('cooperation')}><Handshake size={18} /> تعاون المعلم<span>متاح الآن</span></button>}
         <button type="button" className={activeTab === 'referrals' ? 'active' : ''} onClick={() => navigate('referrals')}><Send size={18} /> إحالة طالب</button>
         <button type="button" className={activeTab === 'sheets' ? 'active' : ''} onClick={() => navigate('sheets')}><FileSpreadsheet size={18} /> الكشوف</button>
         <button type="button" className={activeTab === 'reports' ? 'active' : ''} onClick={() => navigate('reports')}><BarChart3 size={18} /> التقارير</button>
@@ -437,9 +455,10 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
     <header className="teacher-topbar">
       <div><span>بوابة المعلم</span><h1>{dashboard?.schoolName || 'نظام الحصر'}</h1></div>
     </header>
+    {!!cooperationStatus?.contributors.length && !thanksClosed && <section className="teacher-thanks-banner" aria-label="شكر المعلمين المتعاونين"><button type="button" onClick={() => { localStorage.setItem(`teacher-cooperation-thanks:${account.schoolId}:${cooperationStatus.date}`, '1'); setThanksClosed(true) }} aria-label="إغلاق شريط الشكر"><X size={17} /></button><Handshake size={19} /><div className="teacher-thanks-window"><div className="teacher-thanks-track"><strong>شكر وتقدير للمعلمين المتعاونين مع الإدارة اليوم:</strong>{cooperationStatus.contributors.map(item => <span key={item.teacherId}>الأستاذ {item.name}</span>)}<b>تعاونكم يدل على وعيكم ويسهم في انضباط طلاب المدرسة</b></div></div></section>}
     <section className="teacher-welcome">
       <div><UserRound size={27} /><div><strong>{dashboard?.teacher.name || account.displayName}</strong><small>يعرض هذا الحساب جدولك وطلاب فصولك فقط.</small></div></div>
-      <HijriDatePicker label="التاريخ الهجري" value={date} max={today()} onChange={value => { setDate(value); setLesson(null); setSelected(null) }} />
+      {activeTab === 'cooperation' ? <div className="teacher-cooperation-date"><span>تعاون اليوم</span><strong>{formatHijriDate(cooperationStatus?.date || today())}</strong></div> : <HijriDatePicker label="التاريخ الهجري" value={date} max={today()} onChange={value => { setDate(value); setLesson(null); setSelected(null) }} />}
     </section>
 
     {activeTab === 'password' && <section className="teacher-security-card">
@@ -466,6 +485,7 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
       <TeacherWeekSchedule date={date} schedule={dashboard?.weekSchedule || []} periodNumbers={dashboard?.periodNumbers || []} selected={selected} busy={busy} onOpen={item => void openLesson(item, 'followup', false, 'schedule')} onExportExcel={exportWeekSchedule} onPrintPdf={printWeekSchedule} />
       {lesson && selected && <TeacherFollowupRoster lesson={lesson} selected={selected} activeLessonDate={activeLessonDate} states={states} updateStudent={updateStudent} exportSheet={exportSheet} printSheet={printSheet} saveLesson={() => void saveLesson()} busy={busy} />}
     </>}
+    {activeTab === 'cooperation' && cooperationStatus?.available && <TeacherCooperationPanel status={cooperationStatus} onRefresh={loadCooperationStatus} />}
     {activeTab === 'referrals' && <TeacherReferralCenter date={date} schedule={dashboard?.schedule || []} schoolName={dashboard?.schoolName || 'المدرسة'} teacherName={dashboard?.teacher.name || account.displayName} />}
     {activeTab === 'sheets' && <section className="teacher-card"><div className="teacher-section-head"><div><span>إدارة الكشوف</span><h2>الكشوف</h2><p>جهز كشف كل مادة مرة واحدة، أو ابدأ المتابعة مباشرة.</p></div><FileSpreadsheet size={30} /></div>{sheetMode === 'menu' && <div className="teacher-sheet-menu"><button type="button" onClick={() => { setLesson(null); setSelected(null); setSheetOnlyView(false); setSheetMode('setup') }}><FileSpreadsheet size={30} /><strong>إعداد الكشوف</strong><small>أنشئ الأعمدة والدرجات لكل مادة</small></button><button type="button" onClick={() => setSheetMode('start')}><BookOpenCheck size={30} /><strong>بدء المتابعة</strong><small>اختر المادة والفصل والكشف ثم افتح الطلاب</small></button></div>}{sheetMode === 'setup' && <><button type="button" className="outline-button teacher-sheet-back" onClick={() => setSheetMode('menu')}>العودة إلى الكشوف</button><TeacherSheetsSetup sheets={sheets} onSaved={config => setSheets(current => current.map(subject => subject.subject === config.subject ? { ...subject, configs: [...subject.configs.filter(item => item.sheetType !== config.sheetType), config] } : subject))} onDeleted={(subjectName, sheetType) => setSheets(current => current.map(subject => subject.subject === subjectName ? { ...subject, configs: subject.configs.filter(config => config.sheetType !== sheetType) } : subject))} /></>}{sheetMode === 'start' && <><button type="button" className="outline-button teacher-sheet-back" onClick={() => setSheetMode('menu')}>العودة إلى الكشوف</button><TeacherSheetStart sheets={sheets} schedule={dashboard?.weekSchedule || []} onOpen={(item, type) => void openLesson(item, type, true)} /></>}{sheetMode !== 'setup' && sheetOnlyView && lesson && selected && <TeacherSheetRoster lesson={lesson} selected={selected} states={states} updateSheetValue={updateSheetValue} exportSheet={exportSheet} printSheet={printSheet} saveLesson={saveLesson} busy={busy} />}</section>}
     {activeTab === 'reports' && <TeacherReportsTab key={reportsKey} schedule={dashboard?.weekSchedule || []} />}

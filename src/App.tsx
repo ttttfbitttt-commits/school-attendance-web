@@ -17,6 +17,7 @@ import {
   FileText,
   Filter,
   FolderOpen,
+  Handshake,
   Layers,
   LayoutDashboard,
   LogOut,
@@ -49,6 +50,7 @@ import { TeacherAdminCenter } from './TeacherAdmin'
 import { TeacherPortal } from './TeacherPortal'
 import { BehaviorCenter } from './BehaviorCenter'
 import { SchoolReferralCenter } from './StudentReferrals'
+import { TeacherCooperationAdmin } from './TeacherCooperation'
 
 type Student = {
   id: string
@@ -179,7 +181,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
   const [attendanceSearch, setAttendanceSearch] = useState('')
   const [attendanceStudentSearch, setAttendanceStudentSearch] = useState('')
   const [scanInput, setScanInput] = useState('')
-  const [activeNav, setActiveNav] = useState<'dashboard' | 'students' | 'attendance' | 'behavior' | 'lessons' | 'teachers' | 'referrals' | 'reports' | 'messages'>('attendance')
+  const [activeNav, setActiveNav] = useState<'dashboard' | 'students' | 'attendance' | 'cooperation' | 'behavior' | 'lessons' | 'teachers' | 'referrals' | 'reports' | 'messages'>('attendance')
   const [manualAttendanceSelection, setManualAttendanceSelection] = useState<Student[]>([])
   const [manualAttendanceSubmitting, setManualAttendanceSubmitting] = useState(false)
   const [isImporting, setIsImporting] = useState(false)
@@ -204,6 +206,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
     student: Student
     status: 'present' | 'late'
     scanTime: string
+    duplicate: boolean
   } | null>(null)
 
   const [scanLog, setScanLog] = useState<ScanRecord[]>([])
@@ -250,6 +253,32 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
   useEffect(() => {
     scanLogRef.current = scanLog
   }, [scanLog])
+
+  // يعكس ما يسجله المعلمون المتعاونون في شاشة المدرسة دون الحاجة إلى إعادة تحميل الصفحة.
+  useEffect(() => {
+    if (activeNav !== 'attendance') return
+
+    let cancelled = false
+    const refreshAttendance = async () => {
+      try {
+        const attendanceResult = await api.attendance()
+        if (cancelled) return
+        const remoteRecords = attendanceResult.records as Array<Omit<ScanRecord, 'day'>>
+        setScanLog(remoteRecords.map((record) => ({
+          ...record,
+          day: ARABIC_DAYS[new Date(`${record.date}T12:00:00`).getDay()],
+        })))
+      } catch {
+        // نحافظ على السجل الظاهر عند تعذر تحديث واحد، ثم نحاول تلقائيًا في الدورة التالية.
+      }
+    }
+
+    const refreshTimer = window.setInterval(() => void refreshAttendance(), 5000)
+    return () => {
+      cancelled = true
+      window.clearInterval(refreshTimer)
+    }
+  }, [activeNav])
 
   // المراجع (Refs) للكاميرا والمسح
   const videoRef = useRef<HTMLVideoElement>(null)
@@ -936,10 +965,12 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
     }
 
     // التحقق هل تم تسجيله اليوم مسبقاً (نستخدم المرجع المحدث دائماً)
-    const alreadyInLog = scanLogRef.current.some((rec) => rec.studentId === student.id)
-    if (alreadyInLog) {
-      // إصدار صوت مختلف فقط بدون أي إشعار يعطل العملية
+    const existingRecord = scanLogRef.current.find((rec) => rec.studentId === student.id)
+    if (existingRecord) {
       playAudioBeep('duplicate')
+      setLastScannedOverlay({ student, status: existingRecord.status, scanTime: existingRecord.time, duplicate: true })
+      if (overlayTimerRef.current) clearTimeout(overlayTimerRef.current)
+      overlayTimerRef.current = setTimeout(() => setLastScannedOverlay(null), 3000)
       return false
     }
 
@@ -969,6 +1000,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
       student,
       status,
       scanTime: timeStr,
+      duplicate: false,
     })
 
     if (overlayTimerRef.current) clearTimeout(overlayTimerRef.current)
@@ -993,7 +1025,10 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
     void api.markAttendance(student.id, status).then((result) => {
       if (!result.ok) {
         setScanLog((prev) => prev.filter((record) => record !== newRecord))
-        setNotice('هذا الطالب مسجل بالفعل في سجل اليوم.')
+        playAudioBeep('duplicate')
+        setLastScannedOverlay({ student, status, scanTime: timeStr, duplicate: true })
+        if (overlayTimerRef.current) clearTimeout(overlayTimerRef.current)
+        overlayTimerRef.current = setTimeout(() => setLastScannedOverlay(null), 3000)
       }
     }).catch(() => {
       setScanLog((prev) => prev.filter((record) => record !== newRecord))
@@ -1383,7 +1418,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
     setTimeout(() => URL.revokeObjectURL(url), 600000)
   }
 
-  const pageLabel = activeNav === 'dashboard' ? 'إعدادات المدرسة' : activeNav === 'attendance' ? 'سجل الحضور' : activeNav === 'behavior' ? 'سجل السلوك' : activeNav === 'lessons' ? 'سير الحصص' : activeNav === 'teachers' ? 'المعلمون' : activeNav === 'referrals' ? 'إحالات الطلاب' : activeNav === 'reports' ? 'التقارير' : activeNav === 'messages' ? 'الرسائل' : 'إدارة الطلاب'
+  const pageLabel = activeNav === 'dashboard' ? 'إعدادات المدرسة' : activeNav === 'attendance' ? 'سجل الحضور' : activeNav === 'cooperation' ? 'المعلم المتعاون' : activeNav === 'behavior' ? 'سجل السلوك' : activeNav === 'lessons' ? 'سير الحصص' : activeNav === 'teachers' ? 'المعلمون' : activeNav === 'referrals' ? 'إحالات الطلاب' : activeNav === 'reports' ? 'التقارير' : activeNav === 'messages' ? 'الرسائل' : 'إدارة الطلاب'
   return (
     <div className="app-shell" dir="rtl">
       {isMobileMenuOpen && (
@@ -1452,6 +1487,17 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
           >
             <BarChart3 size={18} />
             <span>سجل الحضور</span>
+          </button>
+
+          <button
+            className={activeNav === 'cooperation' ? 'nav-item active' : 'nav-item'}
+            onClick={() => {
+              setActiveNav('cooperation')
+              setIsMobileMenuOpen(false)
+            }}
+          >
+            <Handshake size={18} />
+            <span>المعلم المتعاون</span>
           </button>
 
           <button
@@ -1990,6 +2036,8 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
 
         {activeNav === 'reports' && <ReportsCenter students={students} schoolName={schoolSettings.schoolName} />}
 
+        {activeNav === 'cooperation' && <TeacherCooperationAdmin schoolName={schoolSettings.schoolName} principalName={schoolSettings.principalName} />}
+
         {activeNav === 'lessons' && <LessonFlowCenter schoolName={schoolSettings.schoolName} principalName={schoolSettings.principalName} />}
 
         {activeNav === 'teachers' && <TeacherAdminCenter schoolName={schoolSettings.schoolName} />}
@@ -2179,10 +2227,10 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
 
                   {/* بطاقة الطالب الحمراء عند التعرف (ثانية واحدة أو تُستبدل فوراً) */}
                   {lastScannedOverlay && (
-                    <div className="scanned-student-overlay-card animate-zoom-in">
+                    <div className={`scanned-student-overlay-card animate-zoom-in ${lastScannedOverlay.duplicate ? 'duplicate' : ''}`}>
                       <div className="overlay-red-header">
                         <CheckCircle2 size={16} />
-                        <span>تمت القراءة والحصر</span>
+                        <span>{lastScannedOverlay.duplicate ? 'الطالب تم تحضيره مسبقًا' : 'تمت القراءة والحصر'}</span>
                       </div>
                       <div className="overlay-student-name">
                         {lastScannedOverlay.student.name}
@@ -2192,7 +2240,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
                           {gradeLabel(lastScannedOverlay.student.grade)} • {lastScannedOverlay.student.classroom || '—'}
                         </span>
                         <span className={`overlay-status-pill ${lastScannedOverlay.status}`}>
-                          {lastScannedOverlay.status === 'present' ? '✓ حاضر' : '⏰ متأخر'}
+                          {lastScannedOverlay.duplicate ? '✓ مسجل مسبقًا' : lastScannedOverlay.status === 'present' ? '✓ حاضر' : '⏰ متأخر'}
                         </span>
                         <span className="overlay-time-tag">{lastScannedOverlay.scanTime}</span>
                       </div>
