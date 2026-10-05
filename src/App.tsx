@@ -190,6 +190,9 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [printGradeFilter, setPrintGradeFilter] = useState('all')
   const [printClassFilter, setPrintClassFilter] = useState('all')
+  const [printSelectionMode, setPrintSelectionMode] = useState<'filtered' | 'selected'>('filtered')
+  const [printStudentSearch, setPrintStudentSearch] = useState('')
+  const [selectedPrintStudentIds, setSelectedPrintStudentIds] = useState<string[]>([])
   const [gradeAliases, setGradeAliases] = useState<Record<string, string>>({})
   const [showGradeEditor, setShowGradeEditor] = useState(false)
 
@@ -431,14 +434,36 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
     })
   }, [students, printGradeFilter, printClassFilter])
 
+  const printStudentMatches = useMemo(() => {
+    const query = printStudentSearch.trim().toLowerCase()
+    if (!query) return filteredPrintableStudents
+    return filteredPrintableStudents.filter((student) =>
+      `${student.name} ${student.id}`.toLowerCase().includes(query)
+    )
+  }, [filteredPrintableStudents, printStudentSearch])
+
+  const selectedPrintStudentIdSet = useMemo(() => new Set(selectedPrintStudentIds), [selectedPrintStudentIds])
+  const printableStudentsForOutput = useMemo(() => printSelectionMode === 'filtered'
+    ? filteredPrintableStudents
+    : filteredPrintableStudents.filter((student) => selectedPrintStudentIdSet.has(student.id)),
+  [filteredPrintableStudents, printSelectionMode, selectedPrintStudentIdSet])
+
   const samplePreviewStudents = useMemo(() => {
-    return filteredPrintableStudents.slice(0, cardsPerPage)
-  }, [filteredPrintableStudents, cardsPerPage])
+    return printableStudentsForOutput.slice(0, cardsPerPage)
+  }, [printableStudentsForOutput, cardsPerPage])
 
   const estimatedPages = useMemo(() => {
-    if (!filteredPrintableStudents.length) return 0
-    return Math.ceil(filteredPrintableStudents.length / cardsPerPage)
-  }, [filteredPrintableStudents, cardsPerPage])
+    if (!printableStudentsForOutput.length) return 0
+    return Math.ceil(printableStudentsForOutput.length / cardsPerPage)
+  }, [printableStudentsForOutput, cardsPerPage])
+
+  const togglePrintStudent = (studentId: string) => setSelectedPrintStudentIds((current) =>
+    current.includes(studentId) ? current.filter((id) => id !== studentId) : [...current, studentId]
+  )
+
+  const selectVisiblePrintStudents = () => setSelectedPrintStudentIds((current) => [
+    ...new Set([...current, ...printStudentMatches.map((student) => student.id)]),
+  ])
 
   /** إرجاع اسم الصف المعدَّل إن وُجد، وإلا الاسم الأصلي من الملف */
   const gradeLabel = (grade: string) => gradeAliases[grade]?.trim() || grade
@@ -1244,7 +1269,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
     setNotice('تم فتح تقرير PDF للطباعة في تبويب جديد.')
   }
 
-  const buildPrintHtml = (students: typeof filteredPrintableStudents, cols: number, autoprint = false) => {
+  const buildPrintHtml = (students: Student[], cols: number, autoprint = false) => {
     const cardsHtml = students
       .map(
         (student) => `
@@ -1370,8 +1395,11 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
 
     setPrintGradeFilter('all')
     setPrintClassFilter('all')
+    setPrintSelectionMode('filtered')
+    setPrintStudentSearch('')
+    setSelectedPrintStudentIds([])
     setShowPrintableCards(true)
-    setNotice('تم فتح مركز الطباعة. حدد الصف أو الفصل وعدد البطاقات واضغط طباعة.')
+    setNotice('تم فتح مركز الطباعة. اختر صفًا كاملًا أو طالبًا واحدًا أو مجموعة طلاب ثم اضغط طباعة.')
   }
 
   /**
@@ -1379,11 +1407,11 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
    * هذا أموثوقية من iframe لأنه يعمل في جميع البيئات بما فيها VS Code Simple Browser.
    */
   const triggerDirectPrint = () => {
-    if (!filteredPrintableStudents.length) {
-      setNotice('لا يوجد طلاب مطابقون للفلترة المحددة للطباعة.')
+    if (!printableStudentsForOutput.length) {
+      setNotice('اختر طالبًا واحدًا على الأقل للطباعة.')
       return
     }
-    openBlobUrl(buildPrintHtml(filteredPrintableStudents, getGridCols(), false))
+    openBlobUrl(buildPrintHtml(printableStudentsForOutput, getGridCols(), false))
     setNotice('✅ تم فتح صفحة البطاقات — اضغط زر "اضغط هنا للطباعة" في الشريط الأزرق العلوي.')
   }
 
@@ -1391,11 +1419,11 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
    * فتح في تبويب مستقل بدون طباعة تلقائية — للمراجعة والطباعة اليدوية.
    */
   const openPrintInNewTab = () => {
-    if (!filteredPrintableStudents.length) {
-      setNotice('لا يوجد طلاب مطابقون للفلترة المحددة للطباعة.')
+    if (!printableStudentsForOutput.length) {
+      setNotice('اختر طالبًا واحدًا على الأقل للطباعة.')
       return
     }
-    openBlobUrl(buildPrintHtml(filteredPrintableStudents, getGridCols(), false))
+    openBlobUrl(buildPrintHtml(printableStudentsForOutput, getGridCols(), false))
     setNotice('تم فتح صفحة الطباعة في تبويب جديد. استخدم Ctrl+P أو زر الطباعة في الصفحة.')
   }
 
@@ -1916,6 +1944,8 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
                         onChange={(e) => {
                           setPrintGradeFilter(e.target.value)
                           setPrintClassFilter('all')
+                          setSelectedPrintStudentIds([])
+                          setPrintStudentSearch('')
                         }}
                       >
                         <option value="all">جميع الصفوف ({printableStudents.length} طالب)</option>
@@ -1934,7 +1964,11 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
                       </label>
                       <select
                         value={printClassFilter}
-                        onChange={(e) => setPrintClassFilter(e.target.value)}
+                        onChange={(e) => {
+                          setPrintClassFilter(e.target.value)
+                          setSelectedPrintStudentIds([])
+                          setPrintStudentSearch('')
+                        }}
                         disabled={availableClassrooms.length === 0}
                       >
                         <option value="all">جميع الفصول</option>
@@ -1962,10 +1996,71 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
                     </div>
                   </div>
 
+                  <section className="print-student-selection" aria-label="اختيار الطلاب للطباعة">
+                    <div className="print-selection-heading">
+                      <div>
+                        <strong>من تريد طباعة بطاقته؟</strong>
+                        <span>اطبع نتائج الصف والفصل كاملة، أو اختر طالبًا بالاسم أو مجموعة طلاب.</span>
+                      </div>
+                      <div className="print-selection-mode" role="group" aria-label="طريقة اختيار الطلاب">
+                        <button
+                          type="button"
+                          className={printSelectionMode === 'filtered' ? 'active' : ''}
+                          onClick={() => setPrintSelectionMode('filtered')}
+                        >
+                          <Users size={16} />
+                          جميع نتائج الفلترة
+                        </button>
+                        <button
+                          type="button"
+                          className={printSelectionMode === 'selected' ? 'active' : ''}
+                          onClick={() => setPrintSelectionMode('selected')}
+                        >
+                          <CheckCircle2 size={16} />
+                          طالب أو مجموعة محددة
+                        </button>
+                      </div>
+                    </div>
+
+                    {printSelectionMode === 'selected' && (
+                      <div className="print-student-picker">
+                        <div className="print-student-search">
+                          <Search size={17} />
+                          <input
+                            value={printStudentSearch}
+                            onChange={(event) => setPrintStudentSearch(event.target.value)}
+                            placeholder="ابحث باسم الطالب أو رقمه..."
+                            autoComplete="off"
+                          />
+                          {printStudentSearch && <button type="button" onClick={() => setPrintStudentSearch('')} aria-label="مسح البحث"><X size={15} /></button>}
+                        </div>
+                        <div className="print-student-picker-actions">
+                          <span>{selectedPrintStudentIds.length} محدد</span>
+                          <button type="button" onClick={selectVisiblePrintStudents} disabled={!printStudentMatches.length}>تحديد النتائج ({printStudentMatches.length})</button>
+                          <button type="button" onClick={() => setSelectedPrintStudentIds([])} disabled={!selectedPrintStudentIds.length}>إلغاء التحديد</button>
+                        </div>
+                        {printStudentMatches.length ? (
+                          <div className="print-student-choice-list">
+                            {printStudentMatches.map((student) => {
+                              const checked = selectedPrintStudentIdSet.has(student.id)
+                              return (
+                                <label key={`print-choice-${student.id}`} className={checked ? 'selected' : ''}>
+                                  <input type="checkbox" checked={checked} onChange={() => togglePrintStudent(student.id)} />
+                                  <span><strong>{student.name}</strong><small>{student.id} · {gradeLabel(student.grade)} · {student.classroom}</small></span>
+                                  {checked && <Check size={17} />}
+                                </label>
+                              )
+                            })}
+                          </div>
+                        ) : <p className="print-student-no-results">لا يوجد طالب مطابق للاسم أو الرقم ضمن الصف والفصل المحددين.</p>}
+                      </div>
+                    )}
+                  </section>
+
                   <div className="print-modal-meta-bar">
                     <div className="meta-pill primary">
-                      <span>الطلاب المشمولون:</span>
-                      <strong>{filteredPrintableStudents.length} طالب</strong>
+                      <span>{printSelectionMode === 'selected' ? 'الطلاب المحددون:' : 'الطلاب المشمولون:'}</span>
+                      <strong>{printableStudentsForOutput.length} طالب</strong>
                     </div>
                     <div className="meta-pill">
                       <span>الصفحات المقدرة (A4):</span>
@@ -1978,7 +2073,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
                   </div>
 
                   <div className="print-modal-preview-wrapper">
-                    {filteredPrintableStudents.length > 0 ? (
+                    {printableStudentsForOutput.length > 0 ? (
                       <div className="a4-sheet-simulated">
                         <div className="sheet-label-badge">نموذج محاكاة لورقة A4 مطبوعة</div>
                         <div className={`print-cards-grid cards-per-page-${cardsPerPage}`}>
@@ -2002,7 +2097,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
                       </div>
                     ) : (
                       <div className="empty-preview">
-                        <p>لا يوجد طلاب مطابقون للفلاتر المحددة حالياً.</p>
+                        <p>{printSelectionMode === 'selected' ? 'ابحث عن طالب وحدد اسمه لتظهر بطاقته هنا.' : 'لا يوجد طلاب مطابقون للفلاتر المحددة حالياً.'}</p>
                       </div>
                     )}
                   </div>
@@ -2014,7 +2109,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
                     <button
                       className="secondary-button print-newtab-btn"
                       onClick={openPrintInNewTab}
-                      disabled={!filteredPrintableStudents.length}
+                      disabled={!printableStudentsForOutput.length}
                     >
                       <ExternalLink size={16} />
                       <span>فتح في تبويب مستقل للطباعة</span>
@@ -2022,10 +2117,10 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
                     <button
                       className="primary-button print-action-btn"
                       onClick={triggerDirectPrint}
-                      disabled={!filteredPrintableStudents.length}
+                      disabled={!printableStudentsForOutput.length}
                     >
                       <Printer size={18} />
-                      <span>بدء الطباعة الآن ({filteredPrintableStudents.length} بطاقة)</span>
+                      <span>بدء الطباعة الآن ({printableStudentsForOutput.length} بطاقة)</span>
                     </button>
                   </footer>
                 </div>
@@ -2510,7 +2605,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
       {showPrintableCards && (
         <div className="actual-print-document" aria-hidden="true">
           <div className={`print-cards-grid cards-per-page-${cardsPerPage}`}>
-            {filteredPrintableStudents.map((student) => (
+            {printableStudentsForOutput.map((student) => (
               <article key={`actual-print-${student.id}`} className="print-card">
                 <div className="print-card-header">
                   <span className="print-card-school">{schoolSettings.schoolName}</span>
