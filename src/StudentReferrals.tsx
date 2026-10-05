@@ -181,7 +181,7 @@ export function TeacherReferralCenter({ date, schedule, schoolName, teacherName 
     } catch { setError('تعذر إلغاء الإحالة. قد تكون الإحالة مكتملة أو تم تحديثها بالفعل.') } finally { setBusy('') }
   }
   return <section className="teacher-card referral-center">
-    <div className="teacher-section-head"><div><span>نموذج رسمي محفوظ</span><h2>إحالة طالب لوكيل شؤون الطلاب</h2><p>اختر الحصة والطالب، ثم أرسل الإحالة مباشرة إلى حساب المدرسة.</p></div><Send size={30} /></div>
+    <div className="teacher-section-head"><div><span>نموذج رسمي محفوظ</span><h2>إحالة طالب لوكيل شؤون الطلاب</h2><p>اختر الحصة والطالب، ثم أرسل الإحالة مباشرة إلى حساب المدرسة. يجب تسجيل الإحالة في يوم الحصة نفسه.</p></div><Send size={30} /></div>
     <div className="referral-mode-cards"><button className={mode === 'new' ? 'active' : ''} onClick={() => setMode('new')}><Send size={23} /><strong>إحالة جديدة</strong><small>تعبئة وإرسال النموذج</small></button><button className={mode === 'records' ? 'active' : ''} onClick={() => setMode('records')}><FileText size={23} /><strong>سجل إحالاتي</strong><small>{referrals.length} إحالة محفوظة</small></button></div>
     {notice && <p className="teacher-notice success">{notice}</p>}{error && <p className="teacher-notice error">{error}</p>}
     {mode === 'new' && <div className="referral-form">
