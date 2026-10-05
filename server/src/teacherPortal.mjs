@@ -119,6 +119,22 @@ async function rosterForClassroom(client, schoolId, classroomId) {
   return { mapping, students }
 }
 
+function rosterWithHistoricalStudents(currentStudents, historicalRows) {
+  const students = new Map(currentStudents.map(student => [student.id, student]))
+  for (const row of historicalRows) {
+    const id = String(row.studentId || row.id || '')
+    if (!id || students.has(id)) continue
+    students.set(id, {
+      id,
+      name: row.studentName || row.name || id,
+      phone: row.phone || '',
+      grade: row.grade || '',
+      classroom: row.classroom || '',
+    })
+  }
+  return [...students.values()].sort((left, right) => left.name.localeCompare(right.name, 'ar', { numeric: true }))
+}
+
 async function reportRows(client, schoolId, filters = {}, teacherId = null) {
   const clauses = ['s.school_id=$1']
   const values = [schoolId]
@@ -268,12 +284,47 @@ export async function migrateTeacherPortal(adminPool) {
       classroom_id uuid NOT NULL REFERENCES lesson_classrooms(id) ON DELETE RESTRICT,
       entry_date date NOT NULL,
       student_id text NOT NULL,
+      student_name text NOT NULL DEFAULT '',
+      grade_value text NOT NULL DEFAULT '',
+      classroom_value text NOT NULL DEFAULT '',
       values jsonb NOT NULL DEFAULT '{}'::jsonb,
       updated_at timestamptz NOT NULL DEFAULT now(),
       UNIQUE (school_id,config_id,assignment_id,entry_date,student_id)
     );
+    ALTER TABLE teacher_sheet_entries ADD COLUMN IF NOT EXISTS student_name text NOT NULL DEFAULT '';
+    ALTER TABLE teacher_sheet_entries ADD COLUMN IF NOT EXISTS grade_value text NOT NULL DEFAULT '';
+    ALTER TABLE teacher_sheet_entries ADD COLUMN IF NOT EXISTS classroom_value text NOT NULL DEFAULT '';
     CREATE INDEX IF NOT EXISTS teacher_sheet_entries_lookup ON teacher_sheet_entries(school_id,teacher_id,assignment_id,entry_date);
+    CREATE INDEX IF NOT EXISTS teacher_sheet_entries_history ON teacher_sheet_entries(school_id,teacher_id,classroom_id,entry_date,student_id);
   `)
+  await adminPool.query(`UPDATE teacher_sheet_entries e SET
+      student_name=CASE WHEN e.student_name='' THEN s.name ELSE e.student_name END,
+      grade_value=CASE WHEN e.grade_value='' THEN s.grade ELSE e.grade_value END,
+      classroom_value=CASE WHEN e.classroom_value='' THEN s.classroom ELSE e.classroom_value END
+    FROM students s WHERE s.school_id=e.school_id AND s.id=e.student_id
+      AND (e.student_name='' OR e.grade_value='' OR e.classroom_value='')`)
+  // Every new sheet version keeps the accumulated values of previous versions.
+  // This also repairs historical versions created before this preservation rule existed.
+  await adminPool.query(`WITH latest AS (
+      SELECT DISTINCT ON (school_id,teacher_id,subject_name,sheet_type)
+        id,school_id,teacher_id,subject_name,sheet_type
+      FROM teacher_sheet_configs WHERE active=true
+      ORDER BY school_id,teacher_id,subject_name,sheet_type,version DESC
+    ), preserved AS (
+      SELECT DISTINCT ON (l.id,e.assignment_id,e.entry_date,e.student_id)
+        l.id AS target_config_id,e.school_id,e.teacher_id,e.assignment_id,e.classroom_id,e.entry_date,e.student_id,
+        e.student_name,e.grade_value,e.classroom_value,e.values,e.updated_at
+      FROM latest l
+      JOIN teacher_sheet_configs source ON source.school_id=l.school_id AND source.teacher_id=l.teacher_id
+        AND source.subject_name=l.subject_name AND source.sheet_type=l.sheet_type
+      JOIN teacher_sheet_entries e ON e.config_id=source.id AND e.school_id=source.school_id
+      ORDER BY l.id,e.assignment_id,e.entry_date,e.student_id,source.version DESC,e.updated_at DESC
+    )
+    INSERT INTO teacher_sheet_entries(
+      school_id,config_id,teacher_id,assignment_id,classroom_id,entry_date,student_id,student_name,grade_value,classroom_value,values,updated_at)
+    SELECT school_id,target_config_id,teacher_id,assignment_id,classroom_id,entry_date,student_id,
+      student_name,grade_value,classroom_value,values,updated_at FROM preserved WHERE true
+    ON CONFLICT(school_id,config_id,assignment_id,entry_date,student_id) DO NOTHING`)
   await adminPool.query('ALTER TABLE teacher_lesson_student_records DROP CONSTRAINT IF EXISTS teacher_lesson_student_records_note_check')
   await adminPool.query('ALTER TABLE teacher_lesson_student_records DROP CONSTRAINT IF EXISTS teacher_lesson_student_records_note_check_v2')
   await adminPool.query(`UPDATE teacher_lesson_student_records SET note=CASE note
@@ -342,10 +393,22 @@ export async function handleTeacherPortalRequest(context) {
       const assigned = await client.query(`SELECT 1 FROM lesson_schedule_assignments
         WHERE school_id=$1 AND import_id=$2 AND teacher_id=$3 AND subject_name=$4 LIMIT 1`, [user.school_id, active.id, user.teacher_id, subject])
       if (!assigned.rowCount) return { error: 'subject_not_assigned' }
+      const previous = await client.query(`SELECT id FROM teacher_sheet_configs
+        WHERE school_id=$1 AND teacher_id=$2 AND subject_name=$3 AND sheet_type=$4
+        ORDER BY version DESC LIMIT 1`, [user.school_id, user.teacher_id, subject, sheetType])
       const version = Number((await client.query(`SELECT COALESCE(MAX(version),0)::int AS version FROM teacher_sheet_configs
         WHERE school_id=$1 AND teacher_id=$2 AND subject_name=$3 AND sheet_type=$4`, [user.school_id, user.teacher_id, subject, sheetType])).rows[0].version) + 1
       const config = (await client.query(`INSERT INTO teacher_sheet_configs(school_id,teacher_id,subject_name,sheet_type,version,columns)
         VALUES($1,$2,$3,$4,$5,$6::jsonb) RETURNING id,subject_name AS subject,sheet_type AS "sheetType",version,columns,created_at AS "createdAt"`, [user.school_id, user.teacher_id, subject, sheetType, version, JSON.stringify(columns)])).rows[0]
+      if (previous.rowCount) {
+        await client.query(`INSERT INTO teacher_sheet_entries(
+            school_id,config_id,teacher_id,assignment_id,classroom_id,entry_date,student_id,student_name,grade_value,classroom_value,values,updated_at)
+          SELECT school_id,$1,teacher_id,assignment_id,classroom_id,entry_date,student_id,
+            student_name,grade_value,classroom_value,values,updated_at
+          FROM teacher_sheet_entries WHERE school_id=$2 AND config_id=$3
+          ON CONFLICT(school_id,config_id,assignment_id,entry_date,student_id) DO NOTHING`,
+        [config.id, user.school_id, previous.rows[0].id])
+      }
       return { config: { ...config, version: Number(config.version) } }
     })
     if (result.error) { json(res, result.error === 'subject_not_assigned' ? 403 : 409, result); return true }
@@ -385,10 +448,14 @@ export async function handleTeacherPortalRequest(context) {
         .sort((left, right) => requestedTypes.indexOf(left.sheetType) - requestedTypes.indexOf(right.sheetType))
       if (!configs.length) return { error: 'sheet_not_configured' }
       const roster = await rosterForClassroom(client, user.school_id, classroomId)
-      const entries = (await client.query(`SELECT e.config_id AS "configId",e.student_id AS "studentId",e.values
-        FROM teacher_sheet_entries e WHERE e.school_id=$1 AND e.config_id=ANY($2::uuid[]) AND e.assignment_id=ANY($3::uuid[])
-        AND ($4::date IS NULL OR e.entry_date >= $4::date) AND ($5::date IS NULL OR e.entry_date <= $5::date)
-        ORDER BY e.updated_at DESC`, [user.school_id, configs.map(config => config.id), assignments.map(row => row.id), from, to])).rows
+      const entries = (await client.query(`SELECT e.config_id AS "configId",e.student_id AS "studentId",e.student_name AS "studentName",
+          e.grade_value AS grade,e.classroom_value AS classroom,e.values
+        FROM teacher_sheet_entries e
+        JOIN lesson_schedule_assignments historical_assignment ON historical_assignment.id=e.assignment_id AND historical_assignment.school_id=e.school_id
+        WHERE e.school_id=$1 AND e.config_id=ANY($2::uuid[]) AND e.teacher_id=$3 AND e.classroom_id=$4
+          AND historical_assignment.subject_name=$5
+          AND ($6::date IS NULL OR e.entry_date >= $6::date) AND ($7::date IS NULL OR e.entry_date <= $7::date)
+        ORDER BY e.updated_at DESC`, [user.school_id, configs.map(config => config.id), user.teacher_id, classroomId, subject, from, to])).rows
       const typeById = new Map(configs.map(config => [config.id, config.sheetType]))
       const values = new Map()
       for (const entry of entries) {
@@ -396,7 +463,8 @@ export async function handleTeacherPortalRequest(context) {
         for (const [key, value] of Object.entries(entry.values || {})) { const namespaced = `${typeById.get(entry.configId)}:${key}`; if (!(namespaced in current)) current[namespaced] = value }
         values.set(entry.studentId, current)
       }
-      return { subject, sheetType, sections: configs.map(config => ({ sheetType: config.sheetType, version: Number(config.version), columns: config.columns })), classroomId, classroom: roster.mapping?.classroom || '', grade: roster.mapping?.grade || '', students: roster.students.map(student => ({ ...student, values: values.get(student.id) || {} })) }
+      const reportStudents = rosterWithHistoricalStudents(roster.students, entries)
+      return { subject, sheetType, sections: configs.map(config => ({ sheetType: config.sheetType, version: Number(config.version), columns: config.columns })), classroomId, classroom: roster.mapping?.classroom || '', grade: roster.mapping?.grade || '', students: reportStudents.map(student => ({ ...student, values: values.get(student.id) || {} })) }
     })
     if (result.error) { json(res, result.error === 'sheet_not_configured' ? 404 : 409, result); return true }
     json(res, 200, result)
@@ -455,16 +523,31 @@ export async function handleTeacherPortalRequest(context) {
         FROM teacher_sheet_configs WHERE school_id=$1 AND teacher_id=$2 AND subject_name=$3 AND sheet_type=ANY($4::text[]) AND active=true ORDER BY sheet_type,version DESC`, [user.school_id, user.teacher_id, assignment.rows[0].subject || '', requestedTypes])
       const sheetConfigs = configResult.rows.map(config => ({ ...config, version: Number(config.version) })).sort((left, right) => requestedTypes.indexOf(left.sheetType) - requestedTypes.indexOf(right.sheetType))
       const sheetConfig = sheetConfigs[0] || null
-      const saved = await client.query(`SELECT r.student_id AS "studentId",r.attendance_status AS status,r.note FROM teacher_lesson_sessions s
+      const saved = await client.query(`SELECT r.student_id AS "studentId",r.student_name AS "studentName",r.grade_value AS grade,
+          r.classroom_value AS classroom,r.attendance_status AS status,r.note FROM teacher_lesson_sessions s
         JOIN teacher_lesson_student_records r ON r.lesson_session_id=s.id
         WHERE s.school_id=$1 AND s.teacher_id=$2 AND s.classroom_id=$3 AND s.session_date=$4 AND s.period_number=$5`, [user.school_id, user.teacher_id, classroomId, date, periodNumber])
       const states = new Map(saved.rows.map(row => [row.studentId, row]))
-      const entries = sheetConfigs.length ? (await client.query(`SELECT config_id AS "configId",student_id AS "studentId",values FROM teacher_sheet_entries
-        WHERE school_id=$1 AND config_id=ANY($2::uuid[]) AND assignment_id=$3 AND entry_date=$4`, [user.school_id, sheetConfigs.map(config => config.id), assignment.rows[0].assignmentId, date])).rows : []
+      const entries = sheetConfigs.length ? (await client.query(`SELECT e.config_id AS "configId",e.student_id AS "studentId",e.student_name AS "studentName",
+          e.grade_value AS grade,e.classroom_value AS classroom,e.values
+        FROM teacher_sheet_entries e
+        JOIN lesson_schedule_assignments historical_assignment ON historical_assignment.id=e.assignment_id AND historical_assignment.school_id=e.school_id
+        WHERE e.school_id=$1 AND e.config_id=ANY($2::uuid[]) AND e.teacher_id=$3 AND e.classroom_id=$4 AND e.entry_date=$5
+          AND historical_assignment.weekday=$6 AND historical_assignment.period_number=$7
+          AND historical_assignment.subject_name=$8
+        ORDER BY e.updated_at DESC`, [user.school_id, sheetConfigs.map(config => config.id), user.teacher_id, classroomId, date, weekday, periodNumber, assignment.rows[0].subject || ''])).rows : []
       const typeById = new Map(sheetConfigs.map(config => [config.id, config.sheetType]))
       const valuesByStudent = new Map()
-      for (const entry of entries) valuesByStudent.set(entry.studentId, { ...(valuesByStudent.get(entry.studentId) || {}), ...Object.fromEntries(Object.entries(entry.values || {}).map(([key, value]) => [`${typeById.get(entry.configId)}:${key}`, value])) })
-      return { assignment: assignment.rows[0], date, periodNumber, mapping: roster.mapping, sheetConfig, sheetConfigs, students: roster.students.map(student => ({ ...student, status: states.get(student.id)?.status || 'present', note: states.get(student.id)?.note || '', sheetValues: valuesByStudent.get(student.id) || {} })) }
+      for (const entry of entries) {
+        const current = valuesByStudent.get(entry.studentId) || {}
+        for (const [key, value] of Object.entries(entry.values || {})) {
+          const namespaced = `${typeById.get(entry.configId)}:${key}`
+          if (!(namespaced in current)) current[namespaced] = value
+        }
+        valuesByStudent.set(entry.studentId, current)
+      }
+      const lessonStudents = rosterWithHistoricalStudents(roster.students, [...saved.rows, ...entries])
+      return { assignment: assignment.rows[0], date, periodNumber, mapping: roster.mapping, sheetConfig, sheetConfigs, students: lessonStudents.map(student => ({ ...student, status: states.get(student.id)?.status || 'present', note: states.get(student.id)?.note || '', sheetValues: valuesByStudent.get(student.id) || {} })) }
     })
     if (result.error) { json(res, result.error === 'classroom_student_mapping_needed' ? 409 : 404, result); return true }
     json(res, 200, result)
@@ -499,7 +582,22 @@ export async function handleTeacherPortalRequest(context) {
       const sheetConfigs = []
       for (const config of configResult.rows) if (!sheetConfigs.some(item => item.sheetType === config.sheetType)) sheetConfigs.push(config)
       const sheetConfig = sheetConfigs[0] || null
-      const allowed = new Map(roster.students.map(student => [student.id, student]))
+      const historicalRecords = (await client.query(`SELECT r.student_id AS "studentId",r.student_name AS "studentName",
+          r.grade_value AS grade,r.classroom_value AS classroom
+        FROM teacher_lesson_sessions s JOIN teacher_lesson_student_records r ON r.lesson_session_id=s.id
+        WHERE s.school_id=$1 AND s.teacher_id=$2 AND s.classroom_id=$3 AND s.session_date=$4 AND s.period_number=$5`,
+      [user.school_id, user.teacher_id, classroomId, date, periodNumber])).rows
+      const historicalEntries = sheetConfigs.length ? (await client.query(`SELECT DISTINCT ON (e.student_id)
+          e.student_id AS "studentId",e.student_name AS "studentName",e.grade_value AS grade,e.classroom_value AS classroom
+        FROM teacher_sheet_entries e
+        JOIN lesson_schedule_assignments historical_assignment ON historical_assignment.id=e.assignment_id AND historical_assignment.school_id=e.school_id
+        WHERE e.school_id=$1 AND e.config_id=ANY($2::uuid[]) AND e.teacher_id=$3 AND e.classroom_id=$4 AND e.entry_date=$5
+          AND historical_assignment.weekday=$6 AND historical_assignment.period_number=$7
+          AND historical_assignment.subject_name=$8
+        ORDER BY e.student_id,e.updated_at DESC`,
+      [user.school_id, sheetConfigs.map(config => config.id), user.teacher_id, classroomId, date, weekday, periodNumber, assignment.rows[0].subject || ''])).rows : []
+      const editableStudents = rosterWithHistoricalStudents(roster.students, [...historicalRecords, ...historicalEntries])
+      const allowed = new Map(editableStudents.map(student => [student.id, student]))
       const payload = new Map()
       for (const row of submitted) {
         const studentId = String(row?.studentId || '')
@@ -529,13 +627,16 @@ export async function handleTeacherPortalRequest(context) {
           const prefixedValues = Object.fromEntries(Object.entries(value.sheetValues).filter(([key]) => key.startsWith(prefix)).map(([key, entryValue]) => [key.slice(prefix.length), entryValue]))
           const sourceValues = Object.keys(prefixedValues).length || sheetConfigs.length > 1 ? prefixedValues : value.sheetValues
           const cleanValues = cleanSheetValues(config.columns, sourceValues)
-          await client.query(`INSERT INTO teacher_sheet_entries(school_id,config_id,teacher_id,assignment_id,classroom_id,entry_date,student_id,values,updated_at)
-            VALUES($1,$2,$3,$4,$5,$6,$7,$8::jsonb,now())
-            ON CONFLICT(school_id,config_id,assignment_id,entry_date,student_id) DO UPDATE SET values=EXCLUDED.values,updated_at=now()`,
-            [user.school_id, config.id, user.teacher_id, assignment.rows[0].id, classroomId, date, student.id, JSON.stringify(cleanValues)])
+          await client.query(`INSERT INTO teacher_sheet_entries(
+              school_id,config_id,teacher_id,assignment_id,classroom_id,entry_date,student_id,student_name,grade_value,classroom_value,values,updated_at)
+            VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb,now())
+            ON CONFLICT(school_id,config_id,assignment_id,entry_date,student_id) DO UPDATE SET
+              values=EXCLUDED.values,student_name=EXCLUDED.student_name,grade_value=EXCLUDED.grade_value,
+              classroom_value=EXCLUDED.classroom_value,updated_at=now()`,
+            [user.school_id, config.id, user.teacher_id, assignment.rows[0].id, classroomId, date, student.id,
+              student.name, student.grade, student.classroom, JSON.stringify(cleanValues)])
         }
       }
-      await client.query('DELETE FROM teacher_lesson_student_records WHERE school_id=$1 AND lesson_session_id=$2 AND student_id <> ALL($3::text[])', [user.school_id, session.rows[0].id, [...payload.keys()]])
       return { saved: payload.size }
     })
     if (result.error) { json(res, 409, result); return true }

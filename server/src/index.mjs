@@ -259,13 +259,18 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'PUT' && url.pathname === '/api/students') {
       if (user.role !== 'admin') return json(res,403,{error:'forbidden'})
       const { students=[] } = await body(req)
-      if (!Array.isArray(students) || students.length > 20000 || students.some(s => !String(s?.id || '').trim() || !String(s?.name || '').trim())) return json(res,400,{error:'invalid_students'})
+      if (!Array.isArray(students) || students.length > 20000) return json(res,400,{error:'invalid_students'})
+      const normalizedStudents = [...new Map(students.map(s => {
+        const id = String(s?.id || '').trim().replace(/^([+-]?\d+)\.0+$/, '$1')
+        return [id, { ...s, id, name: String(s?.name || '').trim() }]
+      })).values()]
+      if (normalizedStudents.some(s => !s.id || !s.name)) return json(res,400,{error:'invalid_students'})
       await scoped(user.school_id, async c => {
         await c.query('UPDATE students SET active=false,updated_at=now() WHERE school_id=$1', [user.school_id])
-        for (const s of students) await c.query(`INSERT INTO students(school_id,id,name,phone,grade,classroom,sheet,row_number,active) VALUES($1,$2,$3,$4,$5,$6,$7,$8,true)
+        for (const s of normalizedStudents) await c.query(`INSERT INTO students(school_id,id,name,phone,grade,classroom,sheet,row_number,active) VALUES($1,$2,$3,$4,$5,$6,$7,$8,true)
           ON CONFLICT(school_id,id) DO UPDATE SET name=EXCLUDED.name,phone=EXCLUDED.phone,grade=EXCLUDED.grade,classroom=EXCLUDED.classroom,sheet=EXCLUDED.sheet,row_number=EXCLUDED.row_number,active=true,updated_at=now()`,[user.school_id,String(s.id).trim(),String(s.name).trim(),String(s.phone||''),String(s.grade||''),String(s.classroom||''),String(s.sheet||''),Number(s.row)||0])
       })
-      return json(res,200,{ok:true})
+      return json(res,200,{ok:true,students:normalizedStudents.length})
     }
     if (req.method === 'GET' && url.pathname === '/api/attendance') return json(res,200, await scoped(user.school_id, async c => ({ records:(await c.query(`SELECT a.student_id AS "studentId", to_char(a.attendance_date,'YYYY-MM-DD') AS date, to_char(a.recorded_at AT TIME ZONE 'Asia/Riyadh','HH24:MI:SS') AS time, s.name,s.grade,s.classroom,s.phone,a.status FROM attendance_logs a JOIN students s ON s.school_id=a.school_id AND s.id=a.student_id WHERE a.school_id=$1 AND a.attendance_date=$2 ORDER BY a.recorded_at DESC`,[user.school_id,url.searchParams.get('date') || todayRiyadh()])).rows })))
     if (req.method === 'POST' && url.pathname === '/api/attendance') {

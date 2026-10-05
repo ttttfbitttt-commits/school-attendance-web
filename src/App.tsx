@@ -543,7 +543,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
         rows.slice(headerRowIndex + 1).forEach((row, index) => {
           if (!Array.isArray(row)) return
 
-          const id = normalize(row[columns.id])
+          const id = normalizeImportedStudentId(normalize(row[columns.id]))
           const name = normalize(row[columns.name])
 
           if (!id && !name) return
@@ -573,7 +573,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
       setStudents(uniqueStudents)
       setShowPrintableCards(false)
       setNotice(
-        `تم استيراد ${uniqueStudents.length} طالبًا${duplicateCount ? `، وتم تجاهل ${duplicateCount} تكرارًا` : ''}${warnings.length ? `، مع ${warnings.length} تنبيهًا` : ''}`
+        `تم تحديث بيانات ${uniqueStudents.length} طالبًا مع الاحتفاظ بدرجاتهم وسجلاتهم السابقة${duplicateCount ? `، وتم تجاهل ${duplicateCount} تكرارًا` : ''}${warnings.length ? `، مع ${warnings.length} تنبيهًا` : ''}`
       )
     } catch {
       setNotice('تعذر قراءة الملف. تأكد أنه ملف Excel صالح بصيغة XLS أو XLSX أو XLSM.')
