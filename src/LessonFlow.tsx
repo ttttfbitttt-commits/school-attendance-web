@@ -284,10 +284,11 @@ function scheduleTableHtml(schedule: LessonSchedule) {
   }).join('')}</tr>`).join('')}</tbody></table>`
 }
 
-function incidentPrintHtml(incident: LessonIncident, schoolName: string) {
+function incidentPrintHtml(incident: LessonIncident, schoolName: string, principalName: string) {
   const identityNumber = Array.from(String(incident.identityNumber || '').replace(/\s/g, ''))
   const civilIdCells = Array.from({ length: Math.max(10, identityNumber.length) }, (_, index) => `<span>${escapeHtml(identityNumber[index] || '')}</span>`).join('')
   const logoUrl = `${window.location.origin}/moe-logo.png`
+  const managerName = escapeHtml(principalName || '........................')
   return `<main class="sheet">
     <header class="top">
       <div class="meta"><p>الرقم: ........................</p><p>التاريخ: .... / .... / ........</p><p>المشفوعات: ........................</p></div>
@@ -307,7 +308,7 @@ function incidentPrintHtml(incident: LessonIncident, schoolName: string) {
       <div class="option"><span class="box">&#9744;</span><span>انصرافكم مبكراً قبل نهاية الدوام من الساعة ( .... : .... )</span></div>
     </div>
     <p class="request">عليه نأمل توضيح أسباب ذلك مع إرفاق ما يؤيد عذركم. ولكم تحياتي.</p>
-    <div class="signatures"><div>قائد المدرسة: ........................</div><div>التوقيع: ........................</div><div>التاريخ: .... / .... / 14هـ</div></div>
+    <div class="signatures"><div>قائد المدرسة: ${managerName}</div><div>التوقيع: ........................</div><div>التاريخ: .... / .... / 14هـ</div></div>
     <hr class="divider">
     <h2 class="section-title">المكرم / قائد المدرسة</h2>
     <p class="reply">السلام عليكم ورحمة الله وبركاته</p>
@@ -317,13 +318,13 @@ function incidentPrintHtml(incident: LessonIncident, schoolName: string) {
     <hr class="divider">
     <h2 class="manager-title">رأي قائد المدرسة</h2>
     <div class="manager-options"><div><span class="box">&#9744;</span> عذره مقبول.</div><div><span class="box">&#9744;</span> عذره غير مقبول.</div><div><span class="box">&#9744;</span> ما تراه الإدارة أو إجراء آخر: ....................................................</div></div>
-    <div class="manager-signature"><div>مدير المدرسة: ........................</div><div>التوقيع: ........................</div><div>التاريخ: .... / .... / 14هـ</div></div>
+    <div class="manager-signature"><div>مدير المدرسة: ${managerName}</div><div>التوقيع: ........................</div><div>التاريخ: .... / .... / 14هـ</div></div>
     <p class="footnote">ملاحظة: ترفق بطاقة المساءلة مع أصل القرار في حالة عدم قبول العذر لحفظها بملفه بالإدارة بالمدرسة، أصله لملفه بالمدرسة.</p>
     <footer class="source"><span>الدليل الإجرائي لمدارس التعليم العام للعام الدراسي 1436 - 1437 هـ - الإصدار الثالث</span></footer>
   </main>`
 }
 
-export function LessonFlowCenter({ schoolName }: { schoolName: string }) {
+export function LessonFlowCenter({ schoolName, principalName }: { schoolName: string; principalName: string }) {
   const [overview, setOverview] = useState<LessonFlowOverview | null>(null)
   const [activeSection, setActiveSection] = useState<SectionKey>('setup')
   const [notice, setNotice] = useState('')
@@ -764,7 +765,7 @@ export function LessonFlowCenter({ schoolName }: { schoolName: string }) {
   }
 
   const printIncident = (incident: LessonIncident) => {
-    openOfficialFormDocument('تنبيه عن تأخر / انصراف', incidentPrintHtml(incident, schoolName))
+    openOfficialFormDocument('تنبيه عن تأخر / انصراف', incidentPrintHtml(incident, schoolName, principalName))
   }
 
   const renderSection = () => {

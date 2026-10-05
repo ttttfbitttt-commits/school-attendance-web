@@ -1990,7 +1990,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
 
         {activeNav === 'reports' && <ReportsCenter students={students} schoolName={schoolSettings.schoolName} />}
 
-        {activeNav === 'lessons' && <LessonFlowCenter schoolName={schoolSettings.schoolName} />}
+        {activeNav === 'lessons' && <LessonFlowCenter schoolName={schoolSettings.schoolName} principalName={schoolSettings.principalName} />}
 
         {activeNav === 'teachers' && <TeacherAdminCenter schoolName={schoolSettings.schoolName} />}
 
