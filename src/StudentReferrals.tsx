@@ -19,7 +19,7 @@ const statusClass: Record<StudentReferralStatus, string> = {
 }
 type SchoolActionStatus = Exclude<StudentReferralStatus, 'submitted' | 'viewed' | 'cancelled'>
 const periodLabel = (period: number) => `الحصة ${['', 'الأولى', 'الثانية', 'الثالثة', 'الرابعة', 'الخامسة', 'السادسة', 'السابعة', 'الثامنة', 'التاسعة', 'العاشرة', 'الحادية عشرة', 'الثانية عشرة'][period] || period}`
-const hijriNumeric = (value: string | Date) => { const parts = numericHijriParts(value); return `${parts.day} / ${parts.month} / ${parts.year} هـ` }
+const hijriFormDate = (value: string | Date) => { const parts = numericHijriParts(value); return `${parts.day} / ${parts.month} / ${parts.year}` }
 const esc = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char] || char))
 
 function openHtmlReport(html: string) {
@@ -52,7 +52,7 @@ export function ReferralOfficialPreview({ referral, onClose }: { referral: Stude
     <div className="referral-official-sheet">
       <img src="/student-referral-template.png" alt="النموذج الرسمي لتحويل طالب لوكيل شؤون الطلاب" />
       <span className="official-field official-number">{referral.referenceNumber}</span>
-      <span className="official-field official-header-date">{hijriNumeric(referral.date)}</span>
+      <span className="official-field official-header-date">{hijriFormDate(referral.date)}</span>
       <span className="official-field official-student">{referral.studentName}</span>
       <span className="official-field official-class">{`${referral.grade} ${referral.classroom}`.trim()}</span>
       <span className="official-field official-subject">{referral.subject}</span>
@@ -65,14 +65,14 @@ export function ReferralOfficialPreview({ referral, onClose }: { referral: Stude
       {referral.reason === 'other' && <span className="official-field official-other-reason">{referral.otherReason}</span>}
       <span className="official-field official-problem">{referral.problemDescription}</span>
       <span className="official-field official-teacher">{referral.teacherName}</span>
-      <span className="official-field official-teacher-date">{hijriNumeric(referral.date)}</span>
+      <span className="official-field official-teacher-date">{hijriFormDate(referral.date)}</span>
       <span className="official-field official-vice-action">{referral.viceAction}</span>
       <span className="official-check official-counselor-check">{referral.referredToCounselor ? '✓' : ''}</span>
       <span className="official-field official-vice-name">{referral.vicePrincipalName}</span>
-      {referral.viceActionAt && <span className="official-field official-vice-date">{hijriNumeric(referral.viceActionAt)}</span>}
+      {referral.viceActionAt && <span className="official-field official-vice-date">{hijriFormDate(referral.viceActionAt)}</span>}
       <span className="official-field official-counselor-action">{referral.counselorAction}</span>
       <span className="official-field official-counselor-name">{referral.counselorName}</span>
-      {referral.counselorActionAt && <span className="official-field official-counselor-date">{hijriNumeric(referral.counselorActionAt)}</span>}
+      {referral.counselorActionAt && <span className="official-field official-counselor-date">{hijriFormDate(referral.counselorActionAt)}</span>}
     </div>
   </div>
 }
