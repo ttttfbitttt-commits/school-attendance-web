@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { CheckCircle2, Clock3, Download, Eye, FileSpreadsheet, FileText, Printer, RefreshCw, Search, Send, X } from 'lucide-react'
+import { ArrowRight, CheckCircle2, Clock3, Eye, FileSpreadsheet, FileText, Printer, RefreshCw, Search, Send, X } from 'lucide-react'
 import { api, type StudentReferral, type StudentReferralReason, type StudentReferralStatus, type TeacherLessonStudent, type TeacherPortalScheduleItem } from './api'
 import { downloadWorkbook } from './SchoolFeatures'
 import { formatHijriDate, formatHijriDateTime, numericHijriParts } from './dateUtils'
@@ -45,8 +45,7 @@ export function ReferralOfficialPreview({ referral, onClose }: { referral: Stude
   const checked = (reason: StudentReferralReason) => referral.reason === reason ? '✓' : ''
   return <div className="referral-preview-overlay" role="dialog" aria-modal="true" aria-label="معاينة نموذج الإحالة الرسمي">
     <div className="referral-preview-actions">
-      <button type="button" className="outline-button" onClick={onClose}><X size={16} /> العودة</button>
-      <a className="outline-button" href="/student-referral-template.pdf" target="_blank" rel="noreferrer"><Download size={16} /> النموذج الأصلي</a>
+      <button type="button" className="outline-button" onClick={onClose}><ArrowRight size={16} /> الرجوع إلى الإحالة</button>
       <button type="button" className="primary-button" onClick={() => window.print()}><Printer size={16} /> طباعة / حفظ PDF</button>
     </div>
     <div className="referral-official-sheet">
@@ -120,7 +119,7 @@ function ReferralDetail({ referral, schoolMode, onClose, onSaved, onPrint }: { r
   </div>
 }
 
-export function TeacherReferralCenter({ date, schedule, schoolName }: { date: string; schedule: TeacherPortalScheduleItem[]; schoolName: string }) {
+export function TeacherReferralCenter({ date, schedule, schoolName, teacherName }: { date: string; schedule: TeacherPortalScheduleItem[]; schoolName: string; teacherName: string }) {
   const [mode, setMode] = useState<'new' | 'records'>('new')
   const [lessonId, setLessonId] = useState('')
   const [students, setStudents] = useState<TeacherLessonStudent[]>([])
@@ -156,6 +155,17 @@ export function TeacherReferralCenter({ date, schedule, schoolName }: { date: st
       setStudentId(''); setDescription(''); setOtherReason(''); await loadRecords(); setMode('records')
     } catch (err) { setError(err instanceof Error && err.message.includes('duplicate_referral') ? 'سبق إرسال إحالة لهذا الطالب في الحصة نفسها.' : 'تعذر إرسال الإحالة. تحقق من البيانات والاتصال ثم أعد المحاولة.') } finally { setBusy('') }
   }
+  const previewOfficialForm = () => {
+    const student = students.find(item => item.id === studentId)
+    setPreview({
+      id: '', referenceNumber: '', teacherId: '', teacherName, studentId: student?.id || '', studentName: student?.name || '',
+      grade: student?.grade || '', classroom: student?.classroom || '', classroomId: lesson?.classroomId || '', classroomName: lesson?.classroom || '',
+      assignmentId: lesson?.assignmentId || '', subject: lesson?.subject || '', date, weekday: lesson?.weekday || 1,
+      periodNumber: lesson?.periodNumber || 1, reason, otherReason, problemDescription: description, status: 'submitted',
+      referredToCounselor: false, viceAction: '', vicePrincipalName: '', counselorAction: '', counselorName: '',
+      createdAt: new Date().toISOString(), viewedAt: null, viceActionAt: null, counselorActionAt: null, completedAt: null, events: [],
+    })
+  }
   return <section className="teacher-card referral-center">
     <div className="teacher-section-head"><div><span>نموذج رسمي محفوظ</span><h2>إحالة طالب لوكيل شؤون الطلاب</h2><p>اختر الحصة والطالب، ثم أرسل الإحالة مباشرة إلى حساب المدرسة.</p></div><Send size={30} /></div>
     <div className="referral-mode-cards"><button className={mode === 'new' ? 'active' : ''} onClick={() => setMode('new')}><Send size={23} /><strong>إحالة جديدة</strong><small>تعبئة وإرسال النموذج</small></button><button className={mode === 'records' ? 'active' : ''} onClick={() => setMode('records')}><FileText size={23} /><strong>سجل إحالاتي</strong><small>{referrals.length} إحالة محفوظة</small></button></div>
@@ -166,7 +176,7 @@ export function TeacherReferralCenter({ date, schedule, schoolName }: { date: st
       <fieldset className="referral-reasons"><legend>سبب التحويل</legend>{(Object.entries(reasonLabels) as Array<[StudentReferralReason, string]>).map(([value, label]) => <label key={value} className={reason === value ? 'selected' : ''}><input type="radio" name="referral-reason" value={value} checked={reason === value} onChange={() => setReason(value)} />{label}</label>)}</fieldset>
       {reason === 'other' && <label>اذكر السبب الآخر<input value={otherReason} onChange={event => setOtherReason(event.target.value)} maxLength={240} /></label>}
       <label className="wide">إيضاح المشكلة<textarea value={description} onChange={event => setDescription(event.target.value)} maxLength={3000} rows={5} placeholder="اكتب وصفًا واضحًا ومختصرًا للحالة" /></label>
-      <div className="referral-form-actions"><a className="outline-button" href="/student-referral-template.pdf" target="_blank" rel="noreferrer"><Eye size={16} /> عرض النموذج الرسمي الأصلي</a><button className="primary-button" onClick={() => void submit()} disabled={busy === 'submit'}><Send size={16} /> {busy === 'submit' ? 'جارٍ الإرسال…' : 'تأكيد وإرسال الإحالة'}</button></div>
+      <div className="referral-form-actions"><button type="button" className="outline-button" onClick={previewOfficialForm} disabled={!lesson || !studentId}><Eye size={16} /> معاينة النموذج الرسمي</button><button className="primary-button" onClick={() => void submit()} disabled={busy === 'submit'}><Send size={16} /> {busy === 'submit' ? 'جارٍ الإرسال…' : 'تأكيد وإرسال الإحالة'}</button></div>
     </div>}
     {mode === 'records' && <><div className="referral-export-row"><button className="outline-button" disabled={!referrals.length} onClick={() => exportReferralExcel(referrals, schoolName)}><FileSpreadsheet size={16} /> Excel</button><button className="outline-button" disabled={!referrals.length} onClick={() => exportReferralPdf(referrals, schoolName)}><Printer size={16} /> PDF</button><button className="icon-button" onClick={() => void loadRecords()} title="تحديث"><RefreshCw size={16} /></button></div><ReferralList referrals={referrals} emptyText="لم ترسل أي إحالة حتى الآن." onOpen={setSelected} /></>}
     {selected && <ReferralDetail referral={selected} schoolMode={false} onClose={() => setSelected(null)} onSaved={() => {}} onPrint={setPreview} />}
