@@ -170,6 +170,11 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
   const [schoolSettings, setSchoolSettings] = useState<SchoolSettings>(() => readSchoolSettings())
   const [schoolSettingsDraft, setSchoolSettingsDraft] = useState<SchoolSettings>(() => readSchoolSettings())
   const [schoolSettingsNotice, setSchoolSettingsNotice] = useState('')
+  const [schoolCurrentPassword, setSchoolCurrentPassword] = useState('')
+  const [schoolNewPassword, setSchoolNewPassword] = useState('')
+  const [schoolPasswordConfirmation, setSchoolPasswordConfirmation] = useState('')
+  const [schoolPasswordNotice, setSchoolPasswordNotice] = useState('')
+  const [schoolPasswordSubmitting, setSchoolPasswordSubmitting] = useState(false)
   const [students, setStudents] = useState<Student[]>([])
   const [fileName, setFileName] = useState<string>(() => {
     return 'لم يتم رفع ملف بعد'
@@ -647,6 +652,40 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
         setSchoolSettingsNotice('تم حفظ بيانات المدرسة في الخادم الآمن.')
       })
       .catch(() => setSchoolSettingsNotice('تعذر حفظ الإعدادات في الخادم. تحقق من الاتصال ثم أعد المحاولة.'))
+  }
+
+  const changeSchoolPassword = () => {
+    if (!schoolCurrentPassword) {
+      setSchoolPasswordNotice('أدخل كلمة المرور الحالية أولًا.')
+      return
+    }
+    if (schoolNewPassword.length < 12 || schoolNewPassword.length > 200) {
+      setSchoolPasswordNotice('استخدم كلمة مرور جديدة من 12 حرفًا على الأقل.')
+      return
+    }
+    if (schoolNewPassword !== schoolPasswordConfirmation) {
+      setSchoolPasswordNotice('تأكيد كلمة المرور الجديدة غير مطابق.')
+      return
+    }
+
+    setSchoolPasswordSubmitting(true)
+    setSchoolPasswordNotice('')
+    void api.changeSchoolPassword(schoolCurrentPassword, schoolNewPassword)
+      .then(() => {
+        setSchoolCurrentPassword('')
+        setSchoolNewPassword('')
+        setSchoolPasswordConfirmation('')
+        setSchoolPasswordNotice('تم تغيير كلمة مرور حساب المدرسة. تم تسجيل خروج الأجهزة الأخرى.')
+      })
+      .catch((reason) => {
+        const code = (reason as Error & { code?: string }).code
+        setSchoolPasswordNotice(code === 'current_password_invalid'
+          ? 'كلمة المرور الحالية غير صحيحة.'
+          : code === 'invalid_school_password'
+            ? 'استخدم كلمة مرور جديدة من 12 حرفًا على الأقل.'
+            : 'تعذر تغيير كلمة المرور الآن. أعد المحاولة.')
+      })
+      .finally(() => setSchoolPasswordSubmitting(false))
   }
 
   const savePreferences = (preferences: SchoolProfile['preferences']) => {
@@ -1699,6 +1738,36 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
 
               {schoolSettingsNotice && <div className="notice-box settings-notice" role="status">{schoolSettingsNotice}</div>}
             </section>
+            {account.role === 'admin' && <section className="panel school-settings-panel school-password-panel">
+              <div className="panel-header">
+                <div>
+                  <span className="panel-kicker">أمان الحساب</span>
+                  <h3>تغيير كلمة مرور حساب المدرسة</h3>
+                  <p>بعد الحفظ سيبقى هذا الجهاز مسجلًا، وتُسجّل الأجهزة الأخرى خروجًا.</p>
+                </div>
+                <button className="primary-button" type="button" onClick={changeSchoolPassword} disabled={schoolPasswordSubmitting}>
+                  <Save size={18} />
+                  {schoolPasswordSubmitting ? 'جارٍ الحفظ…' : 'تغيير كلمة المرور'}
+                </button>
+              </div>
+
+              <div className="school-settings-grid">
+                <label className="school-settings-field">
+                  <span>كلمة المرور الحالية</span>
+                  <input type="password" autoComplete="current-password" value={schoolCurrentPassword} onChange={(event) => setSchoolCurrentPassword(event.target.value)} />
+                </label>
+                <label className="school-settings-field">
+                  <span>كلمة المرور الجديدة</span>
+                  <input type="password" autoComplete="new-password" minLength={12} value={schoolNewPassword} onChange={(event) => setSchoolNewPassword(event.target.value)} />
+                </label>
+                <label className="school-settings-field">
+                  <span>تأكيد كلمة المرور الجديدة</span>
+                  <input type="password" autoComplete="new-password" minLength={12} value={schoolPasswordConfirmation} onChange={(event) => setSchoolPasswordConfirmation(event.target.value)} />
+                </label>
+              </div>
+
+              {schoolPasswordNotice && <div className="notice-box settings-notice" role="status">{schoolPasswordNotice}</div>}
+            </section>}
             <AlmadarSettings schoolName={schoolSettings.schoolName} />
           </>
         )}

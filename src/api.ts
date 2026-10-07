@@ -263,6 +263,7 @@ export const api = {
   register: (displayName: string, schoolName: string, email: string, password: string) => request<{ ok: boolean }>('/auth/register', { method: 'POST', body: JSON.stringify({ displayName, schoolName, email, password }) }),
   verifySchoolEmail: (token: string) => request<{ user: Account; school: { id: string; name: string } }>('/auth/verify-email', { method: 'POST', body: JSON.stringify({ token }) }),
   logout: () => request<{ ok: boolean }>('/auth/logout', { method: 'POST' }),
+  changeSchoolPassword: (currentPassword: string, newPassword: string) => request<{ ok: boolean }>('/auth/school-password', { method: 'POST', body: JSON.stringify({ currentPassword, newPassword }) }),
   school: () => request<{ school: SchoolProfile }>('/school'),
   saveSchool: (school: SchoolProfile) => request<{ school: SchoolProfile }>('/school', { method: 'PUT', body: JSON.stringify(school) }),
   students: () => request<{ students: unknown[] }>('/students'),

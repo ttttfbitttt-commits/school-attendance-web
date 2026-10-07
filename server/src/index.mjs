@@ -238,6 +238,20 @@ const server = http.createServer(async (req, res) => {
     const user = await auth(req)
     if (!user) return json(res, 401, { error: 'unauthorized' })
     if (req.method === 'GET' && url.pathname === '/api/me') return json(res, 200, { user: account(user) })
+    if (req.method === 'POST' && url.pathname === '/api/auth/school-password') {
+      if (user.role !== 'admin') return json(res, 403, { error: 'forbidden' })
+      const input = await body(req)
+      const currentPassword = String(input.currentPassword || '')
+      const newPassword = String(input.newPassword || '')
+      if (newPassword.length < 12 || newPassword.length > 200) return json(res, 400, { error: 'invalid_school_password' })
+      const currentUser = await authPool.query('SELECT password_hash FROM users WHERE id=$1', [user.user_id])
+      if (!currentUser.rows[0] || !passwordMatches(currentPassword, currentUser.rows[0].password_hash)) return json(res, 401, { error: 'current_password_invalid' })
+
+      const currentToken = parseCookies(req)[COOKIE] || ''
+      await authPool.query('UPDATE users SET password_hash=$1 WHERE id=$2', [passwordHash(newPassword), user.user_id])
+      await authPool.query('DELETE FROM sessions WHERE user_id=$1 AND token_hash<>$2', [user.user_id, tokenHash(currentToken)])
+      return json(res, 200, { ok: true })
+    }
     if (await handleTeacherCooperationRequest({ req, res, url, user, body, json, scoped })) return
     if (await handleStudentReferralRequest({ req, res, url, user, body, json, scoped, todayRiyadh })) return
     if (await handleTeacherPortalRequest({ req, res, url, user, pool, authPool, body, json, scoped, todayRiyadh, passwordHash })) return
