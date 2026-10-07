@@ -50,11 +50,40 @@ export function AdministratorPortal({ account, onLogout }: { account: Account; o
   const lastCode = useRef({ value: '', at: 0 })
   const scanning = useRef(false)
   const scanResultTimer = useRef<number | undefined>(undefined)
+  const audioContextRef = useRef<AudioContext | null>(null)
 
   const showScanResult = (result: { type: 'success' | 'duplicate'; text: string }) => {
     if (scanResultTimer.current) window.clearTimeout(scanResultTimer.current)
     setScanResult(result)
     scanResultTimer.current = window.setTimeout(() => setScanResult(null), 2600)
+  }
+
+  const prepareScanSound = () => {
+    try {
+      const AudioContextClass = window.AudioContext || (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext
+      if (!AudioContextClass) return null
+      const context = audioContextRef.current || new AudioContextClass()
+      audioContextRef.current = context
+      if (context.state === 'suspended') void context.resume()
+      return context
+    } catch { return null }
+  }
+  const playScanSound = (type: 'success' | 'duplicate') => {
+    const context = prepareScanSound()
+    if (!context) return
+    const play = () => {
+      const oscillator = context.createOscillator()
+      const gain = context.createGain()
+      oscillator.type = 'sine'
+      oscillator.frequency.value = type === 'success' ? 880 : 440
+      gain.gain.setValueAtTime(0.0001, context.currentTime)
+      gain.gain.exponentialRampToValueAtTime(0.14, context.currentTime + 0.015)
+      gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + (type === 'success' ? 0.17 : 0.24))
+      oscillator.connect(gain); gain.connect(context.destination)
+      oscillator.start(); oscillator.stop(context.currentTime + (type === 'success' ? 0.18 : 0.25))
+    }
+    if (context.state === 'suspended') void context.resume().then(play).catch(() => undefined)
+    else play()
   }
 
   const stopCamera = () => {
@@ -97,13 +126,13 @@ export function AdministratorPortal({ account, onLogout }: { account: Account; o
     try {
       const result = await api.recordAdministratorAttendance(student.id, mode)
       if (result.duplicate) {
-        if (source === 'camera') showScanResult({ type: 'duplicate', text: 'الطالب تم تحضيره مسبقًا' })
+        if (source === 'camera') { showScanResult({ type: 'duplicate', text: 'الطالب تم تحضيره مسبقًا' }); playScanSound('duplicate') }
         else setNotice({ type: 'warning', text: `${student.name}: الطالب تم تحضيره مسبقًا في سجل المدرسة.` })
       }
       else {
         const record: AdministratorAttendanceRecord = { studentId: student.id, name: student.name, grade: student.grade, classroom: student.classroom, phone: student.phone, date: result.date, time: result.time, status: mode, recordedBy: account.displayName }
         setRecords(current => [record, ...current.filter(item => item.studentId !== student.id)])
-        if (source === 'camera') showScanResult({ type: 'success', text: student.name })
+        if (source === 'camera') { showScanResult({ type: 'success', text: student.name }); playScanSound('success') }
         else setNotice({ type: 'success', text: `تم تسجيل ${student.name} ${mode === 'late' ? 'متأخرًا' : 'حاضرًا'} في سجل المدرسة.` })
       }
       setManualCode('')
@@ -121,6 +150,7 @@ export function AdministratorPortal({ account, onLogout }: { account: Account; o
     frameRef.current = requestAnimationFrame(scanFrame)
   }
   const startCamera = async () => {
+    prepareScanSound()
     if (!navigator.mediaDevices?.getUserMedia) { setNotice({ type: 'error', text: 'هذا المتصفح لا يدعم تشغيل الكاميرا. استخدم Safari أو Chrome محدثًا.' }); return }
     try {
       const options: MediaStreamConstraints[] = [
