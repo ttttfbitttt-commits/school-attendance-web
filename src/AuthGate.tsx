@@ -3,7 +3,7 @@ import type { FormEvent, ReactNode } from 'react'
 import { LockKeyhole, School, UserRound } from 'lucide-react'
 import { api, type Account } from './api'
 
-type LoginMode = 'admin' | 'teacher'
+type LoginMode = 'admin' | 'teacher' | 'administrator'
 
 export function AuthGate({ children }: { children: (account: Account, logout: () => void) => ReactNode }) {
   const [account, setAccount] = useState<Account | null>(null)
@@ -32,8 +32,10 @@ export function AuthGate({ children }: { children: (account: Account, logout: ()
     setError('')
     setRegistrationSent(false)
     try {
-      if (mode === 'teacher') {
-        const result = await api.teacherLogin(teacherIdentityNumber, teacherPassword, selectedSchoolId)
+      if (mode === 'teacher' || mode === 'administrator') {
+        const result = mode === 'teacher'
+          ? await api.teacherLogin(teacherIdentityNumber, teacherPassword, selectedSchoolId)
+          : await api.administratorLogin(teacherIdentityNumber, teacherPassword, selectedSchoolId)
         setAccount(result.user)
         return
       }
@@ -46,13 +48,13 @@ export function AuthGate({ children }: { children: (account: Account, logout: ()
       setAccount(result.user)
     } catch (reason) {
       const apiError = reason as Error & { code?: string; data?: { schools?: Array<{ id: string; name: string }> } }
-      if (mode === 'teacher' && apiError.code === 'teacher_school_selection_required' && apiError.data?.schools?.length) {
+      if ((mode === 'teacher' || mode === 'administrator') && (apiError.code === 'teacher_school_selection_required' || apiError.code === 'administrator_school_selection_required') && apiError.data?.schools?.length) {
         setSchoolChoices(apiError.data.schools)
         setSelectedSchoolId(apiError.data.schools[0].id)
         setError('لديك حسابات في أكثر من مدرسة. اختر المدرسة ثم أعد الدخول.')
         return
       }
-      setError(mode === 'teacher'
+      setError(mode === 'teacher' || mode === 'administrator'
         ? 'تعذر دخول حساب المعلم. تحقق من رقم الهوية وكلمة المرور، أو اطلب من الإدارة إعادة ضبط الحساب.'
         : registering && apiError.code === 'email_verification_not_configured'
           ? 'تأكيد البريد غير مفعّل بعد. لم يتم إنشاء الحساب؛ تواصل مع إدارة النظام.'
@@ -119,19 +121,21 @@ export function AuthGate({ children }: { children: (account: Account, logout: ()
   }
 
   const teacher = mode === 'teacher'
+  const administrator = mode === 'administrator'
   return <main className="auth-page" dir="rtl"><section className="auth-card">
     <div className="auth-icon"><School size={30} /></div>
-    <h1>{teacher ? 'بوابة المعلم' : 'نظام الحصر'}</h1>
-    <p>{teacher ? 'ادخل برقم الهوية وكلمة المرور التي سلّمتها لك إدارة مدرستك.' : 'الانضباط أول خطوات النجاح'}</p>
-    <div className="auth-tabs auth-tabs-three">
+    <h1>{teacher ? 'بوابة المعلم' : administrator ? 'بوابة الإداري' : 'نظام الحصر'}</h1>
+    <p>{teacher || administrator ? 'ادخل برقم الهوية وكلمة المرور التي سلّمتها لك إدارة مدرستك.' : 'الانضباط أول خطوات النجاح'}</p>
+    <div className="auth-tabs auth-tabs-four">
       <button className={mode === 'admin' && !registering ? 'active' : ''} type="button" onClick={() => switchMode('admin', false)}>دخول المدرسة</button>
       <button className={mode === 'teacher' ? 'active' : ''} type="button" onClick={() => switchMode('teacher', false)}>دخول المعلم</button>
+      <button className={mode === 'administrator' ? 'active' : ''} type="button" onClick={() => switchMode('administrator', false)}>دخول الإداري</button>
       <button className={mode === 'admin' && registering ? 'active' : ''} type="button" onClick={() => switchMode('admin', true)}>تسجيل مدرسة</button>
     </div>
-    <form key={teacher ? 'teacher-login' : registering ? 'school-registration' : 'school-login'} onSubmit={submit} autoComplete="on">
-      {teacher ? <>
-        <label><UserRound size={16} /> رقم الهوية<input name="teacher-national-id" type="text" inputMode="numeric" pattern="[0-9]*" autoComplete="off" autoCapitalize="none" enterKeyHint="next" value={teacherIdentityNumber} onChange={event => setTeacherIdentityNumber(event.target.value.includes('@') ? '' : event.target.value.replace(/\D/g, ''))} required /></label>
-        <label><LockKeyhole size={16} /> كلمة المرور<input name="teacherPassword" type="password" autoComplete="section-teacher current-password" enterKeyHint="go" value={teacherPassword} onChange={event => setTeacherPassword(event.target.value)} minLength={8} required /></label>
+    <form key={teacher ? 'teacher-login' : administrator ? 'administrator-login' : registering ? 'school-registration' : 'school-login'} onSubmit={submit} autoComplete="on">
+      {teacher || administrator ? <>
+        <label><UserRound size={16} /> رقم الهوية<input name={administrator ? 'administrator-national-id' : 'teacher-national-id'} type="text" inputMode="numeric" pattern="[0-9]*" autoComplete="off" autoCapitalize="none" enterKeyHint="next" value={teacherIdentityNumber} onChange={event => setTeacherIdentityNumber(event.target.value.includes('@') ? '' : event.target.value.replace(/\D/g, ''))} required /></label>
+        <label><LockKeyhole size={16} /> كلمة المرور<input name={administrator ? 'administratorPassword' : 'teacherPassword'} type="password" autoComplete={administrator ? 'section-administrator current-password' : 'section-teacher current-password'} enterKeyHint="go" value={teacherPassword} onChange={event => setTeacherPassword(event.target.value)} minLength={8} required /></label>
         {schoolChoices.length > 0 && <label>المدرسة<select value={selectedSchoolId} onChange={event => setSelectedSchoolId(event.target.value)}>{schoolChoices.map(school => <option key={school.id} value={school.id}>{school.name}</option>)}</select></label>}
       </> : <>
         {registering && <>
@@ -144,7 +148,7 @@ export function AuthGate({ children }: { children: (account: Account, logout: ()
       </>}
       {registrationSent && <div className="auth-success" role="status">إذا كان البريد صالحاً وغير مسجل، أرسلنا رابط تأكيد. افتحه واضغط زر التأكيد لإكمال التسجيل.</div>}
       {error && <div className="auth-error">{error}</div>}
-      <button className="auth-submit" type="submit">{teacher ? 'دخول بوابة المعلم' : registering ? registrationSent ? 'إعادة إرسال رابط التأكيد' : 'إرسال رابط التأكيد' : 'تسجيل الدخول'}</button>
+      <button className="auth-submit" type="submit">{teacher ? 'دخول بوابة المعلم' : administrator ? 'دخول بوابة الإداري' : registering ? registrationSent ? 'إعادة إرسال رابط التأكيد' : 'إرسال رابط التأكيد' : 'تسجيل الدخول'}</button>
     </form>
   </section></main>
 }

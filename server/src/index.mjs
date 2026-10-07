@@ -9,6 +9,7 @@ import { handleTeacherPortalRequest, migrateTeacherPortal } from './teacherPorta
 import { handleBehaviorRequest, migrateBehavior } from './behavior.mjs'
 import { handleStudentReferralRequest, migrateStudentReferrals } from './studentReferrals.mjs'
 import { handleTeacherCooperationRequest, migrateTeacherCooperation } from './teacherCooperation.mjs'
+import { handleAdministratorPortalRequest, migrateAdministratorPortal } from './administratorPortal.mjs'
 
 const { Pool } = pg
 if (!process.env.DATABASE_URL || !process.env.RUNTIME_DATABASE_URL || !process.env.AUTH_DATABASE_URL) {
@@ -49,11 +50,13 @@ async function auth(req) {
   const token = parseCookies(req)[COOKIE]
   if (!token) return null
   const { rows } = await authPool.query(`SELECT s.user_id, s.school_id, u.email, u.display_name, m.role,
-      account.teacher_id,account.must_change_password
+      account.teacher_id,administrator_account.administrator_id,
+      COALESCE(account.must_change_password,administrator_account.must_change_password) AS must_change_password
     FROM sessions s JOIN users u ON u.id=s.user_id JOIN memberships m ON m.user_id=s.user_id AND m.school_id=s.school_id
       LEFT JOIN teacher_login_accounts account ON account.user_id=s.user_id AND account.school_id=s.school_id
+      LEFT JOIN administrative_login_accounts administrator_account ON administrator_account.user_id=s.user_id AND administrator_account.school_id=s.school_id
     WHERE s.token_hash=$1 AND s.expires_at > now()
-      AND (m.role <> 'teacher' OR account.active=true)`, [tokenHash(token)])
+      AND ((m.role NOT IN ('teacher','administrator')) OR (m.role='teacher' AND account.active=true) OR (m.role='administrator' AND administrator_account.active=true))`, [tokenHash(token)])
   return rows[0] || null
 }
 async function createSession(res, userId, schoolId) {
@@ -68,6 +71,7 @@ function account(row) {
     role: row.role,
     schoolId: row.school_id,
     teacherId: row.teacher_id || undefined,
+    administratorId: row.administrator_id || undefined,
     mustChangePassword: Boolean(row.must_change_password),
   }
 }
@@ -133,7 +137,7 @@ async function configureDatabaseRoles() {
     lesson_name_mappings, lesson_time_slots, lesson_schedule_assignments, teacher_incidents, teacher_day_absences,
     teacher_classroom_student_maps, teacher_lesson_sessions, teacher_lesson_student_records,
     teacher_sheet_configs, teacher_sheet_entries, behavior_incidents, behavior_student_records,
-    behavior_action_steps, behavior_score_movements, behavior_audit_logs, student_referrals,
+    behavior_action_steps, behavior_score_movements, behavior_audit_logs, student_referrals, administrative_staff,
     student_referral_events, teacher_attendance_contributions TO attendance_app`)
   await adminPool.query('GRANT SELECT ON behavior_catalog_rules TO attendance_app')
   await adminPool.query('GRANT USAGE, SELECT ON SEQUENCE behavior_audit_logs_id_seq TO attendance_app')
@@ -141,6 +145,7 @@ async function configureDatabaseRoles() {
   await adminPool.query('GRANT SELECT, INSERT, UPDATE ON schools, users, memberships TO attendance_auth')
   await adminPool.query('GRANT SELECT, INSERT, DELETE ON sessions TO attendance_auth')
   await adminPool.query('GRANT SELECT, INSERT, UPDATE, DELETE ON teacher_login_accounts TO attendance_auth')
+  await adminPool.query('GRANT SELECT, INSERT, UPDATE, DELETE ON administrative_login_accounts TO attendance_auth')
   await adminPool.query('GRANT SELECT, INSERT, UPDATE, DELETE ON pending_school_registrations TO attendance_auth')
 }
 
@@ -175,6 +180,7 @@ async function enforceTenantRowSecurity() {
     ['student_referrals', 'school_id', 'student_referrals_school_scope'],
     ['student_referral_events', 'school_id', 'student_referral_events_school_scope'],
     ['teacher_attendance_contributions', 'school_id', 'teacher_attendance_contributions_school_scope'],
+    ['administrative_staff', 'school_id', 'administrative_staff_school_scope'],
   ]
   for (const [table, schoolColumn, policy] of tables) {
     await adminPool.query(`ALTER TABLE ${table} ENABLE ROW LEVEL SECURITY`)
@@ -193,6 +199,7 @@ async function migrateDatabase() {
   await migrateEmailVerification(adminPool)
   await migrateLessonFlow(adminPool)
   await migrateTeacherPortal(adminPool)
+  await migrateAdministratorPortal(adminPool)
   await migrateBehavior(adminPool)
   await migrateStudentReferrals(adminPool)
   await migrateTeacherCooperation(adminPool)
@@ -234,6 +241,24 @@ const server = http.createServer(async (req, res) => {
       await createSession(res, teacher.user_id, teacher.school_id)
       return json(res, 200, { user: account(teacher) })
     }
+    if (req.method === 'POST' && url.pathname === '/api/auth/administrator-login') {
+      const { identityNumber, password, schoolId } = await body(req)
+      const identity = String(identityNumber || '').replace(/\D/g, '').slice(0, 32)
+      const candidates = await authPool.query(`SELECT account.user_id,account.school_id,account.administrator_id,account.must_change_password,account.password_hash,u.email,u.display_name,m.role
+        FROM administrative_login_accounts account JOIN users u ON u.id=account.user_id
+          JOIN memberships m ON m.user_id=account.user_id AND m.school_id=account.school_id
+        WHERE account.identity_number=$1 AND account.active=true AND m.role='administrator'${schoolId ? ' AND account.school_id=$2' : ''}`,
+      schoolId ? [identity, String(schoolId)] : [identity])
+      const matches = candidates.rows.filter(row => passwordMatches(String(password || ''), row.password_hash))
+      if (!matches.length) return json(res, 401, { error: 'invalid_administrator_login' })
+      if (!schoolId && matches.length > 1) {
+        const schools = await Promise.all(matches.map(async row => ({ id: row.school_id, name: (await scopedOn(authPool, row.school_id, client => client.query('SELECT name FROM schools WHERE id=$1', [row.school_id]))).rows[0]?.name || 'المدرسة' })))
+        return json(res, 409, { error: 'administrator_school_selection_required', schools })
+      }
+      const administrator = matches[0]
+      await createSession(res, administrator.user_id, administrator.school_id)
+      return json(res, 200, { user: account(administrator) })
+    }
     if (req.method === 'POST' && url.pathname === '/api/auth/logout') { const t=parseCookies(req)[COOKIE]; if(t) await authPool.query('DELETE FROM sessions WHERE token_hash=$1',[tokenHash(t)]); res.setHeader('set-cookie',sessionCookie('',0)); return json(res,200,{ok:true}) }
     const user = await auth(req)
     if (!user) return json(res, 401, { error: 'unauthorized' })
@@ -255,8 +280,9 @@ const server = http.createServer(async (req, res) => {
     if (await handleTeacherCooperationRequest({ req, res, url, user, body, json, scoped })) return
     if (await handleStudentReferralRequest({ req, res, url, user, body, json, scoped, todayRiyadh })) return
     if (await handleTeacherPortalRequest({ req, res, url, user, pool, authPool, body, json, scoped, todayRiyadh, passwordHash })) return
+    if (await handleAdministratorPortalRequest({ req, res, url, user, body, json, scoped, todayRiyadh, authPool, passwordHash })) return
     // Teacher accounts are intentionally isolated from the administrative attendance APIs.
-    if (user.role === 'teacher') return json(res, 403, { error: 'teacher_portal_only' })
+    if (user.role === 'teacher' || user.role === 'administrator') return json(res, 403, { error: 'portal_only' })
     if (req.method === 'GET' && url.pathname === '/api/school') {
       const result = await scoped(user.school_id, async c => c.query('SELECT name,principal_name,academic_year,semester,preferences FROM schools WHERE id=$1', [user.school_id]))
       if (!result.rows[0]) return json(res, 404, { error: 'school_not_found' })

@@ -46,6 +46,8 @@ import { api, type Account, type SchoolProfile } from './api'
 import { LessonFlowCenter } from './LessonFlow'
 import { AlmadarSettings, downloadWorkbook, MessageCenter, reportBrandHeader, ReportsCenter } from './SchoolFeatures'
 import { TeacherAdminCenter } from './TeacherAdmin'
+import { AdministratorAdminCenter } from './AdministratorAdmin'
+import { AdministratorPortal } from './AdministratorPortal'
 import { TeacherPortal } from './TeacherPortal'
 import { BehaviorCenter } from './BehaviorCenter'
 import { SchoolReferralCenter } from './StudentReferrals'
@@ -185,7 +187,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
   const [attendanceSearch, setAttendanceSearch] = useState('')
   const [attendanceStudentSearch, setAttendanceStudentSearch] = useState('')
   const [scanInput, setScanInput] = useState('')
-  const [activeNav, setActiveNav] = useState<'dashboard' | 'students' | 'attendance' | 'cooperation' | 'behavior' | 'lessons' | 'teachers' | 'referrals' | 'reports' | 'messages'>('attendance')
+  const [activeNav, setActiveNav] = useState<'dashboard' | 'students' | 'attendance' | 'cooperation' | 'behavior' | 'lessons' | 'teachers' | 'administrators' | 'referrals' | 'reports' | 'messages'>('attendance')
   const [manualAttendanceSelection, setManualAttendanceSelection] = useState<Student[]>([])
   const [manualAttendanceSubmitting, setManualAttendanceSubmitting] = useState(false)
   const [isImporting, setIsImporting] = useState(false)
@@ -1471,7 +1473,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
     setTimeout(() => URL.revokeObjectURL(url), 600000)
   }
 
-  const pageLabel = activeNav === 'dashboard' ? 'إعدادات المدرسة' : activeNav === 'attendance' ? 'سجل الحضور' : activeNav === 'cooperation' ? 'المعلم المتعاون' : activeNav === 'behavior' ? 'سجل السلوك' : activeNav === 'lessons' ? 'سير الحصص' : activeNav === 'teachers' ? 'المعلمون' : activeNav === 'referrals' ? 'إحالات الطلاب' : activeNav === 'reports' ? 'التقارير' : activeNav === 'messages' ? 'الرسائل' : 'إدارة الطلاب'
+  const pageLabel = activeNav === 'dashboard' ? 'إعدادات المدرسة' : activeNav === 'attendance' ? 'سجل الحضور' : activeNav === 'cooperation' ? 'المعلم المتعاون' : activeNav === 'behavior' ? 'سجل السلوك' : activeNav === 'lessons' ? 'سير الحصص' : activeNav === 'teachers' ? 'المعلمون' : activeNav === 'administrators' ? 'الإداريون' : activeNav === 'referrals' ? 'إحالات الطلاب' : activeNav === 'reports' ? 'التقارير' : activeNav === 'messages' ? 'الرسائل' : 'إدارة الطلاب'
   return (
     <div className="app-shell" dir="rtl">
       {isMobileMenuOpen && (
@@ -1584,6 +1586,17 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
           >
             <Users size={18} />
             <span>المعلمون</span>
+          </button>}
+
+          {account.role === 'admin' && <button
+            className={activeNav === 'administrators' ? 'nav-item active' : 'nav-item'}
+            onClick={() => {
+              setActiveNav('administrators')
+              setIsMobileMenuOpen(false)
+            }}
+          >
+            <Users size={18} />
+            <span>الإداريون</span>
           </button>}
 
           <button
@@ -2192,6 +2205,8 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
 
         {activeNav === 'teachers' && <TeacherAdminCenter schoolName={schoolSettings.schoolName} />}
 
+        {activeNav === 'administrators' && <AdministratorAdminCenter schoolName={schoolSettings.schoolName} />}
+
         {activeNav === 'referrals' && <SchoolReferralCenter schoolName={schoolSettings.schoolName} />}
 
         {activeNav === 'behavior' && <BehaviorCenter school={schoolSettings} role={account.role === 'admin' ? 'admin' : 'staff'} />}
@@ -2676,7 +2691,9 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
 function App() {
   return <AuthGate>{(account, logout) => account.role === 'teacher'
     ? <TeacherPortal account={account} onLogout={logout} />
-    : <AttendanceApp account={account} onLogout={logout} />}</AuthGate>
+    : account.role === 'administrator'
+      ? <AdministratorPortal account={account} onLogout={logout} />
+      : <AttendanceApp account={account} onLogout={logout} />}</AuthGate>
 }
 
 export default App

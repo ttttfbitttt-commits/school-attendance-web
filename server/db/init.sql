@@ -22,7 +22,7 @@ CREATE TABLE users (
 CREATE TABLE memberships (
   school_id uuid NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
   user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  role text NOT NULL CHECK (role IN ('admin', 'staff', 'teacher')),
+  role text NOT NULL CHECK (role IN ('admin', 'staff', 'teacher', 'administrator')),
   PRIMARY KEY (school_id, user_id)
 );
 

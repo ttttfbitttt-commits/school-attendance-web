@@ -1,4 +1,7 @@
-export type Account = { email: string; displayName: string; role: 'admin' | 'staff' | 'teacher'; schoolId: string; teacherId?: string; mustChangePassword?: boolean }
+export type Account = { email: string; displayName: string; role: 'admin' | 'staff' | 'teacher' | 'administrator'; schoolId: string; teacherId?: string; administratorId?: string; mustChangePassword?: boolean }
+export type AdministrativeStaff = { administratorId: string; name: string; identityNumber: string; phone: string; active: boolean; accountCreated: boolean; accountActive: boolean; mustChangePassword: boolean; credentialsAvailable: boolean }
+export type AdministratorAttendanceStudent = { id: string; name: string; phone: string; grade: string; classroom: string }
+export type AdministratorAttendanceRecord = { studentId: string; date: string; time: string; status: 'present' | 'late'; name: string; grade: string; classroom: string; phone: string; recordedBy?: string }
 export type SchoolPreferences = { attendanceMode: 'auto' | 'present' | 'late'; cutoffTime: string; gradeAliases: Record<string, string> }
 export type SchoolProfile = { schoolName: string; principalName: string; academicYear: string; semester: string; preferences: SchoolPreferences }
 export type AlmadarAccount = { configured: boolean; senderName?: string; lastBalance?: string | null; verifiedAt?: string | null; updatedAt?: string | null }
@@ -260,6 +263,7 @@ export const api = {
   me: () => request<{ user: Account }>('/me'),
   login: (email: string, password: string) => request<{ user: Account }>('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
   teacherLogin: (identityNumber: string, password: string, schoolId = '') => request<{ user: Account }>('/auth/teacher-login', { method: 'POST', body: JSON.stringify({ identityNumber, password, schoolId: schoolId || undefined }) }),
+  administratorLogin: (identityNumber: string, password: string, schoolId = '') => request<{ user: Account }>('/auth/administrator-login', { method: 'POST', body: JSON.stringify({ identityNumber, password, schoolId: schoolId || undefined }) }),
   register: (displayName: string, schoolName: string, email: string, password: string) => request<{ ok: boolean }>('/auth/register', { method: 'POST', body: JSON.stringify({ displayName, schoolName, email, password }) }),
   verifySchoolEmail: (token: string) => request<{ user: Account; school: { id: string; name: string } }>('/auth/verify-email', { method: 'POST', body: JSON.stringify({ token }) }),
   logout: () => request<{ ok: boolean }>('/auth/logout', { method: 'POST' }),
@@ -339,6 +343,16 @@ export const api = {
   resetTeacherAccount: (teacherId: string) => request<{ ok: boolean; temporaryPassword: string }>('/teacher-portal/admin/accounts/reset', { method: 'POST', body: JSON.stringify({ teacherId }) }),
   resetTeacherAccounts: (teacherIds: string[]) => request<{ ok: boolean; reset: number; credentials: Array<{ teacherId: string; name: string; identityNumber: string; temporaryPassword: string }> }>('/teacher-portal/admin/accounts/bulk-reset', { method: 'POST', body: JSON.stringify({ teacherIds }) }),
   setTeacherAccountStatus: (teacherId: string, active: boolean) => request<{ ok: boolean }>('/teacher-portal/admin/accounts/status', { method: 'PATCH', body: JSON.stringify({ teacherId, active }) }),
+  administratorAdminOverview: () => request<{ staff: AdministrativeStaff[] }>('/administrator-portal/admin/overview'),
+  importAdministrators: (staff: Array<{ name: string; identityNumber: string; phone: string }>) => request<{ ok: boolean; added: number; skipped: number; conflicts: number; invalid: number }>('/administrator-portal/admin/import', { method: 'POST', body: JSON.stringify({ staff }) }),
+  administratorCredentials: () => request<{ credentials: Array<{ administratorId: string; name: string; identityNumber: string; temporaryPassword: string }> }>('/administrator-portal/admin/credentials'),
+  generateAdministratorAccounts: (administratorIds: string[]) => request<{ ok: boolean; created: number; credentials: Array<{ administratorId: string; name: string; identityNumber: string; temporaryPassword: string }> }>('/administrator-portal/admin/accounts/generate', { method: 'POST', body: JSON.stringify({ administratorIds }) }),
+  resetAdministratorAccount: (administratorId: string) => request<{ ok: boolean; temporaryPassword: string }>('/administrator-portal/admin/accounts/reset', { method: 'POST', body: JSON.stringify({ administratorId }) }),
+  setAdministratorAccountStatus: (administratorId: string, active: boolean) => request<{ ok: boolean }>('/administrator-portal/admin/accounts/status', { method: 'PATCH', body: JSON.stringify({ administratorId, active }) }),
+  administratorAttendance: (date = '') => request<{ date: string; schoolName: string; students: AdministratorAttendanceStudent[]; records: AdministratorAttendanceRecord[] }>(`/administrator-portal/attendance${date ? `?date=${encodeURIComponent(date)}` : ''}`),
+  recordAdministratorAttendance: (studentId: string, status: 'present' | 'late') => request<{ ok: boolean; duplicate: boolean; date: string; status: 'present' | 'late'; student: AdministratorAttendanceStudent; time: string }>('/administrator-portal/attendance', { method: 'POST', body: JSON.stringify({ studentId, status }) }),
+  administratorReport: (date = '') => request<{ date: string; records: AdministratorAttendanceRecord[] }>(`/administrator-portal/reports${date ? `?date=${encodeURIComponent(date)}` : ''}`),
+  changeAdministratorPassword: (currentPassword: string, newPassword: string) => request<{ ok: boolean }>('/administrator-portal/password', { method: 'POST', body: JSON.stringify({ currentPassword, newPassword }) }),
   teacherAdminReports: (filters: { date?: string; teacherId?: string; note?: string; classroomId?: string } = {}) => request<{ reports: TeacherLessonReport[] }>(`/teacher-portal/admin/reports?${new URLSearchParams(Object.entries(filters).filter(([, value]) => value).map(([key, value]) => [key, value || '']))}`),
   teacherCooperationStatus: () => request<TeacherCooperationStatus>('/teacher-cooperation/status'),
   scanTeacherCooperation: (code: string) => request<{ outcome: 'created' | 'duplicate'; student: { id: string; name: string; grade: string; classroom: string }; attendance: { status: 'present' | 'late'; time: string }; periodNumber: 1 | 2 }>('/teacher-cooperation/scan', { method: 'POST', body: JSON.stringify({ code }) }),
