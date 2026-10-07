@@ -96,8 +96,10 @@ const DEFAULT_SCHOOL_SETTINGS: SchoolSettings = {
 
 const readSchoolSettings = (): SchoolSettings => DEFAULT_SCHOOL_SETTINGS
 
-const QR_SCAN_INTERVAL_MS = 100
-const QR_SCAN_MAX_DIMENSION = 360
+// مسح خمس مرات تقريباً في الثانية يكفي للبطاقات ويخفض استهلاك المعالج والبطارية.
+const QR_SCAN_INTERVAL_MS = 220
+const QR_SCAN_MAX_DIMENSION = 300
+const QR_SCAN_PAUSE_AFTER_READ_MS = 900
 
 const aliases = {
   id: ['رقم الطالب', 'الهوية', 'رقم الهوية', 'student id', 'id', 'الرقم'],
@@ -295,7 +297,9 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
   const scannerBoxRef = useRef<HTMLDivElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const animFrameRef = useRef<number>(0)
+  const scanTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null)
   const lastScanAtRef = useRef(0)
+  const scanPauseUntilRef = useRef(0)
   const scanContextRef = useRef<CanvasRenderingContext2D | null>(null)
   const cameraWrapperRef = useRef<HTMLDivElement>(null)
   const overlayTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -797,26 +801,26 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
       {
         video: {
           facingMode: { ideal: 'environment' },
-          width: { ideal: 1280, min: 640 },
-          height: { ideal: 720, min: 480 },
-          frameRate: { ideal: 24, max: 30 },
+          width: { ideal: 960, min: 480, max: 1280 },
+          height: { ideal: 540, min: 360, max: 720 },
+          frameRate: { ideal: 15, max: 20 },
         },
         audio: false,
       },
       {
         video: {
           facingMode: { ideal: 'user' },
-          width: { ideal: 1280, min: 640 },
-          height: { ideal: 720, min: 480 },
-          frameRate: { ideal: 24, max: 30 },
+          width: { ideal: 960, min: 480, max: 1280 },
+          height: { ideal: 540, min: 360, max: 720 },
+          frameRate: { ideal: 15, max: 20 },
         },
         audio: false,
       },
       {
         video: {
-          width: { ideal: 1280, min: 640 },
-          height: { ideal: 720, min: 480 },
-          frameRate: { ideal: 24, max: 30 },
+          width: { ideal: 960, min: 480, max: 1280 },
+          height: { ideal: 540, min: 360, max: 720 },
+          frameRate: { ideal: 15, max: 20 },
         },
         audio: false,
       },
@@ -872,6 +876,10 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
     if (animFrameRef.current) {
       cancelAnimationFrame(animFrameRef.current)
     }
+    if (scanTimerRef.current) {
+      window.clearTimeout(scanTimerRef.current)
+      scanTimerRef.current = null
+    }
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop())
       streamRef.current = null
@@ -881,10 +889,17 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
     }
     scanContextRef.current = null
     lastScanAtRef.current = 0
+    scanPauseUntilRef.current = 0
     setIsCameraActive(false)
     setTorchOn(false)
     setNotice('تم إيقاف الكاميرا وإنهاء الحصر.')
   }
+
+  useEffect(() => {
+    const stopWhenHidden = () => { if (document.hidden) stopCamera() }
+    document.addEventListener('visibilitychange', stopWhenHidden)
+    return () => document.removeEventListener('visibilitychange', stopWhenHidden)
+  }, [])
 
   // تشغيل وإطفاء الفلاش (اختياري إن كان مدعوماً)
   const toggleTorch = async () => {
@@ -924,6 +939,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
     const now = performance.now()
 
     if (
+      now >= scanPauseUntilRef.current &&
       now - lastScanAtRef.current >= QR_SCAN_INTERVAL_MS &&
       video.readyState >= video.HAVE_ENOUGH_DATA &&
       video.videoWidth > 0 &&
@@ -991,12 +1007,17 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
         })
 
         if (code && code.data) {
+          scanPauseUntilRef.current = performance.now() + QR_SCAN_PAUSE_AFTER_READ_MS
           handleScannedCode(code.data.trim())
         }
       }
     }
 
-    animFrameRef.current = requestAnimationFrame(scanTick)
+    if (!streamRef.current) return
+    scanTimerRef.current = window.setTimeout(() => {
+      scanTimerRef.current = null
+      if (streamRef.current) animFrameRef.current = requestAnimationFrame(scanTick)
+    }, QR_SCAN_INTERVAL_MS)
   }
 
   // معالجة قراءة باركود الطالب

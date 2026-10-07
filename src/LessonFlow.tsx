@@ -33,6 +33,8 @@ import { formatHijriDate } from './dateUtils'
 import { downloadWorkbook, openOfficialFormDocument, openPrintDocument } from './SchoolFeatures'
 
 const jsQR = ((jsQRNs as unknown as { default?: unknown }).default || jsQRNs) as (data: Uint8ClampedArray, width: number, height: number) => { data: string } | null
+const SCAN_INTERVAL_MS = 220
+const SCAN_MAX_DIMENSION = 360
 
 type SectionKey = 'setup' | 'times' | 'codes' | 'schedules' | 'incidents'
 type LessonActionPanel = 'teacher-absence' | 'waiting-teacher' | 'cancel-incident' | 'incident-history' | null
@@ -354,6 +356,8 @@ export function LessonFlowCenter({ schoolName, principalName }: { schoolName: st
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const frameRef = useRef<number | null>(null)
+  const scanTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null)
+  const scanCanvasRef = useRef<HTMLCanvasElement | null>(null)
 
   const teacherOptions = overview?.teachers || []
   const timesForDay = useMemo(() => times.filter(slot => slot.weekday === activeDay).sort((a, b) => a.periodNumber - b.periodNumber), [times, activeDay])
@@ -404,7 +408,9 @@ export function LessonFlowCenter({ schoolName, principalName }: { schoolName: st
   useEffect(() => {
     void loadOverview().catch(err => setError(err.message || 'تعذر تحميل سير الحصص.'))
     void loadIncidents().catch(() => undefined)
-    return () => stopCamera()
+    const stopWhenHidden = () => { if (document.hidden) stopCamera() }
+    document.addEventListener('visibilitychange', stopWhenHidden)
+    return () => { document.removeEventListener('visibilitychange', stopWhenHidden); stopCamera() }
   }, [])
 
   useEffect(() => {
@@ -601,16 +607,26 @@ export function LessonFlowCenter({ schoolName, principalName }: { schoolName: st
     })
   }
 
+  const scheduleNextScan = () => {
+    if (!streamRef.current) return
+    scanTimerRef.current = window.setTimeout(() => {
+      scanTimerRef.current = null
+      if (streamRef.current) frameRef.current = window.requestAnimationFrame(scanFrame)
+    }, SCAN_INTERVAL_MS)
+  }
+
   const scanFrame = () => {
     const video = videoRef.current
     if (!video || video.readyState < 2) {
-      frameRef.current = window.requestAnimationFrame(scanFrame)
+      scheduleNextScan()
       return
     }
-    const canvas = document.createElement('canvas')
-    canvas.width = video.videoWidth
-    canvas.height = video.videoHeight
-    const context = canvas.getContext('2d')
+    const canvas = scanCanvasRef.current || document.createElement('canvas')
+    scanCanvasRef.current = canvas
+    const scale = Math.min(1, SCAN_MAX_DIMENSION / Math.max(video.videoWidth, video.videoHeight))
+    canvas.width = Math.max(1, Math.round(video.videoWidth * scale))
+    canvas.height = Math.max(1, Math.round(video.videoHeight * scale))
+    const context = canvas.getContext('2d', { willReadFrequently: true })
     if (context) {
       context.drawImage(video, 0, 0, canvas.width, canvas.height)
       const image = context.getImageData(0, 0, canvas.width, canvas.height)
@@ -620,14 +636,14 @@ export function LessonFlowCenter({ schoolName, principalName }: { schoolName: st
         return
       }
     }
-    frameRef.current = window.requestAnimationFrame(scanFrame)
+    scheduleNextScan()
   }
 
   const startCamera = async () => {
     setError('')
     setScanPreview(null)
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' } } })
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 960, max: 1280 }, height: { ideal: 540, max: 720 }, frameRate: { ideal: 15, max: 20 } }, audio: false })
       streamRef.current = stream
       setCameraOn(true)
       window.setTimeout(() => {
@@ -644,6 +660,8 @@ export function LessonFlowCenter({ schoolName, principalName }: { schoolName: st
   function stopCamera() {
     if (frameRef.current) window.cancelAnimationFrame(frameRef.current)
     frameRef.current = null
+    if (scanTimerRef.current) window.clearTimeout(scanTimerRef.current)
+    scanTimerRef.current = null
     streamRef.current?.getTracks().forEach(track => track.stop())
     streamRef.current = null
     setCameraOn(false)

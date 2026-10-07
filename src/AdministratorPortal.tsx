@@ -12,6 +12,9 @@ type View = 'attendance' | 'reports' | 'password'
 const normalize = (value: unknown) => String(value ?? '').replace(/\s+/g, ' ').trim()
 const comparable = (value: unknown) => normalize(value).toLocaleLowerCase('ar')
 const normalizedStudentId = (value: unknown) => normalize(value).replace(/^([+-]?\d+)\.0+$/, '$1')
+const SCAN_INTERVAL_MS = 220
+const SCAN_MAX_DIMENSION = 360
+const SCAN_PAUSE_AFTER_READ_MS = 900
 function barcodeCandidates(raw: string) {
   const code = normalize(raw)
   if (!code) return []
@@ -47,6 +50,8 @@ export function AdministratorPortal({ account, onLogout }: { account: Account; o
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const frameRef = useRef(0)
+  const scanTimerRef = useRef<number | undefined>(undefined)
+  const scanPauseUntilRef = useRef(0)
   const lastCode = useRef({ value: '', at: 0 })
   const scanning = useRef(false)
   const scanResultTimer = useRef<number | undefined>(undefined)
@@ -88,6 +93,9 @@ export function AdministratorPortal({ account, onLogout }: { account: Account; o
 
   const stopCamera = () => {
     if (frameRef.current) cancelAnimationFrame(frameRef.current)
+    if (scanTimerRef.current) window.clearTimeout(scanTimerRef.current)
+    scanTimerRef.current = undefined
+    scanPauseUntilRef.current = 0
     streamRef.current?.getTracks().forEach(track => track.stop()); streamRef.current = null
     if (videoRef.current) videoRef.current.srcObject = null
     setCamera(false)
@@ -105,6 +113,11 @@ export function AdministratorPortal({ account, onLogout }: { account: Account; o
   }, [])
   useEffect(() => { if (view !== 'attendance') stopCamera() }, [view])
   useEffect(() => { if (!notice) return; const timer = window.setTimeout(() => setNotice(null), 3800); return () => window.clearTimeout(timer) }, [notice])
+  useEffect(() => {
+    const stopWhenHidden = () => { if (document.hidden) stopCamera() }
+    document.addEventListener('visibilitychange', stopWhenHidden)
+    return () => document.removeEventListener('visibilitychange', stopWhenHidden)
+  }, [])
 
   const findStudent = (raw: string) => {
     const code = normalize(raw)
@@ -139,23 +152,24 @@ export function AdministratorPortal({ account, onLogout }: { account: Account; o
     } catch { setNotice({ type: 'error', text: 'تعذر حفظ الحضور الآن. أعد المحاولة.' }) }
     finally { setBusy(false); window.setTimeout(() => { scanning.current = false }, 400) }
   }
-  const scanFrame = () => {
+  const scanFrame = (time: number) => {
     const video = videoRef.current; const canvas = canvasRef.current
     if (!streamRef.current || !video || !canvas) return
-    if (video.readyState >= video.HAVE_ENOUGH_DATA && video.videoWidth) {
-      const ratio = Math.min(1, 640 / Math.max(video.videoWidth, video.videoHeight)); canvas.width = Math.round(video.videoWidth * ratio); canvas.height = Math.round(video.videoHeight * ratio)
+    if (time >= scanPauseUntilRef.current && video.readyState >= video.HAVE_ENOUGH_DATA && video.videoWidth) {
+      const ratio = Math.min(1, SCAN_MAX_DIMENSION / Math.max(video.videoWidth, video.videoHeight)); canvas.width = Math.round(video.videoWidth * ratio); canvas.height = Math.round(video.videoHeight * ratio)
       const context = canvas.getContext('2d', { willReadFrequently: true })
-      if (context) { context.drawImage(video, 0, 0, canvas.width, canvas.height); const image = context.getImageData(0, 0, canvas.width, canvas.height); const code = jsQR(image.data, image.width, image.height, { inversionAttempts: 'attemptBoth' }); if (code?.data) { const now = Date.now(); if (lastCode.current.value !== code.data || now - lastCode.current.at > 1800) { lastCode.current = { value: code.data, at: now }; void recordStudent(code.data) } } }
+      if (context) { context.drawImage(video, 0, 0, canvas.width, canvas.height); const image = context.getImageData(0, 0, canvas.width, canvas.height); const code = jsQR(image.data, image.width, image.height, { inversionAttempts: 'attemptBoth' }); if (code?.data) { scanPauseUntilRef.current = performance.now() + SCAN_PAUSE_AFTER_READ_MS; const now = Date.now(); if (lastCode.current.value !== code.data || now - lastCode.current.at > 1800) { lastCode.current = { value: code.data, at: now }; void recordStudent(code.data) } } }
     }
-    frameRef.current = requestAnimationFrame(scanFrame)
+    if (!streamRef.current) return
+    scanTimerRef.current = window.setTimeout(() => { scanTimerRef.current = undefined; if (streamRef.current) frameRef.current = requestAnimationFrame(scanFrame) }, SCAN_INTERVAL_MS)
   }
   const startCamera = async () => {
     prepareScanSound()
     if (!navigator.mediaDevices?.getUserMedia) { setNotice({ type: 'error', text: 'هذا المتصفح لا يدعم تشغيل الكاميرا. استخدم Safari أو Chrome محدثًا.' }); return }
     try {
       const options: MediaStreamConstraints[] = [
-        { video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280, min: 640 }, height: { ideal: 720, min: 480 }, frameRate: { ideal: 24, max: 30 } }, audio: false },
-        { video: { facingMode: { ideal: 'user' }, width: { ideal: 1280, min: 640 }, height: { ideal: 720, min: 480 } }, audio: false },
+        { video: { facingMode: { ideal: 'environment' }, width: { ideal: 960, min: 480, max: 1280 }, height: { ideal: 540, min: 360, max: 720 }, frameRate: { ideal: 15, max: 20 } }, audio: false },
+        { video: { facingMode: { ideal: 'user' }, width: { ideal: 960, min: 480, max: 1280 }, height: { ideal: 540, min: 360, max: 720 }, frameRate: { ideal: 15, max: 20 } }, audio: false },
         { video: true, audio: false },
       ]
       let stream: MediaStream | null = null

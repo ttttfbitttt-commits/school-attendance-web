@@ -10,6 +10,9 @@ const jsQR = ((jsQRNs as unknown as { default?: unknown }).default || jsQRNs) as
 const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Riyadh' }).format(new Date())
 const periodLabel = (period: number) => period === 1 ? 'الحصة الأولى' : 'الحصة الثانية'
 const escapeHtml = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character] || character))
+const SCAN_INTERVAL_MS = 220
+const SCAN_MAX_DIMENSION = 360
+const SCAN_PAUSE_AFTER_READ_MS = 900
 
 type ScanFeedback = {
   kind: 'created' | 'duplicate' | 'error'
@@ -48,7 +51,8 @@ export function TeacherCooperationPanel({ status, onRefresh }: { status: Teacher
   const viewportRef = useRef<HTMLDivElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const frameRef = useRef(0)
-  const lastFrameRef = useRef(0)
+  const scanTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null)
+  const scanPauseUntilRef = useRef(0)
   const scanBusyRef = useRef(false)
   const lastCodeRef = useRef({ code: '', at: 0 })
   const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -62,6 +66,9 @@ export function TeacherCooperationPanel({ status, onRefresh }: { status: Teacher
 
   const stopCamera = () => {
     if (frameRef.current) cancelAnimationFrame(frameRef.current)
+    if (scanTimerRef.current) window.clearTimeout(scanTimerRef.current)
+    scanTimerRef.current = null
+    scanPauseUntilRef.current = 0
     streamRef.current?.getTracks().forEach(track => track.stop())
     streamRef.current = null
     if (videoRef.current) videoRef.current.srcObject = null
@@ -69,6 +76,11 @@ export function TeacherCooperationPanel({ status, onRefresh }: { status: Teacher
   }
   useEffect(() => () => { stopCamera(); if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current) }, [])
   useEffect(() => { if (!status.available) stopCamera() }, [status.available])
+  useEffect(() => {
+    const stopWhenHidden = () => { if (document.hidden) stopCamera() }
+    document.addEventListener('visibilitychange', stopWhenHidden)
+    return () => document.removeEventListener('visibilitychange', stopWhenHidden)
+  }, [])
 
   const showFeedback = (next: ScanFeedback) => {
     setFeedback(next)
@@ -110,9 +122,8 @@ export function TeacherCooperationPanel({ status, onRefresh }: { status: Teacher
     const video = videoRef.current
     const canvas = canvasRef.current
     if (!streamRef.current || !video || !canvas) return
-    if (time - lastFrameRef.current >= 120 && video.readyState >= video.HAVE_ENOUGH_DATA && video.videoWidth > 0) {
-      lastFrameRef.current = time
-      const scale = Math.min(1, 520 / Math.max(video.videoWidth, video.videoHeight))
+    if (time >= scanPauseUntilRef.current && video.readyState >= video.HAVE_ENOUGH_DATA && video.videoWidth > 0) {
+      const scale = Math.min(1, SCAN_MAX_DIMENSION / Math.max(video.videoWidth, video.videoHeight))
       canvas.width = Math.max(1, Math.round(video.videoWidth * scale))
       canvas.height = Math.max(1, Math.round(video.videoHeight * scale))
       const context = canvas.getContext('2d', { willReadFrequently: true })
@@ -120,17 +131,24 @@ export function TeacherCooperationPanel({ status, onRefresh }: { status: Teacher
         context.drawImage(video, 0, 0, canvas.width, canvas.height)
         const image = context.getImageData(0, 0, canvas.width, canvas.height)
         const code = jsQR(image.data, image.width, image.height, { inversionAttempts: 'attemptBoth' })
-        if (code?.data) void processCode(code.data)
+        if (code?.data) {
+          scanPauseUntilRef.current = performance.now() + SCAN_PAUSE_AFTER_READ_MS
+          void processCode(code.data)
+        }
       }
     }
-    frameRef.current = requestAnimationFrame(scanFrame)
+    if (!streamRef.current) return
+    scanTimerRef.current = window.setTimeout(() => {
+      scanTimerRef.current = null
+      if (streamRef.current) frameRef.current = requestAnimationFrame(scanFrame)
+    }, SCAN_INTERVAL_MS)
   }
 
   const startCamera = async () => {
     if (!navigator.mediaDevices?.getUserMedia) { setNotice('المتصفح لا يدعم تشغيل الكاميرا. استخدم Chrome أو Safari المحدث.'); return }
     setNotice('')
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false })
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 960, max: 1280 }, height: { ideal: 540, max: 720 }, frameRate: { ideal: 15, max: 20 } }, audio: false })
       streamRef.current = stream
       const track = stream.getVideoTracks()[0]
       try { setTorchSupported(Boolean((track.getCapabilities?.() as MediaTrackCapabilities & { torch?: boolean })?.torch)) } catch { setTorchSupported(false) }
