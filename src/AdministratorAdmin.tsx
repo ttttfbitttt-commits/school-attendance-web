@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import * as XLSX from 'xlsx'
-import { FileDown, FileUp, KeyRound, LockKeyhole, Printer, RefreshCw, Search, ShieldCheck, UsersRound } from 'lucide-react'
+import { FileDown, FileUp, KeyRound, Printer, RefreshCw, Search, ShieldCheck, UsersRound } from 'lucide-react'
 import { api, type AdministrativeStaff } from './api'
 import { downloadWorkbook, openPrintDocument } from './SchoolFeatures'
 
