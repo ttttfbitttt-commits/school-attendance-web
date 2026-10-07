@@ -189,7 +189,7 @@ function teacherAccountSummary(row) {
 export async function migrateTeacherPortal(adminPool) {
   await adminPool.query(`
     ALTER TABLE memberships DROP CONSTRAINT IF EXISTS memberships_role_check;
-    ALTER TABLE memberships ADD CONSTRAINT memberships_role_check CHECK (role IN ('admin','staff','teacher'));
+    ALTER TABLE memberships ADD CONSTRAINT memberships_role_check CHECK (role IN ('admin','staff','teacher','administrator'));
 
     CREATE TABLE IF NOT EXISTS teacher_login_accounts (
       school_id uuid NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
