@@ -39,6 +39,7 @@ export type AbsenceDetails = {
   statusCounts: Record<AbsenceStatus, number>
 }
 export type DailyStudentRow = { id?: string; studentId: string; name: string; grade: string; classroom: string; phone: string; date: string; status: 'unexcused' | 'excused'; note?: string; time?: string }
+export type PendingAbsenceStudent = { studentId: string; name: string; grade: string; classroom: string; phone: string }
 export type CountStudentRow = { studentId: string; name: string; grade: string; classroom: string; phone: string; days: number; excusedDays: number; unexcusedDays: number }
 export type StudentHistory = { student: { studentId: string; name: string; grade: string; classroom: string; phone: string }; type: 'absence' | 'late'; days: Array<{ date: string; status: 'unexcused' | 'excused'; time?: string }> }
 export type DetailedStudentReport = {
@@ -284,12 +285,13 @@ export const api = {
   addExcuse: (excuse: { studentId: string; category: string; note: string; startDate: string; endDate: string }) => request<{ ok: boolean; id: string }>('/excuses', { method: 'POST', body: JSON.stringify(excuse) }),
   deleteExcuse: (id: string) => request<{ ok: boolean }>(`/excuses?id=${encodeURIComponent(id)}`, { method: 'DELETE' }),
   absenceReport: (from: string, to: string, studentId = '') => request<AbsenceReport>(`/reports/absences?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}${studentId ? `&studentId=${encodeURIComponent(studentId)}` : ''}`),
-  calculateAbsences: (date: string) => request<{ ok: boolean; date: string; created: number; confirmed: number }>('/absences/calculate', { method: 'POST', body: JSON.stringify({ date }) }),
+  calculateAbsences: (date: string, studentIds: string[] = []) => request<{ ok: boolean; date: string; created: number; confirmed: number }>('/absences/calculate', { method: 'POST', body: JSON.stringify({ date, ...(studentIds.length ? { studentIds } : {}) }) }),
   cancelAbsences: (date: string) => request<{ ok: boolean; date: string; deleted: number }>('/absences/cancel', { method: 'POST', body: JSON.stringify({ date }) }),
   absenceDetails: (studentId: string, from: string, to: string) => request<AbsenceDetails>(`/absences/details?studentId=${encodeURIComponent(studentId)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`),
   setAbsenceStatus: (payload: { studentIds: string[]; from: string; to: string; status: AbsenceStatus; note?: string }) => request<{ ok: boolean; updatedDays: number; affectedStudents: number }>('/absences/status/bulk', { method: 'PATCH', body: JSON.stringify(payload) }),
   correctAbsences: (payload: { studentIds: string[]; from: string; to: string; time: string; dates?: string[]; status?: 'present' | 'late' }) => request<{ ok: boolean; correctedDays: number; affectedStudents: number }>('/absences/correct-present/bulk', { method: 'POST', body: JSON.stringify({ ...payload, attendanceStatus: payload.status || 'present' }) }),
   missingAttendance: (date: string) => request<{ date: string; count: number }>(`/reports/missing-attendance?date=${encodeURIComponent(date)}`),
+  pendingAbsences: (date: string) => request<{ date: string; rows: PendingAbsenceStudent[] }>(`/reports/pending-absences?date=${encodeURIComponent(date)}`),
   dailyAbsences: (date: string) => request<{ date: string; rows: DailyStudentRow[] }>(`/reports/daily-absences?date=${encodeURIComponent(date)}`),
   dailyLates: (date: string) => request<{ date: string; rows: DailyStudentRow[] }>(`/reports/daily-lates?date=${encodeURIComponent(date)}`),
   setDailyLateStatus: (payload: { date: string; studentIds: string[]; status: 'unexcused' | 'excused' }) => request<{ ok: boolean; updated: number }>('/reports/daily-lates/status', { method: 'PATCH', body: JSON.stringify(payload) }),

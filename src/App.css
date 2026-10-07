@@ -4301,6 +4301,55 @@ tbody td {
   font-size: 13px;
 }
 
+.pending-grade-groups {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 11px;
+  margin: 16px 0;
+}
+
+.pending-grade-card {
+  display: grid;
+  gap: 10px;
+  padding: 13px;
+  border: 1px solid #d6e4ee;
+  border-radius: 14px;
+  background: #fbfdff;
+}
+
+.pending-grade-card.expanded {
+  border-color: #72aeda;
+  background: #f6fbff;
+  box-shadow: 0 6px 18px rgba(30, 99, 148, .08);
+}
+
+.pending-grade-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: #173b5d;
+  text-align: right;
+  font: inherit;
+  cursor: pointer;
+}
+
+.pending-grade-title>span { display: grid; gap: 4px; }
+.pending-grade-title strong { font-size: 15px; }
+.pending-grade-title small { color: #668096; font-size: 11px; }
+.pending-grade-title b { color: #1476c9; font-size: 11px; white-space: nowrap; }
+.pending-grade-approve { width: 100%; min-height: 42px; justify-content: center; }
+.pending-grade-students { max-height: 305px; overflow: auto; border-top: 1px solid #dce8f0; padding-top: 8px; }
+.pending-grade-students>div { display: grid; gap: 6px; }
+.pending-grade-students article { padding: 8px 9px; border: 1px solid #e0eaf1; border-radius: 9px; background: #fff; }
+.pending-grade-students span { display: grid; gap: 3px; }
+.pending-grade-students strong { color: #203c56; font-size: 12px; }
+.pending-grade-students small { color: #70869a; font-size: 10px; }
+
 #daily-absence-log {
   scroll-margin-top: 84px;
 }
@@ -4331,6 +4380,10 @@ tbody td {
     justify-content: center;
     white-space: normal;
   }
+
+  .pending-grade-groups { grid-template-columns: 1fr; gap: 9px; }
+  .pending-grade-card { padding: 12px; }
+  .pending-grade-title strong { font-size: 14px; }
 }
 /* Compact, accessible report section tabs */
 .report-section-tabs {

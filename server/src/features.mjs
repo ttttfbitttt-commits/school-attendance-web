@@ -362,6 +362,9 @@ export async function handleFeatureRequest(context) {
     const input = await body(req)
     const today = todayRiyadh()
     const date = input.date === undefined || input.date === '' ? today : validDate(input.date)
+    const studentIds = Array.isArray(input.studentIds)
+      ? [...new Set(input.studentIds.map(value => String(value || '').trim()).filter(Boolean))].slice(0, 5000)
+      : null
     const day = date ? new Date(`${date}T12:00:00Z`).getUTCDay() : -1
     if (!date || date > today) { json(res, 400, { error: 'invalid_absence_date' }); return true }
     if (day === 5 || day === 6) { json(res, 400, { error: 'not_school_day' }); return true }
@@ -375,14 +378,16 @@ export async function handleFeatureRequest(context) {
           AND absence.absence_date=$1
           AND absence.school_id=$2
           AND attendance.status IN ('present','late')`, [date, user.school_id])
-      const totalActive = await client.query('SELECT COUNT(*)::int AS count FROM students WHERE school_id=$1 AND active=true', [user.school_id])
+      const totalActive = await client.query(`SELECT COUNT(*)::int AS count FROM students
+        WHERE school_id=$1 AND active=true AND ($2::text[] IS NULL OR id=ANY($2::text[]))`, [user.school_id, studentIds])
       const attended = await client.query(`SELECT COUNT(DISTINCT attendance.student_id)::int AS count
         FROM attendance_logs attendance JOIN students student ON student.school_id=attendance.school_id AND student.id=attendance.student_id
-        WHERE student.school_id=$1 AND student.active=true AND attendance.school_id=$1 AND attendance.attendance_date=$2 AND attendance.status IN ('present','late')`, [user.school_id, date])
+        WHERE student.school_id=$1 AND student.active=true AND attendance.school_id=$1 AND attendance.attendance_date=$2
+          AND attendance.status IN ('present','late') AND ($3::text[] IS NULL OR student.id=ANY($3::text[]))`, [user.school_id, date, studentIds])
       const created = await client.query(`INSERT INTO absence_records(school_id,student_id,absence_date,status,calculated_by,updated_by)
         SELECT $1,student.id,$2,'unexcused',$3,$3
         FROM students student
-        WHERE student.school_id=$1 AND student.active=true
+        WHERE student.school_id=$1 AND student.active=true AND ($4::text[] IS NULL OR student.id=ANY($4::text[]))
           AND NOT EXISTS (
             SELECT 1 FROM attendance_logs attendance
             WHERE attendance.school_id=student.school_id
@@ -391,7 +396,7 @@ export async function handleFeatureRequest(context) {
               AND attendance.status IN ('present','late')
           )
         ON CONFLICT(school_id,student_id,absence_date) DO NOTHING
-        RETURNING student_id`, [user.school_id, date, user.user_id])
+        RETURNING student_id`, [user.school_id, date, user.user_id, studentIds])
       const confirmed = await client.query('SELECT COUNT(*)::int AS count FROM absence_records WHERE school_id=$1 AND absence_date=$2', [user.school_id, date])
       return {
         totalActive: totalActive.rows[0].count,
@@ -415,6 +420,20 @@ export async function handleFeatureRequest(context) {
         AND NOT EXISTS (SELECT 1 FROM attendance_logs a WHERE a.school_id=s.school_id AND a.student_id=s.id AND a.attendance_date=$2)
         AND NOT EXISTS (SELECT 1 FROM absence_records r WHERE r.school_id=s.school_id AND r.student_id=s.id AND r.absence_date=$2)`, [user.school_id, date]))
     json(res, 200, { date, count: result.rows[0].count })
+    return true
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/reports/pending-absences') {
+    const date = validDate(url.searchParams.get('date')) || todayRiyadh()
+    if (date !== todayRiyadh()) { json(res, 400, { error: 'pending_absences_are_today_only' }); return true }
+    const rows = await scoped(user.school_id, async client => (await client.query(`SELECT
+        s.id AS "studentId",s.name,s.grade,s.classroom,s.phone
+      FROM students s
+      WHERE s.school_id=$1 AND s.active=true
+        AND NOT EXISTS (SELECT 1 FROM attendance_logs a WHERE a.school_id=s.school_id AND a.student_id=s.id AND a.attendance_date=$2)
+        AND NOT EXISTS (SELECT 1 FROM absence_records r WHERE r.school_id=s.school_id AND r.student_id=s.id AND r.absence_date=$2)
+      ORDER BY s.grade,s.classroom,s.name`, [user.school_id, date])).rows)
+    json(res, 200, { date, rows })
     return true
   }
 

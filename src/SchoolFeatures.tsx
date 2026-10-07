@@ -363,6 +363,8 @@ export function MessageCenter({ students, attendance, schoolName }: { students: 
 }
 
 type DailyRow = { studentId: string; name: string; grade: string; classroom: string; phone: string; status: 'unexcused' | 'excused'; date: string; time?: string }
+type PendingAbsenceRow = { studentId: string; name: string; grade: string; classroom: string; phone: string }
+type PendingAbsenceGroup = { grade: string; students: PendingAbsenceRow[] }
 type CountRow = { studentId: string; name: string; grade: string; classroom: string; phone: string; days: number; excusedDays: number; unexcusedDays: number }
 type History = { student: { studentId: string; name: string; grade: string; classroom: string; phone: string }; type: 'absence' | 'late'; days: Array<{ date: string; status: 'unexcused' | 'excused'; time?: string }> }
 const statusText = (status: 'unexcused' | 'excused') => status === 'excused' ? 'بعذر' : 'بدون عذر'
@@ -428,6 +430,8 @@ export function ReportsCenter({ students, schoolName }: { students: FeatureStude
   const [activeReport, setActiveReport] = useState<ReportSection>('pending')
   const [todayMissingCount, setTodayMissingCount] = useState<number | null>(null)
   const [todayConfirmedCount, setTodayConfirmedCount] = useState<number | null>(null)
+  const [pendingAbsences, setPendingAbsences] = useState<PendingAbsenceRow[]>([])
+  const [expandedPendingGrade, setExpandedPendingGrade] = useState('')
   const [absenceDate, setAbsenceDate] = useState(today())
   const [lateDate, setLateDate] = useState(today())
   const [absences, setAbsences] = useState<DailyRow[]>([])
@@ -439,15 +443,15 @@ export function ReportsCenter({ students, schoolName }: { students: FeatureStude
   const [notice, setNotice] = useState('')
   const [dailyStatusNotice, setDailyStatusNotice] = useState('')
   const [updatingDailyStatus, setUpdatingDailyStatus] = useState(false)
-  const [calculatingAbsences, setCalculatingAbsences] = useState(false)
+  const [calculatingAbsenceGrade, setCalculatingAbsenceGrade] = useState('')
   const [cancelingAbsences, setCancelingAbsences] = useState(false)
   const [cancelingSelectedAbsenceDate, setCancelingSelectedAbsenceDate] = useState(false)
-  const [focusDailyAbsenceLog, setFocusDailyAbsenceLog] = useState(false)
 
   const loadToday = async () => {
     const date = today()
-    const [pending, confirmed] = await Promise.all([api.missingAttendance(date), api.dailyAbsences(date)])
-    setTodayMissingCount(pending.count)
+    const [pending, confirmed] = await Promise.all([api.pendingAbsences(date), api.dailyAbsences(date)])
+    setPendingAbsences(pending.rows as PendingAbsenceRow[])
+    setTodayMissingCount(pending.rows.length)
     setTodayConfirmedCount(confirmed.rows.length)
   }
   const loadAbsences = async (date = absenceDate) => setAbsences((await api.dailyAbsences(date)).rows as DailyRow[])
@@ -472,43 +476,44 @@ export function ReportsCenter({ students, schoolName }: { students: FeatureStude
     return () => { ignored = true }
   }, [activeReport])
 
-  useEffect(() => {
-    if (!focusDailyAbsenceLog || activeReport !== 'absences') return
-    document.getElementById('daily-absence-log')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    setFocusDailyAbsenceLog(false)
-  }, [focusDailyAbsenceLog, activeReport, absences])
+  const pendingAbsenceGroups = useMemo<PendingAbsenceGroup[]>(() => {
+    const groups = new Map<string, PendingAbsenceRow[]>()
+    for (const student of pendingAbsences) {
+      const grade = student.grade.trim() || 'صف غير محدد'
+      groups.set(grade, [...(groups.get(grade) || []), student])
+    }
+    return [...groups.entries()]
+      .map(([grade, students]) => ({ grade, students }))
+      .sort((left, right) => left.grade.localeCompare(right.grade, 'ar', { numeric: true }))
+  }, [pendingAbsences])
 
-  const calculate = async () => {
-    if (calculatingAbsences || !todayMissingCount) return
-    if (!window.confirm(`سيُعتمد غياب ${todayMissingCount} طالبًا لهذا اليوم. هل تريد المتابعة؟`)) return
-    setCalculatingAbsences(true)
+  const calculate = async (group: PendingAbsenceGroup) => {
+    if (calculatingAbsenceGrade || !group.students.length) return
+    if (!window.confirm(`سيُعتمد غياب ${group.students.length} طالبًا من ${group.grade} لهذا اليوم. هل تريد المتابعة؟`)) return
+    setCalculatingAbsenceGrade(group.grade)
     try {
       const date = today()
-      await api.calculateAbsences(date)
-      const [pending, daily] = await Promise.all([api.missingAttendance(date), api.dailyAbsences(date)])
-      setTodayMissingCount(pending.count)
+      const result = await api.calculateAbsences(date, group.students.map(student => student.studentId))
+      const [, daily] = await Promise.all([loadToday(), api.dailyAbsences(date)])
       setTodayConfirmedCount(daily.rows.length)
       setAbsenceDate(date)
       setAbsences(daily.rows as DailyRow[])
-      setActiveReport('absences')
-      setNotice('تم اعتماد الغياب، وظهرت الأسماء في سجل غياب الطلاب.')
-      setFocusDailyAbsenceLog(true)
+      setNotice(`تم اعتماد غياب ${result.created} طالبًا من ${group.grade}.`)
     } catch {
       setNotice('تعذر اعتماد الغياب أو تحديث السجل. أعد المحاولة.')
     } finally {
-      setCalculatingAbsences(false)
+      setCalculatingAbsenceGrade('')
     }
   }
   const cancelTodayAbsences = async () => {
-    if (cancelingAbsences || !todayConfirmedCount) return
+    if (cancelingAbsences || calculatingAbsenceGrade || !todayConfirmedCount) return
     if (!window.confirm(`سيؤدي هذا إلى إلغاء اعتماد غياب ${todayConfirmedCount} طالبًا لهذا اليوم وحذف سجلات غيابهم المعتمدة. سيعود من لم يسجل حضورًا إلى قائمة غياب اليوم، ولن يُحتسب له يوم غياب. لا يمكن التراجع عن هذا الإجراء. هل تريد المتابعة؟`)) return
     setCancelingAbsences(true)
     setNotice('جارٍ إلغاء اعتماد غياب اليوم...')
     try {
       const date = today()
       const result = await api.cancelAbsences(date)
-      const [pending, remaining] = await Promise.all([api.missingAttendance(date), api.dailyAbsences(date)])
-      setTodayMissingCount(pending.count)
+      const [, remaining] = await Promise.all([loadToday(), api.dailyAbsences(date)])
       setTodayConfirmedCount(remaining.rows.length)
       setAbsenceDate(date)
       setAbsences(remaining.rows as DailyRow[])
@@ -574,12 +579,12 @@ export function ReportsCenter({ students, schoolName }: { students: FeatureStude
   }
   const exportPendingExcel = () => downloadWorkbook(
     `ملخص_غياب_اليوم_${formatHijriDate(today())}`,
-    [['التاريخ الهجري', 'عدد الطلاب بانتظار الاعتماد'], [formatHijriDate(today()), todayMissingCount ?? 0]],
-    'غياب اليوم', schoolName, 'ملخص غياب اليوم',
+    [['الصف', 'الفصل', 'اسم الطالب', 'رقم الطالب'], ...pendingAbsences.map(student => [student.grade, student.classroom, student.name, student.studentId])],
+    'غياب اليوم', schoolName, `غياب اليوم بانتظار الاعتماد (${todayMissingCount ?? 0} طالب)`,
   )
   const exportPendingPdf = () => openPrintDocument(
     'ملخص غياب اليوم',
-    `<section class="page"><h1>ملخص غياب اليوم</h1><table><thead><tr><th>التاريخ الهجري</th><th>عدد الطلاب بانتظار الاعتماد</th></tr></thead><tbody><tr><td>${escapeHtml(formatHijriDate(today()))}</td><td>${todayMissingCount ?? 0}</td></tr></tbody></table></section>`,
+    `<section class="page"><h1>غياب اليوم بانتظار الاعتماد</h1><p class="meta">التاريخ: ${escapeHtml(formatHijriDate(today()))} · العدد: ${todayMissingCount ?? 0} طالب</p><table><thead><tr><th>الصف</th><th>الفصل</th><th>اسم الطالب</th><th>رقم الطالب</th></tr></thead><tbody>${pendingAbsences.map(student => `<tr><td>${escapeHtml(student.grade)}</td><td>${escapeHtml(student.classroom)}</td><td>${escapeHtml(student.name)}</td><td>${escapeHtml(student.studentId)}</td></tr>`).join('') || '<tr><td colspan="4">لا يوجد طلاب بانتظار الاعتماد.</td></tr>'}</tbody></table></section>`,
     schoolName,
   )
 
@@ -653,17 +658,27 @@ export function ReportsCenter({ students, schoolName }: { students: FeatureStude
     <div id="report-section-content" className="report-section-content" role="tabpanel" aria-labelledby={`report-tab-${activeReport}`}>
       {activeReport === 'pending' && <section className="panel daily-report-panel pending-absence-panel">
         <div className="panel-header">
-          <div><span className="panel-kicker">متابعة مباشرة</span><h2>غياب اليوم</h2><p>عدد الطلاب الذين لم يسجلوا حضورًا أو تأخرًا حتى الآن. لا تُسجل أسماؤهم في الغياب قبل الاعتماد.</p></div>
+          <div><span className="panel-kicker">متابعة مباشرة</span><h2>غياب اليوم حسب الصف</h2><p>افتح عنوان الصف لمراجعة الطلاب أولًا، ثم اعتمد غياب كل صف بصورة مستقلة.</p></div>
           <div className="pending-absence-count" role="status" aria-live="polite" aria-atomic="true"><span>بانتظار الاعتماد</span><strong>{todayMissingCount ?? '—'}</strong></div>
-          <button type="button" className="primary-button" onClick={() => void calculate()} disabled={todayMissingCount === null || todayMissingCount === 0 || calculatingAbsences}><CheckCircle2 size={16} /> {calculatingAbsences ? 'جارٍ اعتماد الغياب...' : 'اعتماد غياب الطلاب'}</button>
-          {Boolean(todayConfirmedCount) && <button type="button" className="danger-button cancel-absence-approval" onClick={() => void cancelTodayAbsences()} disabled={cancelingAbsences || calculatingAbsences}><XCircle size={16} /> {cancelingAbsences ? 'جارٍ إلغاء الاعتماد...' : 'إلغاء اعتماد الغياب'}</button>}
+          {Boolean(todayConfirmedCount) && <button type="button" className="danger-button cancel-absence-approval" onClick={() => void cancelTodayAbsences()} disabled={cancelingAbsences || Boolean(calculatingAbsenceGrade)}><XCircle size={16} /> {cancelingAbsences ? 'جارٍ إلغاء الاعتماد...' : 'إلغاء اعتمادات اليوم'}</button>}
         </div>
-        <p className="pending-absence-hint">بعد الاعتماد تظهر الأسماء في قسم «سجل الغياب».</p>
+        <p className="pending-absence-hint">اعتماد صف لا يؤثر في بقية الصفوف، وتظهر أسماء طلابه في «سجل الغياب» بعد الاعتماد.</p>
+        <div className="pending-grade-groups">
+          {pendingAbsenceGroups.map(group => {
+            const expanded = expandedPendingGrade === group.grade
+            const isCalculating = calculatingAbsenceGrade === group.grade
+            return <article className={`pending-grade-card${expanded ? ' expanded' : ''}`} key={group.grade}>
+              <button type="button" className="pending-grade-title" onClick={() => setExpandedPendingGrade(current => current === group.grade ? '' : group.grade)} aria-expanded={expanded} aria-controls={`pending-grade-${group.grade}`}><span><strong>{group.grade}</strong><small>{group.students.length} طالبًا بانتظار الاعتماد</small></span><b>{expanded ? 'إخفاء الطلاب' : 'عرض الطلاب'}</b></button>
+              <button type="button" className="primary-button pending-grade-approve" onClick={() => void calculate(group)} disabled={Boolean(calculatingAbsenceGrade)}><CheckCircle2 size={16} /> {isCalculating ? 'جارٍ الاعتماد...' : `اعتماد غياب ${group.grade}`}</button>
+              {expanded && <div id={`pending-grade-${group.grade}`} className="pending-grade-students"><div>{group.students.map(student => <article key={student.studentId}><span><strong>{student.name}</strong><small>فصل {student.classroom || '—'} · رقم {student.studentId}</small></span></article>)}</div></div>}
+            </article>
+          })}
+        </div>
         <div className="feature-actions daily-actions">
-          <button className="export-btn csv" type="button" onClick={exportPendingExcel} disabled={todayMissingCount === null}><Download size={16} /> Excel</button>
-          <button className="export-btn pdf" type="button" onClick={exportPendingPdf} disabled={todayMissingCount === null}><Printer size={16} /> PDF</button>
+          <button className="export-btn csv" type="button" onClick={exportPendingExcel} disabled={!pendingAbsences.length}><Download size={16} /> Excel</button>
+          <button className="export-btn pdf" type="button" onClick={exportPendingPdf} disabled={!pendingAbsences.length}><Printer size={16} /> PDF</button>
         </div>
-        {todayMissingCount === 0 && <p className="report-empty-state">لا يوجد طالب بانتظار تسجيل الحضور الآن.</p>}
+        {todayMissingCount === 0 && <p className="report-empty-state">لا يوجد طالب بانتظار اعتماد الغياب الآن.</p>}
       </section>}
 
       {activeReport === 'incidents' && <section className="panel incident-report-panel">
