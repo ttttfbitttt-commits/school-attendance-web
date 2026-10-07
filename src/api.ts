@@ -270,7 +270,6 @@ export const api = {
   attendance: () => request<{ records: unknown[] }>('/attendance'),
   markAttendance: (studentId: string, status: 'present' | 'late') => request<{ ok: boolean; duplicate?: boolean }>('/attendance', { method: 'POST', body: JSON.stringify({ studentId, status }) }),
   markAttendanceBulk: (studentIds: string[], status: 'present' | 'late') => request<{ ok: boolean; created: string[]; duplicates: string[]; missing: string[] }>('/attendance/bulk', { method: 'POST', body: JSON.stringify({ studentIds, status }) }),
-  clearAttendance: (date: string) => request<{ ok: boolean }>(`/attendance?date=${encodeURIComponent(date)}`, { method: 'DELETE' }),
   almadar: () => request<{ account: AlmadarAccount }>('/almadar'),
   saveAlmadar: (settings: { username: string; password: string; apiKey: string; senderName: string }) => request<{ ok: boolean }>('/almadar', { method: 'PUT', body: JSON.stringify(settings) }),
   verifyAlmadar: () => request<{ ok: boolean; balance: string | number | null }>('/almadar/verify', { method: 'POST' }),

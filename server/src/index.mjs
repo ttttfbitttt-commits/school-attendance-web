@@ -287,11 +287,7 @@ const server = http.createServer(async (req, res) => {
       return json(res, result.rowCount ? 201 : 200, { ok: Boolean(result.rowCount), duplicate: !result.rowCount })
     }
     if (req.method === 'DELETE' && url.pathname === '/api/attendance') {
-      if (user.role !== 'admin') return json(res,403,{error:'forbidden'})
-      const date = url.searchParams.get('date') || todayRiyadh()
-      if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return json(res,400,{error:'invalid_date'})
-      await scoped(user.school_id, async c => c.query('DELETE FROM attendance_logs WHERE school_id=$1 AND attendance_date=$2', [user.school_id, date]))
-      return json(res,200,{ok:true})
+      return json(res,405,{error:'attendance_deletion_disabled'})
     }
     if (await handleLessonFlowRequest({ req, res, url, user, pool, body, json, scoped, todayRiyadh })) return
     if (await handleBehaviorRequest({ req, res, url, user, pool, body, json, scoped, todayRiyadh })) return

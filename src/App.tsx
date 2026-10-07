@@ -33,7 +33,6 @@ import {
   ShieldAlert,
   Sparkles,
   Square,
-  Trash2,
   Upload,
   Users,
   X,
@@ -1110,19 +1109,6 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
       })
       .catch(() => setNotice('تعذر حفظ التحضير اليدوي في الخادم. تحقق من الاتصال ثم أعد المحاولة.'))
       .finally(() => setManualAttendanceSubmitting(false))
-  }
-
-  // تفريغ سجل اليوم
-  const clearTodayScanLog = () => {
-    if (!scanLog.length) return
-    if (window.confirm('هل أنت متأكد من تفريغ سجل الحضور لهذا اليوم؟')) {
-      void api.clearAttendance(getTodayDateStr())
-        .then(() => {
-          setScanLog([])
-          setNotice('تم تفريغ سجل اليوم من الخادم بنجاح.')
-        })
-        .catch(() => setNotice('تعذر تفريغ السجل من الخادم. تحقق من الاتصال ثم أعد المحاولة.'))
-    }
   }
 
   // Export attended students only so separate teacher files can be merged safely.
@@ -2424,16 +2410,6 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
                     <span>تصدير / طباعة PDF</span>
                   </button>
 
-                  <button
-                    type="button"
-                    className="export-btn clear"
-                    onClick={clearTodayScanLog}
-                    disabled={!scanLog.length}
-                    title="تفريغ سجل اليوم"
-                  >
-                    <Trash2 size={16} />
-                    <span>تفريغ اليوم</span>
-                  </button>
                 </div>
               </div>
 
