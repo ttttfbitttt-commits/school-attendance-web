@@ -356,7 +356,7 @@ export function LessonFlowCenter({ schoolName, principalName }: { schoolName: st
   const videoRef = useRef<HTMLVideoElement | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const frameRef = useRef<number | null>(null)
-  const scanTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null)
+  const scanTimerRef = useRef<number | null>(null)
   const scanCanvasRef = useRef<HTMLCanvasElement | null>(null)
 
   const teacherOptions = overview?.teachers || []

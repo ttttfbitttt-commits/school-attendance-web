@@ -51,7 +51,7 @@ export function TeacherCooperationPanel({ status, onRefresh }: { status: Teacher
   const viewportRef = useRef<HTMLDivElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const frameRef = useRef(0)
-  const scanTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null)
+  const scanTimerRef = useRef<number | null>(null)
   const scanPauseUntilRef = useRef(0)
   const scanBusyRef = useRef(false)
   const lastCodeRef = useRef({ code: '', at: 0 })
