@@ -87,6 +87,24 @@ export async function handleTeacherCooperationRequest({ req, res, url, user, bod
     return true
   }
 
+  if (req.method === 'GET' && url.pathname === '/api/teacher-cooperation/students') {
+    if (!isTeacher) { json(res, 403, { error: 'forbidden' }); return true }
+    const query = clean(url.searchParams.get('q'), 100)
+    if (!query) { json(res, 200, { students: [] }); return true }
+    const result = await scoped(user.school_id, async client => {
+      const pattern = `%${query}%`
+      const students = (await client.query(`SELECT id,name,grade,classroom
+        FROM students
+        WHERE school_id=$1 AND active=true
+          AND (name ILIKE $2 OR id ILIKE $2)
+        ORDER BY CASE WHEN name ILIKE $3 THEN 0 ELSE 1 END, name
+        LIMIT 12`, [user.school_id, pattern, query])).rows
+      return { students }
+    })
+    json(res, 200, result)
+    return true
+  }
+
   if (req.method === 'POST' && url.pathname === '/api/teacher-cooperation/scan') {
     if (!isTeacher) { json(res, 403, { error: 'forbidden' }); return true }
     const input = await body(req)

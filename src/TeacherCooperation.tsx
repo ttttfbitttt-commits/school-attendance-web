@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import * as jsQRNs from 'jsqr'
 import { Camera, CheckCircle2, Download, Flashlight, Handshake, Maximize2, Minimize2, Printer, RefreshCw, Search, Square, Users, XCircle } from 'lucide-react'
-import { api, type TeacherCooperationEntry, type TeacherCooperationScan, type TeacherCooperationStatus } from './api'
+import { api, type TeacherCooperationEntry, type TeacherCooperationScan, type TeacherCooperationStatus, type TeacherCooperationStudent } from './api'
 import { HijriDatePicker } from './HijriDatePicker'
 import { formatHijriDate } from './dateUtils'
 import { downloadWorkbook, openPrintDocument } from './SchoolFeatures'
@@ -42,7 +42,10 @@ export function TeacherCooperationPanel({ status, onRefresh }: { status: Teacher
   const [torchSupported, setTorchSupported] = useState(false)
   const [torchOn, setTorchOn] = useState(false)
   const [fullScreen, setFullScreen] = useState(false)
-  const [manualCode, setManualCode] = useState('')
+  const [manualQuery, setManualQuery] = useState('')
+  const [manualCandidates, setManualCandidates] = useState<TeacherCooperationStudent[]>([])
+  const [manualSelection, setManualSelection] = useState<TeacherCooperationStudent | null>(null)
+  const [manualSearching, setManualSearching] = useState(false)
   const [recent, setRecent] = useState<TeacherCooperationScan[]>(status.recent)
   const [feedback, setFeedback] = useState<ScanFeedback | null>(null)
   const [notice, setNotice] = useState('')
@@ -56,8 +59,23 @@ export function TeacherCooperationPanel({ status, onRefresh }: { status: Teacher
   const scanBusyRef = useRef(false)
   const lastCodeRef = useRef({ code: '', at: 0 })
   const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const manualSearchRef = useRef<HTMLInputElement>(null)
+  const manualSearchRequestRef = useRef(0)
 
   useEffect(() => setRecent(status.recent), [status.recent])
+  useEffect(() => {
+    const query = manualQuery.trim()
+    if (!query) { manualSearchRequestRef.current += 1; setManualCandidates([]); setManualSearching(false); return }
+    const request = ++manualSearchRequestRef.current
+    const timer = window.setTimeout(() => {
+      setManualSearching(true)
+      void api.searchTeacherCooperationStudents(query)
+        .then(result => { if (manualSearchRequestRef.current === request) setManualCandidates(result.students) })
+        .catch(() => { if (manualSearchRequestRef.current === request) setManualCandidates([]) })
+        .finally(() => { if (manualSearchRequestRef.current === request) setManualSearching(false) })
+    }, 160)
+    return () => window.clearTimeout(timer)
+  }, [manualQuery])
   useEffect(() => {
     const handler = () => setFullScreen(Boolean(document.fullscreenElement))
     document.addEventListener('fullscreenchange', handler)
@@ -90,15 +108,17 @@ export function TeacherCooperationPanel({ status, onRefresh }: { status: Teacher
     feedbackTimerRef.current = setTimeout(() => setFeedback(null), next.kind === 'duplicate' ? 3000 : 2200)
   }
 
-  const processCode = async (rawCode: string) => {
+  const processCode = async (rawCode: string, source: 'camera' | 'manual' = 'camera') => {
     const code = rawCode.trim()
     if (!code || scanBusyRef.current) return
     const now = Date.now()
-    if (lastCodeRef.current.code === code && now - lastCodeRef.current.at < 1800) return
+    if (source === 'camera' && lastCodeRef.current.code === code && now - lastCodeRef.current.at < 1800) return
     lastCodeRef.current = { code, at: now }
     scanBusyRef.current = true
+    let completed = false
     try {
       const result = await api.scanTeacherCooperation(code)
+      completed = true
       const student = { name: result.student.name, grade: result.student.grade, classroom: result.student.classroom }
       if (result.outcome === 'duplicate') {
         showFeedback({ kind: 'duplicate', title: 'الطالب تم تحضيره مسبقًا', message: 'الطالب مسجل بالفعل في سجل حضور المدرسة.', student })
@@ -108,12 +128,17 @@ export function TeacherCooperationPanel({ status, onRefresh }: { status: Teacher
         showFeedback({ kind: 'created', title: 'تم تسجيل الحضور بنجاح', message: `${periodLabel(result.periodNumber)} · ${result.attendance.time}`, student })
         await onRefresh()
       }
-      setManualCode('')
     } catch (reason) {
       const error = reason as Error & { code?: string }
       const message = error.code === 'student_not_found' ? 'لم يتم التعرف على باركود الطالب في هذه المدرسة.' : error.code === 'cooperation_closed' ? 'انتهت فترة تعاون المعلمين لهذا اليوم.' : 'تعذر حفظ الحضور. تحقق من الاتصال ثم أعد المحاولة.'
       showFeedback({ kind: 'error', title: 'تعذر تسجيل الطالب', message })
     } finally {
+      if (source === 'manual' && completed) {
+        setManualSelection(null)
+        setManualQuery('')
+        setManualCandidates([])
+        window.setTimeout(() => manualSearchRef.current?.focus(), 0)
+      }
       window.setTimeout(() => { scanBusyRef.current = false }, 350)
     }
   }
@@ -187,7 +212,7 @@ export function TeacherCooperationPanel({ status, onRefresh }: { status: Teacher
       {feedback && <div className={`cooperation-scan-feedback ${feedback.kind}`} role="status" aria-live="assertive">{feedback.kind === 'error' ? <XCircle size={23} /> : <CheckCircle2 size={23} />}<div><strong>{feedback.title}</strong>{feedback.student && <b>{feedback.student.name}</b>}<span>{feedback.student ? `${feedback.student.grade} · ${feedback.student.classroom} — ` : ''}{feedback.message}</span></div></div>}
       {fullScreen && <button className="cooperation-exit-fullscreen" onClick={() => void toggleFullScreen()}><Minimize2 size={16} /> خروج</button>}
     </div>
-    <form className="cooperation-manual-code" onSubmit={event => { event.preventDefault(); void processCode(manualCode) }}><label>إدخال رقم الطالب أو محتوى الباركود يدويًا<input value={manualCode} onChange={event => setManualCode(event.target.value)} inputMode="numeric" placeholder="اكتب الرقم عند تعذر استخدام الكاميرا" /></label><button disabled={!manualCode.trim()}><Search size={17} /> تسجيل</button></form>
+    <section className="cooperation-manual-search"><label>التحضير اليدوي بالاسم أو الرقم<div className="cooperation-search-input"><Search size={17} /><input ref={manualSearchRef} type="search" value={manualQuery} onChange={event => setManualQuery(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && manualCandidates.length === 1) { event.preventDefault(); setManualSelection(manualCandidates[0]); setManualQuery('') } }} placeholder="اكتب اسم الطالب أو رقمه..." aria-label="ابحث عن طالب لتسجيل حضوره" aria-autocomplete="list" /></div></label>{manualQuery.trim() && <div className="cooperation-manual-results" role="listbox" aria-label="نتائج البحث عن الطلاب">{manualSearching ? <p>جارٍ البحث...</p> : manualCandidates.length ? manualCandidates.map(student => <button type="button" role="option" key={student.id} onClick={() => { setManualSelection(student); setManualQuery('') }}><span><strong>{student.name}</strong><small>رقم {student.id} · {student.grade} · فصل {student.classroom}</small></span><b>اختيار</b></button>) : <p>لم يتم العثور على طالب بهذا الاسم أو الرقم.</p>}</div>}{manualSelection && <div className="cooperation-manual-selection"><div><strong>تأكيد تسجيل الطالب</strong><span>{manualSelection.name}</span><small>رقم {manualSelection.id} · {manualSelection.grade} · فصل {manualSelection.classroom}</small></div><div><button type="button" onClick={() => { setManualSelection(null); window.setTimeout(() => manualSearchRef.current?.focus(), 0) }}>إلغاء</button><button type="button" className="confirm" onClick={() => void processCode(manualSelection.id, 'manual')}>تأكيد التسجيل</button></div></div>}</section>
     <section className="cooperation-recent"><div><span>سجل هذه الفترة</span><strong>{recent.length} عملية ناجحة</strong></div>{recent.length ? <div className="cooperation-recent-list">{recent.map(item => <article key={item.id}><CheckCircle2 size={18} /><div><strong>{item.studentName}</strong><span>{item.grade} · {item.classroom}</span></div><small>{periodLabel(item.periodNumber)}<b>{item.time}</b></small></article>)}</div> : <p>لم تسجل أي طالب حتى الآن.</p>}</section>
   </section>
 }

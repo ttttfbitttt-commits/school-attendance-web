@@ -129,6 +129,7 @@ export type TeacherPortalScheduleItem = { assignmentId: string; classroomId: str
 export type TeacherPortalDashboard = { schoolName: string; teacher: { name: string; identityNumber: string }; date: string; weekday: number; schedule: TeacherPortalScheduleItem[]; weekSchedule: TeacherPortalScheduleItem[]; periodNumbers: number[] }
 export type TeacherCooperationContributor = { teacherId: string; name: string; count: number; firstTime: string; lastTime: string }
 export type TeacherCooperationScan = { id: string; studentId: string; studentName: string; grade: string; classroom: string; periodNumber: number; status: 'present' | 'late'; time: string }
+export type TeacherCooperationStudent = { id: string; name: string; grade: string; classroom: string }
 export type TeacherCooperationStatus = {
   date: string; configured: boolean; available: boolean; activePeriod: 1 | 2 | null; windowStart: string; windowEnd: string
   periods: Array<{ periodNumber: 1 | 2; startTime: string; endTime: string }>
@@ -356,6 +357,7 @@ export const api = {
   changeAdministratorPassword: (currentPassword: string, newPassword: string) => request<{ ok: boolean }>('/administrator-portal/password', { method: 'POST', body: JSON.stringify({ currentPassword, newPassword }) }),
   teacherAdminReports: (filters: { date?: string; teacherId?: string; note?: string; classroomId?: string } = {}) => request<{ reports: TeacherLessonReport[] }>(`/teacher-portal/admin/reports?${new URLSearchParams(Object.entries(filters).filter(([, value]) => value).map(([key, value]) => [key, value || '']))}`),
   teacherCooperationStatus: () => request<TeacherCooperationStatus>('/teacher-cooperation/status'),
+  searchTeacherCooperationStudents: (query: string) => request<{ students: TeacherCooperationStudent[] }>(`/teacher-cooperation/students?q=${encodeURIComponent(query)}`),
   scanTeacherCooperation: (code: string) => request<{ outcome: 'created' | 'duplicate'; student: { id: string; name: string; grade: string; classroom: string }; attendance: { status: 'present' | 'late'; time: string }; periodNumber: 1 | 2 }>('/teacher-cooperation/scan', { method: 'POST', body: JSON.stringify({ code }) }),
   teacherCooperationReport: (filters: { from?: string; to?: string; teacherId?: string; periodNumber?: string } = {}) => request<{ schoolName: string; principalName: string; entries: TeacherCooperationEntry[]; teachers: Array<{ teacherId: string; name: string }> }>(`/teacher-cooperation/report?${new URLSearchParams(Object.entries(filters).filter(([, value]) => value).map(([key, value]) => [key, value || '']))}`),
   studentReferrals: (filters: { status?: StudentReferralStatus | ''; teacherId?: string; from?: string; to?: string; q?: string } = {}) =>
