@@ -50,12 +50,21 @@ export function AdministratorAdminCenter({ schoolName }: { schoolName: string })
         const buffer = await file.arrayBuffer(); const workbook = XLSX.read(buffer, { type: 'array' }); const sheet = workbook.Sheets[workbook.SheetNames[0]]
         const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' }) as unknown[][]
         if (!rows.length) continue
-        const headers = (rows[0] || []).map(normalizedHeader)
+        // ملفات وزارة التعليم قد تبدأ بمعلومات الجهة والشعار، ثم يأتي صف العناوين لاحقًا.
+        const headerRow = rows.findIndex(row => {
+          const headers = row.map(normalizedHeader)
+          return locate(headers, ['الاسم', 'اسمالموظف', 'الموظف']) >= 0 && locate(headers, ['رقمالهويه', 'الهوية', 'السجلالمدني', 'الرقمالمدني']) >= 0
+        })
+        if (headerRow < 0) continue
+        const headers = rows[headerRow].map(normalizedHeader)
         const nameIndex = locate(headers, ['الاسم', 'اسمالموظف', 'الموظف'])
         const identityIndex = locate(headers, ['رقمالهويه', 'الهوية', 'السجلالمدني', 'الرقمالمدني'])
         const phoneIndex = locate(headers, ['الجوال', 'رقمالجوال', 'الهاتف', 'رقمالهاتف', 'التواصل'])
-        if (nameIndex < 0 || identityIndex < 0) continue
-        rows.slice(1).forEach(row => all.push({ name: String(row[nameIndex] ?? '').trim(), identityNumber: identity(row[identityIndex]), phone: String(phoneIndex >= 0 ? row[phoneIndex] ?? '' : '').trim() }))
+        rows.slice(headerRow + 1).forEach(row => {
+          const name = String(row[nameIndex] ?? '').trim()
+          const identityNumber = identity(row[identityIndex])
+          if (name && identityNumber) all.push({ name, identityNumber, phone: String(phoneIndex >= 0 ? row[phoneIndex] ?? '' : '').trim() })
+        })
       }
       if (!all.length) throw new Error('invalid')
       const result = await api.importAdministrators(all)
