@@ -75,9 +75,8 @@ function adminOnly(user) { return user.role === 'admin' }
 async function attendanceRows(client, schoolId, date) {
   return (await client.query(`SELECT a.student_id AS "studentId",to_char(a.attendance_date,'YYYY-MM-DD') AS date,
     to_char(a.recorded_at AT TIME ZONE 'Asia/Riyadh','HH24:MI:SS') AS time,a.status,s.name,s.grade,s.classroom,s.phone,
-    u.display_name AS "recordedBy"
+    NULL::text AS "recordedBy"
     FROM attendance_logs a JOIN students s ON s.school_id=a.school_id AND s.id=a.student_id
-    LEFT JOIN users u ON u.id=a.recorded_by
     WHERE a.school_id=$1 AND a.attendance_date=$2::date ORDER BY a.recorded_at DESC`, [schoolId, date])).rows
 }
 
