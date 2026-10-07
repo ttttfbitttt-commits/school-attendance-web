@@ -49,6 +49,7 @@ export function AdministratorPortal({ account, onLogout }: { account: Account; o
   const [currentPassword, setCurrentPassword] = useState('')
   const [newPassword, setNewPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
+  const menuWrapRef = useRef<HTMLDivElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
@@ -124,6 +125,16 @@ export function AdministratorPortal({ account, onLogout }: { account: Account; o
     document.addEventListener('visibilitychange', stopWhenHidden)
     return () => document.removeEventListener('visibilitychange', stopWhenHidden)
   }, [])
+  useEffect(() => {
+    if (!menuOpen) return
+    const closeOutsideMenu = (event: PointerEvent) => {
+      if (event.target instanceof Node && !menuWrapRef.current?.contains(event.target)) setMenuOpen(false)
+    }
+    const closeWithEscape = (event: KeyboardEvent) => { if (event.key === 'Escape') setMenuOpen(false) }
+    document.addEventListener('pointerdown', closeOutsideMenu)
+    document.addEventListener('keydown', closeWithEscape)
+    return () => { document.removeEventListener('pointerdown', closeOutsideMenu); document.removeEventListener('keydown', closeWithEscape) }
+  }, [menuOpen])
 
   const findStudent = (raw: string) => {
     const code = normalize(raw)
@@ -207,7 +218,7 @@ export function AdministratorPortal({ account, onLogout }: { account: Account; o
   }
   const chooseView = (next: View) => { setView(next); setMenuOpen(false) }
 
-  return <main className="administrator-portal" dir="rtl"><header className="administrator-topbar"><div><span>{schoolName || 'بوابة الإداري'}</span><h1>مرحبًا، {account.displayName}</h1></div><div className="administrator-menu-wrap"><button className="administrator-menu" onClick={() => setMenuOpen(current => !current)} aria-label="القائمة"><MoreVertical size={24} /></button>{menuOpen && <nav><button onClick={() => chooseView('attendance')}>سجل الحضور</button>{lessonFlowAccess && <button onClick={() => chooseView('lessons')}>سير الحصص</button>}<button onClick={() => chooseView('reports')}>التقارير</button><button onClick={() => chooseView('password')}>تغيير كلمة المرور</button><button className="logout" onClick={onLogout}><LogOut size={16} /> تسجيل الخروج</button></nav>}</div></header>
+  return <main className="administrator-portal" dir="rtl"><header className="administrator-topbar"><div><span>{schoolName || 'بوابة الإداري'}</span><h1>مرحبًا، {account.displayName}</h1></div><div ref={menuWrapRef} className="administrator-menu-wrap"><button className="administrator-menu" onClick={() => setMenuOpen(current => !current)} aria-label="القائمة"><MoreVertical size={24} /></button>{menuOpen && <nav><button onClick={() => chooseView('attendance')}>سجل الحضور</button>{lessonFlowAccess && <button onClick={() => chooseView('lessons')}>سير الحصص</button>}<button onClick={() => chooseView('reports')}>التقارير</button><button onClick={() => chooseView('password')}>تغيير كلمة المرور</button><button className="logout" onClick={onLogout}><LogOut size={16} /> تسجيل الخروج</button></nav>}</div></header>
     {notice && <p className={`administrator-notice ${notice.type}`}>{notice.type === 'error' ? <XCircle size={18} /> : <CheckCircle2 size={18} />}{notice.text}</p>}
     {view === 'attendance' && <section className="administrator-attendance"><header><div><span>سجل اليوم · {formatHijriDate(today())}</span><h2>تحضير الطلاب وحصر التأخر</h2><p>كل عملية تُسجل مباشرة في حساب المدرسة. لا توجد صلاحية حذف من هذا الحساب.</p></div><UsersRound size={31} /></header><div className="administrator-stats"><article><b>{records.length}</b><span>إجمالي المسجلين</span></article><article><b>{present}</b><span>حاضر</span></article><article><b>{late}</b><span>متأخر</span></article></div><div className="administrator-mode"><button className={mode === 'present' ? 'active' : ''} onClick={() => setMode('present')}>تحضير الطلاب</button><button className={mode === 'late' ? 'late active' : 'late'} onClick={() => setMode('late')}>حصر التأخر</button></div><section className="administrator-camera"><div className="administrator-camera-head"><div><Camera size={20} /><strong>{mode === 'late' ? 'رصد المتأخرين' : 'تحضير الطلاب'}</strong></div>{camera ? <button className="outline-button" onClick={stopCamera}><Square size={15} fill="currentColor" /> إيقاف الكاميرا</button> : <button className="primary-button" onClick={() => void startCamera()}><Camera size={16} /> فتح الكاميرا</button>}</div>{camera && <div className="administrator-video"><video ref={videoRef} autoPlay muted playsInline /><canvas ref={canvasRef} hidden />{scanResult && <div className={`administrator-scan-result ${scanResult.type}`} role="status" aria-live="assertive">{scanResult.text}</div>}<span>وجّه الكاميرا نحو باركود الطالب</span></div>}<form className="administrator-manual" onSubmit={event => { event.preventDefault(); void recordStudent(manualCode, 'manual') }}><input value={manualCode} onChange={event => setManualCode(event.target.value)} placeholder="أدخل اسم الطالب أو رقمه أو امسح الباركود بالكاميرا" /><button className="primary-button" disabled={!manualCode.trim() || busy}><Search size={17} /> بحث وتسجيل</button></form></section><section className="administrator-manual-list"><div><label><Search size={17} /><input value={query} onChange={event => setQuery(event.target.value)} placeholder="الحصر اليدوي: ابحث باسم الطالب أو رقمه" /></label></div>{query && <div className="administrator-student-list">{filteredStudents.map(student => <button key={student.id} onClick={() => void recordStudent(student.id, 'manual')} disabled={busy}><span><strong>{student.name}</strong><small>{student.grade} · {student.classroom}</small></span><b>{mode === 'late' ? 'تسجيل متأخر' : 'تسجيل حاضر'}</b></button>)}</div>}</section><section className="administrator-recent"><h3>آخر العمليات</h3>{records.slice(0, 12).map(record => <article key={`${record.studentId}-${record.date}`}><CheckCircle2 size={18} /><span><strong>{record.name}</strong><small>{record.grade} · {record.classroom}</small></span><b className={record.status}>{record.status === 'late' ? 'متأخر' : 'حاضر'}</b><time>{record.time}</time></article>)}{!records.length && <p>لا توجد عمليات تسجيل حتى الآن.</p>}</section></section>}
     {view === 'lessons' && lessonFlowAccess && <LessonFlowCenter schoolName={schoolName} principalName={principalName} />}
