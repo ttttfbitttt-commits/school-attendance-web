@@ -51,6 +51,7 @@ async function auth(req) {
   if (!token) return null
   const { rows } = await authPool.query(`SELECT s.user_id, s.school_id, u.email, u.display_name, m.role,
       account.teacher_id,administrator_account.administrator_id,
+      administrator_account.lesson_flow_access,
       COALESCE(account.must_change_password,administrator_account.must_change_password) AS must_change_password
     FROM sessions s JOIN users u ON u.id=s.user_id JOIN memberships m ON m.user_id=s.user_id AND m.school_id=s.school_id
       LEFT JOIN teacher_login_accounts account ON account.user_id=s.user_id AND account.school_id=s.school_id
@@ -72,6 +73,7 @@ function account(row) {
     schoolId: row.school_id,
     teacherId: row.teacher_id || undefined,
     administratorId: row.administrator_id || undefined,
+    lessonFlowAccess: Boolean(row.lesson_flow_access),
     mustChangePassword: Boolean(row.must_change_password),
   }
 }
@@ -244,7 +246,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/api/auth/administrator-login') {
       const { identityNumber, password, schoolId } = await body(req)
       const identity = String(identityNumber || '').replace(/\D/g, '').slice(0, 32)
-      const candidates = await authPool.query(`SELECT account.user_id,account.school_id,account.administrator_id,account.must_change_password,account.password_hash,u.email,u.display_name,m.role
+      const candidates = await authPool.query(`SELECT account.user_id,account.school_id,account.administrator_id,account.must_change_password,account.lesson_flow_access,account.password_hash,u.email,u.display_name,m.role
         FROM administrative_login_accounts account JOIN users u ON u.id=account.user_id
           JOIN memberships m ON m.user_id=account.user_id AND m.school_id=account.school_id
         WHERE account.identity_number=$1 AND account.active=true AND m.role='administrator'${schoolId ? ' AND account.school_id=$2' : ''}`,
@@ -281,6 +283,7 @@ const server = http.createServer(async (req, res) => {
     if (await handleStudentReferralRequest({ req, res, url, user, body, json, scoped, todayRiyadh })) return
     if (await handleTeacherPortalRequest({ req, res, url, user, pool, authPool, body, json, scoped, todayRiyadh, passwordHash })) return
     if (await handleAdministratorPortalRequest({ req, res, url, user, body, json, scoped, todayRiyadh, authPool, passwordHash })) return
+    if (await handleLessonFlowRequest({ req, res, url, user, body, json, scoped })) return
     // Teacher accounts are intentionally isolated from the administrative attendance APIs.
     if (user.role === 'teacher' || user.role === 'administrator') return json(res, 403, { error: 'portal_only' })
     if (req.method === 'GET' && url.pathname === '/api/school') {
@@ -329,7 +332,6 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'DELETE' && url.pathname === '/api/attendance') {
       return json(res,405,{error:'attendance_deletion_disabled'})
     }
-    if (await handleLessonFlowRequest({ req, res, url, user, pool, body, json, scoped, todayRiyadh })) return
     if (await handleBehaviorRequest({ req, res, url, user, pool, body, json, scoped, todayRiyadh })) return
     if (await handleFeatureRequest({ req, res, url, user, pool, body, json, scoped, todayRiyadh })) return
     return json(res, 404, { error: 'not_found' })
