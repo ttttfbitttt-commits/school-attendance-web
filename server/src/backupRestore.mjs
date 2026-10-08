@@ -112,7 +112,8 @@ async function snapshotForSchool(backupPool, schoolId) {
     const school = (await client.query('SELECT row_to_json(source) AS row FROM public.schools AS source WHERE id=$1', [schoolId])).rows[0]?.row
     if (!school) throw new Error('school_not_found')
     const tables = await schoolTables(client)
-    const entries = await Promise.all(tables.map(async table => [table, await rowsForSchool(client, table, schoolId)]))
+    const entries = []
+    for (const table of tables) entries.push([table, await rowsForSchool(client, table, schoolId)])
     const users = (await client.query(`SELECT account.*
       FROM public.users AS account JOIN public.memberships AS membership ON membership.user_id=account.id
       WHERE membership.school_id=$1`, [schoolId])).rows
