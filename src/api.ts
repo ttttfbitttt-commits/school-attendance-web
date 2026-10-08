@@ -245,6 +245,22 @@ export type BehaviorStudentProfile = {
   movements: Array<{ id: string; type: 'deduction' | 'compensation' | 'distinguished' | 'reversal'; bucket: 'positive' | 'distinguished'; amount: number; reason: string; evidence: string; sourceMovementId: string | null; createdAt: string }>
 }
 
+export type SchoolBackupSnapshot = {
+  createdAt: string
+  schoolName: string
+  schoolId: string
+  totalRows: number
+  students: number
+  attendance: number
+  teachers: number
+  administrators: number
+  lessonRecords: number
+  sheets: number
+  behavior: number
+  referrals: number
+  tableCounts: Record<string, number>
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`/api${path}`, {
     credentials: 'include',
@@ -261,6 +277,25 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return data as T
 }
 
+async function schoolBackupDownload(currentPassword: string, backupPassword: string) {
+  const response = await fetch('/api/school-backup/export', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ currentPassword, backupPassword }),
+  })
+  if (!response.ok) {
+    const data = await response.json().catch(() => ({}))
+    const error = new Error(data.error || 'request_failed') as Error & { code?: string }
+    error.code = data.error || 'request_failed'
+    throw error
+  }
+  return {
+    blob: await response.blob(),
+    filename: response.headers.get('content-disposition')?.match(/filename="?([^";]+)"?/i)?.[1] || 'school-backup.7asrbackup',
+  }
+}
+
 export const api = {
   me: () => request<{ user: Account }>('/me'),
   login: (email: string, password: string) => request<{ user: Account }>('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
@@ -270,6 +305,9 @@ export const api = {
   verifySchoolEmail: (token: string) => request<{ user: Account; school: { id: string; name: string } }>('/auth/verify-email', { method: 'POST', body: JSON.stringify({ token }) }),
   logout: () => request<{ ok: boolean }>('/auth/logout', { method: 'POST' }),
   changeSchoolPassword: (currentPassword: string, newPassword: string) => request<{ ok: boolean }>('/auth/school-password', { method: 'POST', body: JSON.stringify({ currentPassword, newPassword }) }),
+  downloadSchoolBackup: schoolBackupDownload,
+  previewSchoolBackup: (currentPassword: string, backupPassword: string, archive: string) => request<{ snapshot: SchoolBackupSnapshot }>('/school-backup/preview', { method: 'POST', body: JSON.stringify({ currentPassword, backupPassword, archive }) }),
+  restoreSchoolBackup: (currentPassword: string, backupPassword: string, archive: string, confirmSchoolName: string) => request<{ ok: boolean; snapshot: SchoolBackupSnapshot; reloginRequired: boolean }>('/school-backup/restore', { method: 'POST', body: JSON.stringify({ currentPassword, backupPassword, archive, confirmSchoolName }) }),
   school: () => request<{ school: SchoolProfile }>('/school'),
   saveSchool: (school: SchoolProfile) => request<{ school: SchoolProfile }>('/school', { method: 'PUT', body: JSON.stringify(school) }),
   students: () => request<{ students: unknown[] }>('/students'),

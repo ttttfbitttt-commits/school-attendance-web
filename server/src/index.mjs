@@ -10,12 +10,16 @@ import { handleBehaviorRequest, migrateBehavior } from './behavior.mjs'
 import { handleStudentReferralRequest, migrateStudentReferrals } from './studentReferrals.mjs'
 import { handleTeacherCooperationRequest, migrateTeacherCooperation } from './teacherCooperation.mjs'
 import { handleAdministratorPortalRequest, migrateAdministratorPortal } from './administratorPortal.mjs'
+import { handleBackupRestoreRequest, migrateBackupRestore } from './backupRestore.mjs'
 
 const { Pool } = pg
 if (!process.env.DATABASE_URL || !process.env.RUNTIME_DATABASE_URL || !process.env.AUTH_DATABASE_URL) {
   throw new Error('database_roles_not_configured')
 }
 const adminPool = new Pool({ connectionString: process.env.DATABASE_URL })
+// This pool is intentionally reserved for the encrypted backup endpoint. That endpoint
+// verifies the current school password and never accepts a caller-provided table or query.
+const backupPool = new Pool({ connectionString: process.env.DATABASE_URL, max: 1 })
 const pool = new Pool({ connectionString: process.env.RUNTIME_DATABASE_URL })
 const authPool = new Pool({ connectionString: process.env.AUTH_DATABASE_URL })
 const PORT = Number(process.env.PORT || 3000)
@@ -45,12 +49,12 @@ function passwordMatches(password, saved) {
   const actual = crypto.scryptSync(password, salt, 64).toString('hex')
   return crypto.timingSafeEqual(Buffer.from(hash, 'hex'), Buffer.from(actual, 'hex'))
 }
-async function body(req) {
+async function body(req, maxBytes = 2_000_000) {
   const chunks = []
   let size = 0
   for await (const chunk of req) {
     size += chunk.length
-    if (size > 2_000_000) throw new Error('payload_too_large')
+    if (size > maxBytes) throw new Error('payload_too_large')
     chunks.push(chunk)
   }
   try {
@@ -259,6 +263,7 @@ async function migrateDatabase() {
   await migrateBehavior(adminPool)
   await migrateStudentReferrals(adminPool)
   await migrateTeacherCooperation(adminPool)
+  await migrateBackupRestore(adminPool)
   await enforceTenantRowSecurity()
   await configureDatabaseRoles()
 }
@@ -342,6 +347,7 @@ const server = http.createServer(async (req, res) => {
       await authPool.query('DELETE FROM sessions WHERE user_id=$1 AND token_hash<>$2', [user.user_id, tokenHash(currentToken)])
       return json(res, 200, { ok: true })
     }
+    if (await handleBackupRestoreRequest({ req, res, url, user, body, json, backupPool, authPool, passwordMatches })) return
     if (await handleTeacherCooperationRequest({ req, res, url, user, body, json, scoped })) return
     if (await handleStudentReferralRequest({ req, res, url, user, body, json, scoped, todayRiyadh })) return
     if (await handleTeacherPortalRequest({ req, res, url, user, pool, authPool, body, json, scoped, todayRiyadh, passwordHash })) return

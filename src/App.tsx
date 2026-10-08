@@ -52,6 +52,7 @@ import { TeacherPortal } from './TeacherPortal'
 import { BehaviorCenter } from './BehaviorCenter'
 import { SchoolReferralCenter } from './StudentReferrals'
 import { TeacherCooperationAdmin } from './TeacherCooperation'
+import { BackupRestoreCenter } from './BackupRestoreCenter'
 
 type Student = {
   id: string
@@ -189,7 +190,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
   const [attendanceSearch, setAttendanceSearch] = useState('')
   const [attendanceStudentSearch, setAttendanceStudentSearch] = useState('')
   const [scanInput, setScanInput] = useState('')
-  const [activeNav, setActiveNav] = useState<'dashboard' | 'students' | 'attendance' | 'cooperation' | 'behavior' | 'lessons' | 'teachers' | 'administrators' | 'referrals' | 'reports' | 'messages'>('attendance')
+  const [activeNav, setActiveNav] = useState<'dashboard' | 'students' | 'attendance' | 'cooperation' | 'behavior' | 'lessons' | 'teachers' | 'administrators' | 'referrals' | 'reports' | 'messages' | 'backup'>('attendance')
   const [manualAttendanceSelection, setManualAttendanceSelection] = useState<Student[]>([])
   const [manualAttendanceSubmitting, setManualAttendanceSubmitting] = useState(false)
   const [isImporting, setIsImporting] = useState(false)
@@ -1494,7 +1495,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
     setTimeout(() => URL.revokeObjectURL(url), 600000)
   }
 
-  const pageLabel = activeNav === 'dashboard' ? 'إعدادات المدرسة' : activeNav === 'attendance' ? 'سجل الحضور' : activeNav === 'cooperation' ? 'المعلم المتعاون' : activeNav === 'behavior' ? 'سجل السلوك' : activeNav === 'lessons' ? 'سير الحصص' : activeNav === 'teachers' ? 'المعلمون' : activeNav === 'administrators' ? 'الإداريون' : activeNav === 'referrals' ? 'إحالات الطلاب' : activeNav === 'reports' ? 'التقارير' : activeNav === 'messages' ? 'الرسائل' : 'إدارة الطلاب'
+  const pageLabel = activeNav === 'dashboard' ? 'إعدادات المدرسة' : activeNav === 'attendance' ? 'سجل الحضور' : activeNav === 'cooperation' ? 'المعلم المتعاون' : activeNav === 'behavior' ? 'سجل السلوك' : activeNav === 'lessons' ? 'سير الحصص' : activeNav === 'teachers' ? 'المعلمون' : activeNav === 'administrators' ? 'الإداريون' : activeNav === 'referrals' ? 'إحالات الطلاب' : activeNav === 'reports' ? 'التقارير' : activeNav === 'messages' ? 'الرسائل' : activeNav === 'backup' ? 'النسخ الاحتياطي والاستعادة' : 'إدارة الطلاب'
   return (
     <div className="app-shell" dir="rtl">
       {isMobileMenuOpen && (
@@ -1652,6 +1653,17 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
             <ExternalLink size={18} />
             <span>الرسائل</span>
           </button>
+
+          {account.role === 'admin' && <button
+            className={activeNav === 'backup' ? 'nav-item active' : 'nav-item'}
+            onClick={() => {
+              setActiveNav('backup')
+              setIsMobileMenuOpen(false)
+            }}
+          >
+            <Save size={18} />
+            <span>النسخ الاحتياطي</span>
+          </button>}
         </nav>
 
         <div className="sidebar-bottom">
@@ -2233,6 +2245,8 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
         {activeNav === 'behavior' && <BehaviorCenter school={schoolSettings} role={account.role === 'admin' ? 'admin' : 'staff'} />}
 
         {activeNav === 'messages' && <MessageCenter students={students} attendance={scanLog} schoolName={schoolSettings.schoolName} />}
+
+        {activeNav === 'backup' && account.role === 'admin' && <BackupRestoreCenter schoolName={schoolSettings.schoolName} />}
 
         {activeNav === 'attendance' && (
           <section className="attendance-panel">
