@@ -400,6 +400,8 @@ const server = http.createServer(async (req, res) => {
     return json(res, 404, { error: 'not_found' })
   } catch (error) {
     console.error(error)
+    if (error instanceof Error && error.message === 'invalid_json') return json(res, 400, { error: 'invalid_json' })
+    if (error instanceof Error && error.message === 'payload_too_large') return json(res, 413, { error: 'payload_too_large' })
     if (error instanceof Error && error.message === 'almadar_encryption_not_configured') return json(res, 503, { error: 'almadar_encryption_not_configured' })
     if (error instanceof Error && error.message === 'teacher_credential_encryption_not_configured') return json(res, 503, { error: 'teacher_credential_encryption_not_configured' })
     return json(res, 500, { error: 'server_error' })
