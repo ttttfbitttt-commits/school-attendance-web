@@ -21,6 +21,10 @@ const authPool = new Pool({ connectionString: process.env.AUTH_DATABASE_URL })
 const PORT = Number(process.env.PORT || 3000)
 const COOKIE = 'attendance_session'
 const secureCookie = process.env.NODE_ENV === 'production'
+const LOGIN_WINDOW_MS = 15 * 60 * 1000
+const LOGIN_IP_LIMIT = 20
+const LOGIN_IDENTITY_LIMIT = 10
+const loginAttempts = new Map()
 
 function json(res, status, body) {
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
@@ -43,8 +47,58 @@ function passwordMatches(password, saved) {
 }
 async function body(req) {
   const chunks = []
-  for await (const chunk of req) { chunks.push(chunk); if (Buffer.concat(chunks).length > 2_000_000) throw new Error('payload_too_large') }
-  try { return JSON.parse(Buffer.concat(chunks).toString() || '{}') } catch { throw new Error('invalid_json') }
+  let size = 0
+  for await (const chunk of req) {
+    size += chunk.length
+    if (size > 2_000_000) throw new Error('payload_too_large')
+    chunks.push(chunk)
+  }
+  try {
+    const parsed = JSON.parse(Buffer.concat(chunks).toString() || '{}')
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('invalid_json')
+    return parsed
+  } catch { throw new Error('invalid_json') }
+}
+function clientAddress(req) {
+  const forwarded = String(req.headers['x-real-ip'] || req.headers['x-forwarded-for'] || '').split(',')[0].trim()
+  return forwarded && forwarded.length <= 96 ? forwarded : String(req.socket.remoteAddress || 'unknown').slice(0, 96)
+}
+function loginKeys(req, scope, identity) {
+  const normalizedIdentity = String(identity || '').trim().toLocaleLowerCase('en').slice(0, 254)
+  const identityHash = crypto.createHash('sha256').update(normalizedIdentity).digest('hex')
+  return [`${scope}:ip:${clientAddress(req)}`, `${scope}:identity:${identityHash}`]
+}
+function attemptState(key, now) {
+  const saved = loginAttempts.get(key)
+  if (!saved || saved.startedAt + LOGIN_WINDOW_MS <= now) {
+    const fresh = { startedAt: now, count: 0 }
+    loginAttempts.set(key, fresh)
+    return fresh
+  }
+  return saved
+}
+function loginRateLimited(req, scope, identity) {
+  const now = Date.now()
+  const [ipKey, identityKey] = loginKeys(req, scope, identity)
+  const ip = attemptState(ipKey, now)
+  const account = attemptState(identityKey, now)
+  const limited = ip.count >= LOGIN_IP_LIMIT || account.count >= LOGIN_IDENTITY_LIMIT
+  if (!limited) return false
+  return Math.max(1, Math.ceil((Math.min(ip.startedAt, account.startedAt) + LOGIN_WINDOW_MS - now) / 1000))
+}
+function recordFailedLogin(req, scope, identity) {
+  const now = Date.now()
+  for (const key of loginKeys(req, scope, identity)) attemptState(key, now).count += 1
+  if (loginAttempts.size > 5000) {
+    for (const [key, value] of loginAttempts) if (value.startedAt + LOGIN_WINDOW_MS <= now) loginAttempts.delete(key)
+  }
+}
+function clearLoginAttempts(req, scope, identity) {
+  for (const key of loginKeys(req, scope, identity)) loginAttempts.delete(key)
+}
+function loginThrottleResponse(res, retryAfter) {
+  res.setHeader('retry-after', String(retryAfter))
+  return json(res, 429, { error: 'too_many_login_attempts' })
 }
 async function auth(req) {
   const token = parseCookies(req)[COOKIE]
@@ -217,21 +271,26 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/api/auth/verify-email') return verifySchoolRegistration({ req, res, authPool, body, json, scopedOn, createSession })
     if (req.method === 'POST' && url.pathname === '/api/auth/login') {
       const { email, password } = await body(req)
+      const retryAfter = loginRateLimited(req, 'school', email)
+      if (retryAfter) return loginThrottleResponse(res, retryAfter)
       const user = await authPool.query(`SELECT u.id,u.email,u.display_name,m.school_id,m.role,u.password_hash FROM users u JOIN memberships m ON m.user_id=u.id WHERE u.email=lower($1) AND m.role IN ('admin','staff') ORDER BY m.role='admin' DESC LIMIT 1`, [email || ''])
-      if (!user.rows[0] || !passwordMatches(String(password || ''), user.rows[0].password_hash)) return json(res, 401, { error: 'invalid_login' })
+      if (!user.rows[0] || !passwordMatches(String(password || ''), user.rows[0].password_hash)) { recordFailedLogin(req, 'school', email); return json(res, 401, { error: 'invalid_login' }) }
+      clearLoginAttempts(req, 'school', email)
       await createSession(res, user.rows[0].id, user.rows[0].school_id)
       return json(res, 200, { user: account(user.rows[0]) })
     }
     if (req.method === 'POST' && url.pathname === '/api/auth/teacher-login') {
       const { identityNumber, password, schoolId } = await body(req)
       const identity = String(identityNumber || '').replace(/\D/g, '').slice(0, 32)
+      const retryAfter = loginRateLimited(req, 'teacher', identity)
+      if (retryAfter) return loginThrottleResponse(res, retryAfter)
       const candidates = await authPool.query(`SELECT account.user_id,account.school_id,account.teacher_id,account.must_change_password,account.password_hash,u.email,u.display_name,m.role
         FROM teacher_login_accounts account JOIN users u ON u.id=account.user_id
           JOIN memberships m ON m.user_id=account.user_id AND m.school_id=account.school_id
         WHERE account.identity_number=$1 AND account.active=true AND m.role='teacher'${schoolId ? ' AND account.school_id=$2' : ''}`,
       schoolId ? [identity, String(schoolId)] : [identity])
       const matches = candidates.rows.filter(row => passwordMatches(String(password || ''), row.password_hash))
-      if (!matches.length) return json(res, 401, { error: 'invalid_teacher_login' })
+      if (!matches.length) { recordFailedLogin(req, 'teacher', identity); return json(res, 401, { error: 'invalid_teacher_login' }) }
       if (!schoolId && matches.length > 1) {
         const schools = await Promise.all(matches.map(async row => ({
           id: row.school_id,
@@ -240,24 +299,28 @@ const server = http.createServer(async (req, res) => {
         return json(res, 409, { error: 'teacher_school_selection_required', schools })
       }
       const teacher = matches[0]
+      clearLoginAttempts(req, 'teacher', identity)
       await createSession(res, teacher.user_id, teacher.school_id)
       return json(res, 200, { user: account(teacher) })
     }
     if (req.method === 'POST' && url.pathname === '/api/auth/administrator-login') {
       const { identityNumber, password, schoolId } = await body(req)
       const identity = String(identityNumber || '').replace(/\D/g, '').slice(0, 32)
+      const retryAfter = loginRateLimited(req, 'administrator', identity)
+      if (retryAfter) return loginThrottleResponse(res, retryAfter)
       const candidates = await authPool.query(`SELECT account.user_id,account.school_id,account.administrator_id,account.must_change_password,account.lesson_flow_access,account.password_hash,u.email,u.display_name,m.role
         FROM administrative_login_accounts account JOIN users u ON u.id=account.user_id
           JOIN memberships m ON m.user_id=account.user_id AND m.school_id=account.school_id
         WHERE account.identity_number=$1 AND account.active=true AND m.role='administrator'${schoolId ? ' AND account.school_id=$2' : ''}`,
       schoolId ? [identity, String(schoolId)] : [identity])
       const matches = candidates.rows.filter(row => passwordMatches(String(password || ''), row.password_hash))
-      if (!matches.length) return json(res, 401, { error: 'invalid_administrator_login' })
+      if (!matches.length) { recordFailedLogin(req, 'administrator', identity); return json(res, 401, { error: 'invalid_administrator_login' }) }
       if (!schoolId && matches.length > 1) {
         const schools = await Promise.all(matches.map(async row => ({ id: row.school_id, name: (await scopedOn(authPool, row.school_id, client => client.query('SELECT name FROM schools WHERE id=$1', [row.school_id]))).rows[0]?.name || 'المدرسة' })))
         return json(res, 409, { error: 'administrator_school_selection_required', schools })
       }
       const administrator = matches[0]
+      clearLoginAttempts(req, 'administrator', identity)
       await createSession(res, administrator.user_id, administrator.school_id)
       return json(res, 200, { user: account(administrator) })
     }
