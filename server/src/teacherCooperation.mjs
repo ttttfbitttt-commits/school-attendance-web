@@ -150,6 +150,56 @@ export async function handleTeacherCooperationRequest({ req, res, url, user, bod
     return true
   }
 
+  if (req.method === 'POST' && url.pathname === '/api/teacher-cooperation/scan/bulk') {
+    if (!isTeacher) { json(res, 403, { error: 'forbidden' }); return true }
+    const input = await body(req)
+    const studentIds = [...new Set((Array.isArray(input.studentIds) ? input.studentIds : []).map(value => clean(value, 200)).filter(Boolean))].slice(0, 200)
+    if (!studentIds.length) { json(res, 400, { error: 'invalid_students' }); return true }
+    const clock = riyadhClock()
+    const result = await scoped(user.school_id, async client => {
+      const window = await cooperationWindow(client, user.school_id, clock)
+      if (!window.available || !window.activePeriod) return { error: 'cooperation_closed', window }
+      const teacher = await client.query('SELECT full_name AS name FROM lesson_teachers WHERE school_id=$1 AND id=$2 AND active=true', [user.school_id, user.teacher_id])
+      if (!teacher.rowCount) return { error: 'teacher_account_not_ready' }
+      const students = (await client.query(`SELECT id,name,grade,classroom FROM students
+        WHERE school_id=$1 AND active=true AND id=ANY($2::text[]) ORDER BY name`, [user.school_id, studentIds])).rows
+      const foundIds = new Set(students.map(student => student.id))
+      if (!students.length) return { error: 'student_not_found' }
+      const school = await client.query('SELECT preferences FROM schools WHERE id=$1', [user.school_id])
+      const preferences = school.rows[0]?.preferences && typeof school.rows[0].preferences === 'object' ? school.rows[0].preferences : {}
+      const mode = ['present', 'late', 'auto'].includes(preferences.attendanceMode) ? preferences.attendanceMode : 'auto'
+      const cutoff = /^([01]\d|2[0-3]):[0-5]\d$/.test(preferences.cutoffTime || '') ? preferences.cutoffTime : '07:30'
+      const status = mode === 'late' ? 'late' : mode === 'present' ? 'present' : clock.hm > cutoff ? 'late' : 'present'
+      const ids = students.map(student => student.id)
+      await client.query(`DELETE FROM absence_records WHERE school_id=$1 AND student_id=ANY($2::text[]) AND absence_date=$3::date`, [user.school_id, ids, clock.date])
+      const inserted = await client.query(`INSERT INTO attendance_logs(school_id,student_id,attendance_date,recorded_by,status)
+        SELECT $1,queued.student_id,$2::date,$3,$4 FROM unnest($5::text[]) AS queued(student_id)
+        ON CONFLICT(school_id,student_id,attendance_date) DO NOTHING
+        RETURNING id,student_id AS "studentId",status,to_char(recorded_at AT TIME ZONE 'Asia/Riyadh','HH24:MI:SS') AS time`, [user.school_id, clock.date, user.user_id, status, ids])
+      const studentsById = new Map(students.map(student => [student.id, student]))
+      for (const attendance of inserted.rows) {
+        const student = studentsById.get(attendance.studentId)
+        if (!student) continue
+        await client.query(`INSERT INTO teacher_attendance_contributions(school_id,teacher_id,teacher_name,student_id,student_name,attendance_date,period_number,attendance_status,attendance_log_id,recorded_by)
+          VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10) ON CONFLICT DO NOTHING`, [user.school_id, user.teacher_id, teacher.rows[0].name, student.id, student.name, clock.date, window.activePeriod, attendance.status, attendance.id, user.user_id])
+      }
+      const createdIds = new Set(inserted.rows.map(row => row.studentId))
+      return {
+        created: inserted.rows.map(row => ({ student: studentsById.get(row.studentId), attendance: { status: row.status, time: row.time } })),
+        duplicates: students.filter(student => !createdIds.has(student.id)),
+        missing: studentIds.filter(studentId => !foundIds.has(studentId)),
+        periodNumber: window.activePeriod,
+      }
+    })
+    if (result.error) {
+      const status = result.error === 'student_not_found' ? 404 : result.error === 'cooperation_closed' ? 409 : 400
+      json(res, status, result)
+      return true
+    }
+    json(res, 200, result)
+    return true
+  }
+
   if (req.method === 'GET' && url.pathname === '/api/teacher-cooperation/report') {
     if (!isSchool) { json(res, 403, { error: 'forbidden' }); return true }
     const clock = riyadhClock()

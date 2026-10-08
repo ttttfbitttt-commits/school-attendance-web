@@ -186,6 +186,32 @@ export async function handleAdministratorPortalRequest({ req, res, url, user, bo
     })
     return json(res, 200, { date, ...result })
   }
+  if (req.method === 'POST' && url.pathname === '/api/administrator-portal/attendance/bulk') {
+    const input = await body(req)
+    const studentIds = [...new Set((Array.isArray(input.studentIds) ? input.studentIds : []).map(value => clean(value, 160)).filter(Boolean))].slice(0, 250)
+    const status = String(input.status || '')
+    if (!studentIds.length || !['present', 'late'].includes(status)) { json(res, 400, { error: 'invalid_attendance' }); return true }
+    const date = todayRiyadh()
+    const result = await scoped(user.school_id, async client => {
+      const students = (await client.query(`SELECT id,name,grade,classroom,phone FROM students
+        WHERE school_id=$1 AND active=true AND id=ANY($2::text[]) ORDER BY name`, [user.school_id, studentIds])).rows
+      const foundIds = new Set(students.map(student => student.id))
+      if (students.length) await client.query(`DELETE FROM absence_records
+        WHERE school_id=$1 AND student_id=ANY($2::text[]) AND absence_date=$3::date`, [user.school_id, students.map(student => student.id), date])
+      const saved = students.length ? await client.query(`INSERT INTO attendance_logs(school_id,student_id,attendance_date,recorded_by,status)
+        SELECT $1,queued.student_id,$2::date,$3,$4 FROM unnest($5::text[]) AS queued(student_id)
+        ON CONFLICT(school_id,student_id,attendance_date) DO NOTHING
+        RETURNING student_id AS "studentId",status,to_char(recorded_at AT TIME ZONE 'Asia/Riyadh','HH24:MI:SS') AS time`, [user.school_id, date, user.user_id, status, students.map(student => student.id)]) : { rows: [] }
+      const createdIds = new Set(saved.rows.map(row => row.studentId))
+      const studentsById = new Map(students.map(student => [student.id, student]))
+      return {
+        created: saved.rows.map(row => ({ student: studentsById.get(row.studentId), status: row.status, time: row.time })),
+        duplicates: students.filter(student => !createdIds.has(student.id)),
+        missing: studentIds.filter(studentId => !foundIds.has(studentId)),
+      }
+    })
+    return json(res, 200, { ok: true, date, status, ...result })
+  }
   if (req.method === 'POST' && url.pathname === '/api/administrator-portal/attendance') {
     const input = await body(req); const studentId = clean(input.studentId, 160); const status = String(input.status || '')
     if (!studentId || !['present', 'late'].includes(status)) { json(res, 400, { error: 'invalid_attendance' }); return true }

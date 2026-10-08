@@ -44,7 +44,7 @@ export function TeacherCooperationPanel({ status, onRefresh }: { status: Teacher
   const [fullScreen, setFullScreen] = useState(false)
   const [manualQuery, setManualQuery] = useState('')
   const [manualCandidates, setManualCandidates] = useState<TeacherCooperationStudent[]>([])
-  const [manualSelection, setManualSelection] = useState<TeacherCooperationStudent | null>(null)
+  const [manualSelection, setManualSelection] = useState<TeacherCooperationStudent[]>([])
   const [manualSearching, setManualSearching] = useState(false)
   const [recent, setRecent] = useState<TeacherCooperationScan[]>(status.recent)
   const [feedback, setFeedback] = useState<ScanFeedback | null>(null)
@@ -134,11 +134,54 @@ export function TeacherCooperationPanel({ status, onRefresh }: { status: Teacher
       showFeedback({ kind: 'error', title: 'تعذر تسجيل الطالب', message })
     } finally {
       if (source === 'manual' && completed) {
-        setManualSelection(null)
+        setManualSelection([])
         setManualQuery('')
         setManualCandidates([])
         window.setTimeout(() => manualSearchRef.current?.focus(), 0)
       }
+      window.setTimeout(() => { scanBusyRef.current = false }, 350)
+    }
+  }
+
+  const addManualSelection = (student: TeacherCooperationStudent) => {
+    if (manualSelection.some(item => item.id === student.id)) {
+      showFeedback({ kind: 'duplicate', title: 'الطالب محدد بالفعل', message: 'راجع قائمة الطلاب المختارين قبل التأكيد.' })
+      return
+    }
+    setManualSelection(current => [...current, student])
+    setManualQuery('')
+    setManualCandidates([])
+    window.setTimeout(() => manualSearchRef.current?.focus(), 0)
+  }
+  const removeManualSelection = (studentId: string) => setManualSelection(current => current.filter(student => student.id !== studentId))
+  const confirmManualSelection = async () => {
+    const selected = manualSelection
+    if (!selected.length || scanBusyRef.current) return
+    scanBusyRef.current = true
+    try {
+      const result = await api.scanTeacherCooperationBulk(selected.map(student => student.id))
+      if (result.created.length) {
+        const createdIds = new Set(result.created.map(item => item.student.id))
+        const entries: TeacherCooperationScan[] = result.created.map((item, index) => ({
+          id: `${item.student.id}-${Date.now()}-${index}`, studentId: item.student.id, studentName: item.student.name,
+          grade: item.student.grade, classroom: item.student.classroom, periodNumber: result.periodNumber,
+          status: item.attendance.status, time: item.attendance.time,
+        }))
+        setRecent(current => [...entries, ...current.filter(item => !createdIds.has(item.studentId))])
+        showFeedback({ kind: 'created', title: 'تم تسجيل الحضور بنجاح', message: `تم تسجيل ${result.created.length} طلاب · ${periodLabel(result.periodNumber)}` })
+        await onRefresh()
+      } else {
+        showFeedback({ kind: 'duplicate', title: 'الطلاب تم تحضيرهم مسبقًا', message: `${result.duplicates.length} طلاب مسجلون بالفعل في سجل الحضور.` })
+      }
+      setManualSelection([])
+      setManualQuery('')
+      setManualCandidates([])
+      window.setTimeout(() => manualSearchRef.current?.focus(), 0)
+    } catch (reason) {
+      const error = reason as Error & { code?: string }
+      const message = error.code === 'cooperation_closed' ? 'انتهت فترة تعاون المعلمين لهذا اليوم.' : 'تعذر حفظ الحضور. تحقق من الاتصال ثم أعد المحاولة.'
+      showFeedback({ kind: 'error', title: 'تعذر تسجيل الطلاب', message })
+    } finally {
       window.setTimeout(() => { scanBusyRef.current = false }, 350)
     }
   }
@@ -212,7 +255,17 @@ export function TeacherCooperationPanel({ status, onRefresh }: { status: Teacher
       {feedback && <div className={`cooperation-scan-feedback ${feedback.kind}`} role="status" aria-live="assertive">{feedback.kind === 'error' ? <XCircle size={23} /> : <CheckCircle2 size={23} />}<div><strong>{feedback.title}</strong>{feedback.student && <b>{feedback.student.name}</b>}<span>{feedback.student ? `${feedback.student.grade} · ${feedback.student.classroom} — ` : ''}{feedback.message}</span></div></div>}
       {fullScreen && <button className="cooperation-exit-fullscreen" onClick={() => void toggleFullScreen()}><Minimize2 size={16} /> خروج</button>}
     </div>
-    <section className="cooperation-manual-search"><label>التحضير اليدوي بالاسم أو الرقم<div className="cooperation-search-input"><Search size={17} /><input ref={manualSearchRef} type="search" value={manualQuery} onChange={event => setManualQuery(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && manualCandidates.length === 1) { event.preventDefault(); setManualSelection(manualCandidates[0]); setManualQuery('') } }} placeholder="اكتب اسم الطالب أو رقمه..." aria-label="ابحث عن طالب لتسجيل حضوره" aria-autocomplete="list" /></div></label>{manualQuery.trim() && <div className="cooperation-manual-results" role="listbox" aria-label="نتائج البحث عن الطلاب">{manualSearching ? <p>جارٍ البحث...</p> : manualCandidates.length ? manualCandidates.map(student => <button type="button" role="option" key={student.id} onClick={() => { setManualSelection(student); setManualQuery('') }}><span><strong>{student.name}</strong><small>رقم {student.id} · {student.grade} · فصل {student.classroom}</small></span><b>اختيار</b></button>) : <p>لم يتم العثور على طالب بهذا الاسم أو الرقم.</p>}</div>}{manualSelection && <div className="cooperation-manual-selection"><div><strong>تأكيد تسجيل الطالب</strong><span>{manualSelection.name}</span><small>رقم {manualSelection.id} · {manualSelection.grade} · فصل {manualSelection.classroom}</small></div><div><button type="button" onClick={() => { setManualSelection(null); window.setTimeout(() => manualSearchRef.current?.focus(), 0) }}>إلغاء</button><button type="button" className="confirm" onClick={() => void processCode(manualSelection.id, 'manual')}>تأكيد التسجيل</button></div></div>}</section>
+    <section className="cooperation-manual-search"><label>التحضير اليدوي بالاسم أو الرقم<div className="cooperation-search-input"><Search size={17} /><input ref={manualSearchRef} type="search" value={manualQuery} onChange={event => setManualQuery(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && manualCandidates.length === 1) { event.preventDefault(); addManualSelection(manualCandidates[0]) } }} placeholder="اكتب اسم الطالب أو رقمه..." aria-label="ابحث عن طالب لتسجيل حضوره" aria-autocomplete="list" /></div></label>
+      {manualQuery.trim() && <div className="cooperation-manual-results" role="listbox" aria-label="نتائج البحث عن الطلاب">{manualSearching ? <p>جارٍ البحث...</p> : manualCandidates.length ? manualCandidates.map(student => {
+        const selected = manualSelection.some(item => item.id === student.id)
+        return <button type="button" role="option" key={student.id} onClick={() => addManualSelection(student)} disabled={selected || scanBusyRef.current}><span><strong>{student.name}</strong><small>رقم {student.id} · {student.grade} · فصل {student.classroom}</small></span><b>{selected ? 'محدد' : 'إضافة'}</b></button>
+      }) : <p>لم يتم العثور على طالب بهذا الاسم أو الرقم.</p>}</div>}
+      {manualSelection.length > 0 && <div className="cooperation-manual-selection">
+        <div className="manual-selected-heading"><strong>الطلاب المختارون ({manualSelection.length})</strong><span>أضف أسماء أخرى ثم أكد تسجيلهم دفعة واحدة.</span></div>
+        <div className="manual-selected-list">{manualSelection.map(student => <article key={student.id}><span><strong>{student.name}</strong><small>رقم {student.id} · {student.grade} · فصل {student.classroom}</small></span><button type="button" className="manual-selected-remove" onClick={() => removeManualSelection(student.id)} disabled={scanBusyRef.current}>إزالة</button></article>)}</div>
+        <div className="manual-selection-actions"><button type="button" onClick={() => { setManualSelection([]); window.setTimeout(() => manualSearchRef.current?.focus(), 0) }} disabled={scanBusyRef.current}>إلغاء التحديد</button><button type="button" className="confirm" onClick={() => void confirmManualSelection()} disabled={scanBusyRef.current}>تأكيد تسجيل {manualSelection.length} طلاب</button></div>
+      </div>}
+    </section>
     <section className="cooperation-recent"><div><span>سجل هذه الفترة</span><strong>{recent.length} عملية ناجحة</strong></div>{recent.length ? <div className="cooperation-recent-list">{recent.map(item => <article key={item.id}><CheckCircle2 size={18} /><div><strong>{item.studentName}</strong><span>{item.grade} · {item.classroom}</span></div><small>{periodLabel(item.periodNumber)}<b>{item.time}</b></small></article>)}</div> : <p>لم تسجل أي طالب حتى الآن.</p>}</section>
   </section>
 }

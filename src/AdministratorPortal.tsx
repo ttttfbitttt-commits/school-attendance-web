@@ -39,7 +39,7 @@ export function AdministratorPortal({ account, onLogout }: { account: Account; o
   const [records, setRecords] = useState<AdministratorAttendanceRecord[]>([])
   const [mode, setMode] = useState<'present' | 'late'>('present')
   const [query, setQuery] = useState('')
-  const [manualSelection, setManualSelection] = useState<AdministratorAttendanceStudent | null>(null)
+  const [manualSelection, setManualSelection] = useState<AdministratorAttendanceStudent[]>([])
   const [notice, setNotice] = useState<{ type: 'success' | 'warning' | 'error'; text: string } | null>(null)
   const [scanResult, setScanResult] = useState<{ type: 'success' | 'duplicate'; text: string } | null>(null)
   const [camera, setCamera] = useState(false)
@@ -167,7 +167,7 @@ export function AdministratorPortal({ account, onLogout }: { account: Account; o
         else setNotice({ type: 'success', text: `تم تسجيل ${student.name} ${mode === 'late' ? 'متأخرًا' : 'حاضرًا'} في سجل المدرسة.` })
       }
       if (source === 'manual') {
-        setManualSelection(null)
+        setManualSelection([])
         setQuery('')
         window.setTimeout(() => manualSearchRef.current?.focus(), 0)
       }
@@ -212,6 +212,44 @@ export function AdministratorPortal({ account, onLogout }: { account: Account; o
     const wanted = comparable(query)
     return students.filter(student => !wanted || comparable(`${student.name} ${student.id} ${student.phone} ${student.grade} ${student.classroom}`).includes(wanted)).slice(0, 35)
   }, [students, query])
+  const addManualSelection = (student: AdministratorAttendanceStudent) => {
+    if (manualSelection.some(item => item.id === student.id)) {
+      setNotice({ type: 'warning', text: `${student.name} موجود بالفعل ضمن الطلاب المختارين.` })
+      return
+    }
+    setManualSelection(current => [...current, student])
+    setQuery('')
+    window.setTimeout(() => manualSearchRef.current?.focus(), 0)
+  }
+  const removeManualSelection = (studentId: string) => setManualSelection(current => current.filter(student => student.id !== studentId))
+  const confirmManualSelection = async () => {
+    const selected = manualSelection
+    if (!selected.length || busy) return
+    setBusy(true)
+    try {
+      const result = await api.recordAdministratorAttendanceBulk(selected.map(student => student.id), mode)
+      if (result.created.length) {
+        const createdIds = new Set(result.created.map(item => item.student.id))
+        const newRecords: AdministratorAttendanceRecord[] = result.created.map(item => ({
+          studentId: item.student.id, name: item.student.name, grade: item.student.grade, classroom: item.student.classroom,
+          phone: item.student.phone, date: result.date, time: item.time, status: item.status, recordedBy: account.displayName,
+        }))
+        setRecords(current => [...newRecords, ...current.filter(record => !createdIds.has(record.studentId))])
+      }
+      const statusLabel = mode === 'late' ? 'متأخرين' : 'حاضرين'
+      const details = [
+        result.created.length ? `تم تسجيل ${result.created.length} طلاب ${statusLabel}.` : '',
+        result.duplicates.length ? `${result.duplicates.length} تم تسجيلهم مسبقًا.` : '',
+        result.missing.length ? `${result.missing.length} تعذر العثور عليهم.` : '',
+      ].filter(Boolean).join(' ')
+      setNotice({ type: result.created.length ? 'success' : 'warning', text: details || 'لم يتم اختيار طلاب صالحين للتسجيل.' })
+      setManualSelection([])
+      setQuery('')
+      window.setTimeout(() => manualSearchRef.current?.focus(), 0)
+    } catch {
+      setNotice({ type: 'error', text: 'تعذر حفظ الحضور الآن. أعد المحاولة.' })
+    } finally { setBusy(false) }
+  }
   const present = records.filter(record => record.status === 'present').length; const late = records.filter(record => record.status === 'late').length
   const loadReport = async () => { setBusy(true); try { const result = await api.administratorReport(reportDate); setReportRecords(result.records) } catch { setNotice({ type: 'error', text: 'تعذر تحميل التقرير.' }) } finally { setBusy(false) } }
   useEffect(() => { if (view === 'reports') void loadReport() }, [view])
@@ -225,7 +263,18 @@ export function AdministratorPortal({ account, onLogout }: { account: Account; o
 
   return <main className="administrator-portal" dir="rtl"><header className="administrator-topbar"><div><span>{schoolName || 'بوابة الإداري'}</span><h1>مرحبًا، {account.displayName}</h1></div><div ref={menuWrapRef} className="administrator-menu-wrap"><button className="administrator-menu" onClick={() => setMenuOpen(current => !current)} aria-label="القائمة"><MoreVertical size={24} /></button>{menuOpen && <nav><button onClick={() => chooseView('attendance')}>سجل الحضور</button>{lessonFlowAccess && <button onClick={() => chooseView('lessons')}>سير الحصص</button>}<button onClick={() => chooseView('reports')}>التقارير</button><button onClick={() => chooseView('password')}>تغيير كلمة المرور</button><button className="logout" onClick={onLogout}><LogOut size={16} /> تسجيل الخروج</button></nav>}</div></header>
     {notice && <p className={`administrator-notice ${notice.type}`}>{notice.type === 'error' ? <XCircle size={18} /> : <CheckCircle2 size={18} />}{notice.text}</p>}
-    {view === 'attendance' && <section className="administrator-attendance"><header><div><span>سجل اليوم · {formatHijriDate(today())}</span><h2>تحضير الطلاب وحصر التأخر</h2><p>كل عملية تُسجل مباشرة في حساب المدرسة. لا توجد صلاحية حذف من هذا الحساب.</p></div><UsersRound size={31} /></header><div className="administrator-stats"><article><b>{records.length}</b><span>إجمالي المسجلين</span></article><article><b>{present}</b><span>حاضر</span></article><article><b>{late}</b><span>متأخر</span></article></div><div className="administrator-mode"><button className={mode === 'present' ? 'active' : ''} onClick={() => setMode('present')}>تحضير الطلاب</button><button className={mode === 'late' ? 'late active' : 'late'} onClick={() => setMode('late')}>حصر التأخر</button></div><section className="administrator-camera"><div className="administrator-camera-head"><div><Camera size={20} /><strong>{mode === 'late' ? 'رصد المتأخرين' : 'تحضير الطلاب'}</strong></div>{camera ? <button className="outline-button" onClick={stopCamera}><Square size={15} fill="currentColor" /> إيقاف الكاميرا</button> : <button className="primary-button" onClick={() => void startCamera()}><Camera size={16} /> فتح الكاميرا</button>}</div>{camera && <div className="administrator-video"><video ref={videoRef} autoPlay muted playsInline /><canvas ref={canvasRef} hidden />{scanResult && <div className={`administrator-scan-result ${scanResult.type}`} role="status" aria-live="assertive">{scanResult.text}</div>}<span>وجّه الكاميرا نحو باركود الطالب</span></div>}</section><section className="administrator-manual-list"><div><label><Search size={17} /><input ref={manualSearchRef} type="search" value={query} onChange={event => setQuery(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && filteredStudents.length === 1) { event.preventDefault(); setManualSelection(filteredStudents[0]); setQuery('') } }} placeholder="الحصر اليدوي: اكتب اسم الطالب أو رقمه" aria-label="ابحث عن طالب لتسجيل حضوره" aria-autocomplete="list" /></label></div>{query.trim() && <div className="administrator-student-list" role="listbox" aria-label="نتائج البحث عن الطلاب">{filteredStudents.length ? filteredStudents.map(student => <button type="button" role="option" key={student.id} onClick={() => { setManualSelection(student); setQuery('') }} disabled={busy}><span><strong>{student.name}</strong><small>رقم {student.id} · {student.grade} · فصل {student.classroom}</small></span><b>{mode === 'late' ? 'اختيار متأخر' : 'اختيار للحضور'}</b></button>) : <p className="administrator-no-results">لم يتم العثور على طالب بهذا الاسم أو الرقم.</p>}</div>}{manualSelection && <div className="administrator-manual-selection"><div><strong>تأكيد تسجيل الطالب</strong><span>{manualSelection.name}</span><small>رقم {manualSelection.id} · {manualSelection.grade} · فصل {manualSelection.classroom}</small></div><div><button type="button" className="outline-button" onClick={() => { setManualSelection(null); window.setTimeout(() => manualSearchRef.current?.focus(), 0) }}>إلغاء</button><button type="button" className="primary-button" onClick={() => void recordStudent(manualSelection.id, 'manual')} disabled={busy}>تأكيد التسجيل</button></div></div>}</section><section className="administrator-recent"><h3>آخر العمليات</h3>{records.slice(0, 12).map(record => <article key={`${record.studentId}-${record.date}`}><CheckCircle2 size={18} /><span><strong>{record.name}</strong><small>{record.grade} · {record.classroom}</small></span><b className={record.status}>{record.status === 'late' ? 'متأخر' : 'حاضر'}</b><time>{record.time}</time></article>)}{!records.length && <p>لا توجد عمليات تسجيل حتى الآن.</p>}</section></section>}
+    {view === 'attendance' && <section className="administrator-attendance"><header><div><span>سجل اليوم · {formatHijriDate(today())}</span><h2>تحضير الطلاب وحصر التأخر</h2><p>كل عملية تُسجل مباشرة في حساب المدرسة. لا توجد صلاحية حذف من هذا الحساب.</p></div><UsersRound size={31} /></header><div className="administrator-stats"><article><b>{records.length}</b><span>إجمالي المسجلين</span></article><article><b>{present}</b><span>حاضر</span></article><article><b>{late}</b><span>متأخر</span></article></div><div className="administrator-mode"><button className={mode === 'present' ? 'active' : ''} onClick={() => setMode('present')}>تحضير الطلاب</button><button className={mode === 'late' ? 'late active' : 'late'} onClick={() => setMode('late')}>حصر التأخر</button></div><section className="administrator-camera"><div className="administrator-camera-head"><div><Camera size={20} /><strong>{mode === 'late' ? 'رصد المتأخرين' : 'تحضير الطلاب'}</strong></div>{camera ? <button className="outline-button" onClick={stopCamera}><Square size={15} fill="currentColor" /> إيقاف الكاميرا</button> : <button className="primary-button" onClick={() => void startCamera()}><Camera size={16} /> فتح الكاميرا</button>}</div>{camera && <div className="administrator-video"><video ref={videoRef} autoPlay muted playsInline /><canvas ref={canvasRef} hidden />{scanResult && <div className={`administrator-scan-result ${scanResult.type}`} role="status" aria-live="assertive">{scanResult.text}</div>}<span>وجّه الكاميرا نحو باركود الطالب</span></div>}</section><section className="administrator-manual-list">
+      <div><label><Search size={17} /><input ref={manualSearchRef} type="search" value={query} onChange={event => setQuery(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && filteredStudents.length === 1) { event.preventDefault(); addManualSelection(filteredStudents[0]) } }} placeholder="الحصر اليدوي: اكتب اسم الطالب أو رقمه" aria-label="ابحث عن طالب لتسجيل حضوره" aria-autocomplete="list" /></label></div>
+      {query.trim() && <div className="administrator-student-list" role="listbox" aria-label="نتائج البحث عن الطلاب">{filteredStudents.length ? filteredStudents.map(student => {
+        const selected = manualSelection.some(item => item.id === student.id)
+        return <button type="button" role="option" key={student.id} onClick={() => addManualSelection(student)} disabled={busy || selected}><span><strong>{student.name}</strong><small>رقم {student.id} · {student.grade} · فصل {student.classroom}</small></span><b>{selected ? 'محدد' : mode === 'late' ? 'إضافة متأخر' : 'إضافة للحضور'}</b></button>
+      }) : <p className="administrator-no-results">لم يتم العثور على طالب بهذا الاسم أو الرقم.</p>}</div>}
+      {manualSelection.length > 0 && <div className="administrator-manual-selection">
+        <div className="manual-selected-heading"><strong>الطلاب المختارون ({manualSelection.length})</strong><span>أضف أسماء أخرى ثم أكد تسجيلهم دفعة واحدة.</span></div>
+        <div className="manual-selected-list">{manualSelection.map(student => <article key={student.id}><span><strong>{student.name}</strong><small>رقم {student.id} · {student.grade} · فصل {student.classroom}</small></span><button type="button" className="manual-selected-remove" onClick={() => removeManualSelection(student.id)} disabled={busy}>إزالة</button></article>)}</div>
+        <div className="manual-selection-actions"><button type="button" className="outline-button" onClick={() => { setManualSelection([]); window.setTimeout(() => manualSearchRef.current?.focus(), 0) }} disabled={busy}>إلغاء التحديد</button><button type="button" className="primary-button" onClick={() => void confirmManualSelection()} disabled={busy}>{busy ? 'جارٍ التسجيل...' : `تأكيد تسجيل ${manualSelection.length} طلاب`}</button></div>
+      </div>}
+    </section><section className="administrator-recent"><h3>آخر العمليات</h3>{records.slice(0, 12).map(record => <article key={`${record.studentId}-${record.date}`}><CheckCircle2 size={18} /><span><strong>{record.name}</strong><small>{record.grade} · {record.classroom}</small></span><b className={record.status}>{record.status === 'late' ? 'متأخر' : 'حاضر'}</b><time>{record.time}</time></article>)}{!records.length && <p>لا توجد عمليات تسجيل حتى الآن.</p>}</section></section>}
     {view === 'lessons' && lessonFlowAccess && <LessonFlowCenter schoolName={schoolName} principalName={principalName} />}
     {view === 'reports' && <section className="administrator-report"><header><div><span>التقارير</span><h2>سجل الحضور اليومي</h2></div><FileDown size={29} /></header><div className="administrator-report-actions"><label>التاريخ<input type="date" value={reportDate} onChange={event => setReportDate(event.target.value)} /></label><button className="primary-button" onClick={() => void loadReport()} disabled={busy}>عرض التقرير</button></div><div className="teacher-report-actions"><button className="primary-button" onClick={exportReport} disabled={!reportRecords.length}><FileDown size={16} /> Excel</button><button className="outline-button" onClick={() => openPrintDocument('سجل حضور الطلاب', reportHtml(reportRecords, reportDate, account.displayName), schoolName)}><Printer size={16} /> PDF / طباعة</button></div><div className="administrator-report-table"><table><thead><tr><th>الطالب</th><th>الصف والفصل</th><th>الحالة</th><th>الوقت</th><th>المسجل</th></tr></thead><tbody>{reportRecords.map(row => <tr key={row.studentId}><td>{row.name}</td><td>{row.grade} · {row.classroom}</td><td>{row.status === 'late' ? 'متأخر' : 'حاضر'}</td><td dir="ltr">{row.time}</td><td>{row.recordedBy || '—'}</td></tr>)}</tbody></table>{!reportRecords.length && <p>لا توجد سجلات في التاريخ المحدد.</p>}</div></section>}
     {view === 'password' && <section className="administrator-password"><header><KeyRound size={28} /><div><span>الحساب الإداري</span><h2>تغيير كلمة المرور</h2><p>استخدم كلمة مرور جديدة لا تقل عن 8 أحرف.</p></div></header><div><label>كلمة المرور الحالية<input type="password" value={currentPassword} onChange={event => setCurrentPassword(event.target.value)} /></label><label>كلمة المرور الجديدة<input type="password" value={newPassword} onChange={event => setNewPassword(event.target.value)} minLength={8} /></label><label>تأكيد كلمة المرور<input type="password" value={confirmPassword} onChange={event => setConfirmPassword(event.target.value)} minLength={8} /></label><button className="primary-button" onClick={() => void changePassword()} disabled={busy}><KeyRound size={17} /> حفظ كلمة المرور</button></div></section>}
