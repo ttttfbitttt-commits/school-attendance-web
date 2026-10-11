@@ -33,7 +33,7 @@ import { formatHijriDate } from './dateUtils'
 import { downloadWorkbook, openOfficialFormDocument, openPrintDocument } from './SchoolFeatures'
 
 const jsQR = ((jsQRNs as unknown as { default?: unknown }).default || jsQRNs) as (data: Uint8ClampedArray, width: number, height: number) => { data: string } | null
-const SCAN_INTERVAL_MS = 220
+const SCAN_INTERVAL_MS = 150
 const SCAN_MAX_DIMENSION = 360
 
 type SectionKey = 'setup' | 'times' | 'codes' | 'schedules' | 'incidents'

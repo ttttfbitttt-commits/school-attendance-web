@@ -10,9 +10,9 @@ const jsQR = ((jsQRNs as unknown as { default?: unknown }).default || jsQRNs) as
 const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Riyadh' }).format(new Date())
 const periodLabel = (period: number) => period === 1 ? 'الحصة الأولى' : 'الحصة الثانية'
 const escapeHtml = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character] || character))
-const SCAN_INTERVAL_MS = 220
+const SCAN_INTERVAL_MS = 150
 const SCAN_MAX_DIMENSION = 360
-const SCAN_PAUSE_AFTER_READ_MS = 900
+const SCAN_PAUSE_AFTER_READ_MS = 450
 
 type ScanFeedback = {
   kind: 'created' | 'duplicate' | 'error'

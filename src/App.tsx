@@ -97,10 +97,11 @@ const DEFAULT_SCHOOL_SETTINGS: SchoolSettings = {
 
 const readSchoolSettings = (): SchoolSettings => DEFAULT_SCHOOL_SETTINGS
 
-// مسح خمس مرات تقريباً في الثانية يكفي للبطاقات ويخفض استهلاك المعالج والبطارية.
-const QR_SCAN_INTERVAL_MS = 220
-const QR_SCAN_MAX_DIMENSION = 300
-const QR_SCAN_PAUSE_AFTER_READ_MS = 900
+// توازن بين سرعة قراءة البطاقة واستهلاك المعالج: 6-7 محاولات في الثانية
+// مع إبقاء دقة بث الكاميرا المنخفضة التي خففت حرارة الجهاز.
+const QR_SCAN_INTERVAL_MS = 150
+const QR_SCAN_MAX_DIMENSION = 360
+const QR_SCAN_PAUSE_AFTER_READ_MS = 450
 
 const aliases = {
   id: ['رقم الطالب', 'الهوية', 'رقم الهوية', 'student id', 'id', 'الرقم'],

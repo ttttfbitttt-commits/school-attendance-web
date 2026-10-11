@@ -13,9 +13,9 @@ type View = 'attendance' | 'lessons' | 'reports' | 'password'
 const normalize = (value: unknown) => String(value ?? '').replace(/\s+/g, ' ').trim()
 const comparable = (value: unknown) => normalize(value).toLocaleLowerCase('ar')
 const normalizedStudentId = (value: unknown) => normalize(value).replace(/^([+-]?\d+)\.0+$/, '$1')
-const SCAN_INTERVAL_MS = 220
+const SCAN_INTERVAL_MS = 150
 const SCAN_MAX_DIMENSION = 360
-const SCAN_PAUSE_AFTER_READ_MS = 900
+const SCAN_PAUSE_AFTER_READ_MS = 450
 function barcodeCandidates(raw: string) {
   const code = normalize(raw)
   if (!code) return []
