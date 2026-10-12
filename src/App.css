@@ -3146,6 +3146,7 @@ tbody td {
 }
 
 .message-late-groups,
+.message-general-groups,
 .message-log-groups {
   display: grid;
   gap: 16px;
@@ -3153,6 +3154,7 @@ tbody td {
 }
 
 .message-late-group,
+.message-general-grade,
 .message-log-group {
   overflow: hidden;
   border: 1px solid #cfe0f1;
@@ -3209,6 +3211,95 @@ tbody td {
   border-top: 1px solid #dce9f5;
 }
 
+.message-general-selection-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 12px 16px;
+  background: #fff;
+}
+
+.message-general-selection-toolbar strong,
+.message-general-selection-toolbar span {
+  display: block;
+}
+
+.message-general-selection-toolbar strong {
+  color: #143d64;
+  font-size: 14px;
+}
+
+.message-general-selection-toolbar span {
+  margin-top: 3px;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.message-general-class-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 11px;
+  padding: 12px;
+  border-top: 1px solid #edf2f7;
+  background: #f8fbfe;
+}
+
+.message-general-classroom {
+  overflow: hidden;
+  border: 1px solid #d5e3ef;
+  border-radius: 12px;
+  background: #fff;
+}
+
+.message-general-classroom-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  width: 100%;
+  padding: 12px;
+  border: 0;
+  background: #fff;
+  color: inherit;
+  text-align: right;
+  font: inherit;
+  cursor: pointer;
+}
+
+.message-general-classroom-summary span {
+  color: #6a8095;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.message-general-classroom-summary h4 {
+  margin: 2px 0 0;
+  color: #114b7e;
+  font-size: 16px;
+}
+
+.message-general-classroom-summary p {
+  margin: 4px 0 0;
+  color: #64748b;
+  font-size: 12px;
+}
+
+.message-general-classroom-summary b {
+  flex: 0 0 auto;
+  color: #075ca8;
+  font-size: 12px;
+}
+
+.message-general-classroom-content {
+  border-top: 1px solid #e2ebf2;
+}
+
+.message-general-classroom-toolbar {
+  align-items: flex-start;
+  padding: 10px 12px;
+}
+
 .message-late-group-head {
   display: flex;
   align-items: center;
@@ -3227,6 +3318,7 @@ tbody td {
 @media (max-width: 860px) {
   .message-recipient-group-summary,
   .message-log-group-summary,
+  .message-general-selection-toolbar,
   .message-late-group-head {
     align-items: stretch;
     flex-direction: column;
@@ -3240,6 +3332,15 @@ tbody td {
   .message-late-group-head .secondary-button {
     width: 100%;
     justify-content: center;
+  }
+
+  .message-general-selection-toolbar .secondary-button {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .message-general-class-grid {
+    grid-template-columns: 1fr;
   }
 }
 

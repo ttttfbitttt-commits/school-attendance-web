@@ -232,6 +232,8 @@ export function MessageCenter({ students, attendance, schoolName }: { students: 
   const [absenceCandidatesLoading, setAbsenceCandidatesLoading] = useState(false)
   const [showStudentDetails, setShowStudentDetails] = useState(false)
   const [openRecipientGroup, setOpenRecipientGroup] = useState('')
+  const [openGeneralGrade, setOpenGeneralGrade] = useState('')
+  const [openGeneralClassroom, setOpenGeneralClassroom] = useState('')
   const [showLogDetails, setShowLogDetails] = useState(false)
   const [openLogGroup, setOpenLogGroup] = useState('')
   const [logsLoading, setLogsLoading] = useState(false)
@@ -325,6 +327,28 @@ export function MessageCenter({ students, attendance, schoolName }: { students: 
       .map(([grade, recipients]) => ({ grade, recipients: [...recipients].sort((a, b) => a.name.localeCompare(b.name, 'ar')) }))
       .sort((a, b) => messageGradeRank(a.grade) - messageGradeRank(b.grade) || a.grade.localeCompare(b.grade, 'ar'))
   }, [type, candidates])
+  const generalMessageGroups = useMemo(() => {
+    if (type !== 'general') return [] as Array<{ grade: string; recipients: MessageRecipient[]; classrooms: Array<{ classroom: string; recipients: MessageRecipient[] }> }>
+    const groups = new Map<string, MessageRecipient[]>()
+    candidates.forEach(recipient => {
+      const grade = canonicalMessageGrade(recipient.grade || '')
+      groups.set(grade, [...(groups.get(grade) || []), recipient])
+    })
+    return [...groups.entries()].map(([grade, recipients]) => {
+      const classrooms = new Map<string, MessageRecipient[]>()
+      recipients.forEach(recipient => {
+        const classroom = recipient.classroom?.trim() || 'الفصل غير المحدد'
+        classrooms.set(classroom, [...(classrooms.get(classroom) || []), recipient])
+      })
+      return {
+        grade,
+        recipients: [...recipients].sort((a, b) => a.name.localeCompare(b.name, 'ar')),
+        classrooms: [...classrooms.entries()]
+          .map(([classroom, members]) => ({ classroom, recipients: [...members].sort((a, b) => a.name.localeCompare(b.name, 'ar')) }))
+          .sort((a, b) => a.classroom.localeCompare(b.classroom, 'ar', { numeric: true })),
+      }
+    }).sort((a, b) => messageGradeRank(a.grade) - messageGradeRank(b.grade) || a.grade.localeCompare(b.grade, 'ar'))
+  }, [type, candidates])
   const eligibleCandidateIds = useMemo(() => new Set(eligibleCandidates.map(student => student.id)), [eligibleCandidates])
   const studentLookup = useMemo(() => new Map(students.map(student => [student.id, student])), [students])
   const typeLogs = useMemo(() => logs.filter(log => log.type === type), [logs, type])
@@ -363,15 +387,19 @@ export function MessageCenter({ students, attendance, schoolName }: { students: 
   }, [eligibleCandidateIds])
 
   useEffect(() => {
-    if (!openRecipientGroup) return
+    if (!openRecipientGroup && !openGeneralGrade && !openGeneralClassroom) return
     const closeWhenOutside = (event: PointerEvent) => {
-      if (!recipientGroupsRef.current?.contains(event.target as Node)) setOpenRecipientGroup('')
+      if (!recipientGroupsRef.current?.contains(event.target as Node)) {
+        setOpenRecipientGroup('')
+        setOpenGeneralGrade('')
+        setOpenGeneralClassroom('')
+      }
     }
     document.addEventListener('pointerdown', closeWhenOutside)
     return () => document.removeEventListener('pointerdown', closeWhenOutside)
-  }, [openRecipientGroup])
+  }, [openRecipientGroup, openGeneralGrade, openGeneralClassroom])
 
-  useEffect(() => { setOpenRecipientGroup('') }, [type, search])
+  useEffect(() => { setOpenRecipientGroup(''); setOpenGeneralGrade(''); setOpenGeneralClassroom('') }, [type, search])
 
   useEffect(() => {
     if (!openLogGroup) return
@@ -403,7 +431,7 @@ export function MessageCenter({ students, attendance, schoolName }: { students: 
     recipients.forEach(recipient => allGroupSelected ? next.delete(recipient.id) : next.add(recipient.id))
     return next
   })
-  const chooseType = (nextType: MessageKind) => { setType(nextType); setSelected(new Set()); setMessage(''); setSearch(''); setLogSearch(''); setLogGrade(''); setShowStudentDetails(false); setOpenRecipientGroup(''); setShowLogDetails(false); setOpenLogGroup(''); setNotice('') }
+  const chooseType = (nextType: MessageKind) => { setType(nextType); setSelected(new Set()); setMessage(''); setSearch(''); setLogSearch(''); setLogGrade(''); setShowStudentDetails(false); setOpenRecipientGroup(''); setOpenGeneralGrade(''); setOpenGeneralClassroom(''); setShowLogDetails(false); setOpenLogGroup(''); setNotice('') }
 
   const send = async () => {
     if (!accountReady) { setNotice('أكمل إعداد حساب المدار التقني وتحقق من الاتصال أولاً.'); return }
@@ -440,6 +468,8 @@ export function MessageCenter({ students, attendance, schoolName }: { students: 
       setSelected(new Set())
       setShowStudentDetails(false)
       setOpenRecipientGroup('')
+      setOpenGeneralGrade('')
+      setOpenGeneralClassroom('')
       load()
     } finally {
       setSending(false)
@@ -498,7 +528,7 @@ export function MessageCenter({ students, attendance, schoolName }: { students: 
       <div className="message-recipient-summary" aria-busy={sending}>
         <div className="message-recipient-count"><span>{recipientLabel}</span><strong>{recipientsLoading ? '…' : eligibleCandidates.length}</strong>{selected.size > 0 && <small>المحددون: {selected.size}</small>}</div>
         <div className="feature-actions">
-          <button type="button" className="secondary-button" onClick={() => { if (showStudentDetails) setOpenRecipientGroup(''); setShowStudentDetails(value => !value) }} aria-expanded={showStudentDetails} aria-controls="message-student-list" disabled={sending || recipientsLoading}>{showStudentDetails ? `إخفاء بيانات ${recipientWord}` : `عرض بيانات ${recipientWord} (${eligibleCandidates.length})`}</button>
+          <button type="button" className="secondary-button" onClick={() => { if (showStudentDetails) { setOpenRecipientGroup(''); setOpenGeneralGrade(''); setOpenGeneralClassroom('') }; setShowStudentDetails(value => !value) }} aria-expanded={showStudentDetails} aria-controls="message-student-list" disabled={sending || recipientsLoading}>{showStudentDetails ? `إخفاء بيانات ${recipientWord}` : type === 'general' ? `عرض الصفوف والفصول (${eligibleCandidates.length})` : `عرض بيانات ${recipientWord} (${eligibleCandidates.length})`}</button>
           <button type="button" className="secondary-button" onClick={selectAllCandidates} disabled={sending || !eligibleCandidates.length || recipientsLoading}>تحديد الكل ({eligibleCandidates.length})</button>
           {showStudentDetails && search.trim() && <button type="button" className="secondary-button" onClick={selectSearchResults} disabled={sending || !candidates.length}>تحديد نتائج البحث ({candidates.length})</button>}
           {selected.size > 0 && <button type="button" className="secondary-button" onClick={() => setSelected(new Set())} disabled={sending}>إلغاء التحديد</button>}
@@ -507,7 +537,31 @@ export function MessageCenter({ students, attendance, schoolName }: { students: 
       </div>
       {showStudentDetails && <>
         <div className="feature-toolbar"><input value={search} onChange={event => setSearch(event.target.value)} placeholder={type === 'teacher' ? 'ابحث عن معلم بالاسم أو رقم الهوية...' : 'ابحث عن طالب بالاسم أو الرقم...'} /><span className="message-search-count">المعروض: {candidates.length} من {eligibleCandidates.length}</span></div>
-        {['late', 'absence'].includes(type) ? <div className="message-late-groups" id="message-student-list" ref={recipientGroupsRef}>
+        {type === 'general' ? <div className="message-general-groups" id="message-student-list" ref={recipientGroupsRef}>
+          {generalMessageGroups.map((group, groupIndex) => {
+            const allGradeSelected = group.recipients.length > 0 && group.recipients.every(recipient => selected.has(recipient.id))
+            const gradeKey = `general-grade:${group.grade}`
+            const gradeDomId = `message-general-grade-${groupIndex}`
+            const gradeOpen = openGeneralGrade === gradeKey
+            return <article className={`message-general-grade${gradeOpen ? ' open' : ''}`} key={group.grade}>
+              <button type="button" className="message-recipient-group-summary" onClick={() => { setOpenGeneralGrade(current => current === gradeKey ? '' : gradeKey); setOpenGeneralClassroom('') }} aria-expanded={gradeOpen} aria-controls={gradeDomId}><div><span>المرحلة</span><h3>{group.grade}</h3><p>{group.recipients.length} طالباً · {group.classrooms.length} فصول · اضغط لعرض الفصول.</p></div><b>{gradeOpen ? 'إخفاء الفصول' : 'عرض الفصول'}</b></button>
+              {gradeOpen && <div className="message-recipient-group-content" id={gradeDomId}>
+                <div className="message-general-selection-toolbar"><div><strong>تحديد المرحلة</strong><span>يمكنك تحديد المرحلة كاملة أو فتح فصل لاختيار طلابه.</span></div><button type="button" className="secondary-button" onClick={() => toggleRecipientGroup(group.recipients)} disabled={sending || !group.recipients.length}>{allGradeSelected ? `إلغاء تحديد ${group.grade}` : `تحديد ${group.grade} (${group.recipients.length})`}</button></div>
+                <div className="message-general-class-grid">{group.classrooms.map((classroom, classroomIndex) => {
+                  const allClassroomSelected = classroom.recipients.length > 0 && classroom.recipients.every(recipient => selected.has(recipient.id))
+                  const classroomKey = `general-classroom:${group.grade}:${classroom.classroom}`
+                  const classroomDomId = `message-general-classroom-${groupIndex}-${classroomIndex}`
+                  const classroomOpen = openGeneralClassroom === classroomKey
+                  return <article className={`message-general-classroom${classroomOpen ? ' open' : ''}`} key={classroom.classroom}>
+                    <button type="button" className="message-general-classroom-summary" onClick={() => setOpenGeneralClassroom(current => current === classroomKey ? '' : classroomKey)} aria-expanded={classroomOpen} aria-controls={classroomDomId}><div><span>الفصل</span><h4>{classroom.classroom}</h4><p>{classroom.recipients.length} طالباً{allClassroomSelected ? ' · محدد بالكامل' : ''}</p></div><b>{classroomOpen ? 'إخفاء الطلاب' : 'عرض الطلاب'}</b></button>
+                    {classroomOpen && <div className="message-general-classroom-content" id={classroomDomId}><div className="message-general-selection-toolbar message-general-classroom-toolbar"><div><strong>تحديد الفصل</strong><span>أو حدد الطلاب المطلوبين بالاسم.</span></div><button type="button" className="secondary-button" onClick={() => toggleRecipientGroup(classroom.recipients)} disabled={sending || !classroom.recipients.length}>{allClassroomSelected ? 'إلغاء تحديد الفصل' : `تحديد الفصل (${classroom.recipients.length})`}</button></div><div className="table-wrap"><table className="feature-table"><thead><tr><th><input type="checkbox" aria-label={`تحديد ${group.grade} الفصل ${classroom.classroom}`} checked={allClassroomSelected} onChange={() => toggleRecipientGroup(classroom.recipients)} disabled={sending || !classroom.recipients.length} /></th><th>الطالب</th><th>الجوال</th></tr></thead><tbody>{classroom.recipients.map(recipient => <tr key={recipient.id}><td data-label="اختيار"><input type="checkbox" checked={selected.has(recipient.id)} onChange={() => toggle(recipient.id)} disabled={sending} /></td><td data-label="الطالب"><strong>{recipient.name}</strong><small>{recipient.id}</small></td><td data-label="الجوال" dir="ltr">{recipient.phone || '—'}</td></tr>)}</tbody></table></div></div>}
+                  </article>
+                })}</div>
+              </div>}
+            </article>
+          })}
+          {!generalMessageGroups.length && <p className="report-empty-state">لا توجد نتائج مطابقة للبحث.</p>}
+        </div> : ['late', 'absence'].includes(type) ? <div className="message-late-groups" id="message-student-list" ref={recipientGroupsRef}>
           {studentMessageGroups.map(group => {
             const allGroupSelected = group.recipients.length > 0 && group.recipients.every(recipient => selected.has(recipient.id))
             const groupKey = `${type}:${group.grade}`
