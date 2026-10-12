@@ -17,7 +17,6 @@ const formatDateTime = (value: string) => formatHijriDateTime(value)
 type MessageKind = 'late' | 'absence' | 'general' | 'teacher'
 type MessageRecipient = { id: string; name: string; phone: string; grade?: string; classroom?: string; identityNumber?: string; time?: string }
 const MESSAGE_CANDIDATE_LIMIT = 50
-const MESSAGE_LOG_LIMIT = 40
 const MESSAGE_SEND_BATCH_SIZE = 100
 const messageLogTitle = (type: MessageKind) => type === 'general' ? 'سجل الرسائل العامة' : type === 'teacher' ? 'سجل رسائل المعلمين' : type === 'late' ? 'سجل رسائل التأخر' : 'سجل رسائل الغياب'
 const messageTypeText = (type: MessageLog['type']) => type === 'test' ? 'اختبار المدار' : type === 'teacher' ? 'معلمون' : type === 'late' ? 'تأخر' : type === 'absence' ? 'غياب' : 'عامة'
@@ -234,11 +233,13 @@ export function MessageCenter({ students, attendance, schoolName }: { students: 
   const [showStudentDetails, setShowStudentDetails] = useState(false)
   const [openRecipientGroup, setOpenRecipientGroup] = useState('')
   const [showLogDetails, setShowLogDetails] = useState(false)
+  const [openLogGroup, setOpenLogGroup] = useState('')
   const [logsLoading, setLogsLoading] = useState(false)
   const [notice, setNotice] = useState('')
   const [sending, setSending] = useState(false)
   const [sendProgress, setSendProgress] = useState<{ completed: number; total: number } | null>(null)
   const recipientGroupsRef = useRef<HTMLDivElement | null>(null)
+  const logGroupsRef = useRef<HTMLDivElement | null>(null)
 
   const load = () => {
     setLogsLoading(true)
@@ -337,8 +338,17 @@ export function MessageCenter({ students, attendance, schoolName }: { students: 
     const query = logSearch.trim().toLowerCase()
     return logRows.filter(log => (!logGrade || log.grade === logGrade) && (!query || `${log.studentName} ${log.studentId || ''} ${log.recipient} ${log.grade} ${log.classroom}`.toLowerCase().includes(query)))
   }, [logRows, logSearch, logGrade])
-  const visibleLogRows = useMemo(() => visibleLogs.slice(0, MESSAGE_LOG_LIMIT), [visibleLogs])
-  const hasMoreLogs = visibleLogs.length > visibleLogRows.length
+  const messageLogGroups = useMemo(() => {
+    if (!['late', 'absence'].includes(type)) return [] as Array<{ grade: string; logs: Array<(typeof logRows)[number]> }>
+    const groups = new Map<string, Array<(typeof logRows)[number]>>()
+    visibleLogs.forEach(log => {
+      const grade = log.grade || 'الصف غير المحدد'
+      groups.set(grade, [...(groups.get(grade) || []), log])
+    })
+    return [...groups.entries()]
+      .map(([grade, rows]) => ({ grade, logs: rows }))
+      .sort((a, b) => messageGradeRank(a.grade) - messageGradeRank(b.grade) || a.grade.localeCompare(b.grade, 'ar'))
+  }, [type, visibleLogs, logRows])
   const currentLogTitle = messageLogTitle(type)
   const supportsLogGradeFilter = type !== 'teacher'
   const recipientsLoading = (type === 'absence' && absenceCandidatesLoading) || (type === 'teacher' && teachersLoading) || (type === 'late' && lateCandidatesLoading)
@@ -363,6 +373,17 @@ export function MessageCenter({ students, attendance, schoolName }: { students: 
 
   useEffect(() => { setOpenRecipientGroup('') }, [type, search])
 
+  useEffect(() => {
+    if (!openLogGroup) return
+    const closeWhenOutside = (event: PointerEvent) => {
+      if (!logGroupsRef.current?.contains(event.target as Node)) setOpenLogGroup('')
+    }
+    document.addEventListener('pointerdown', closeWhenOutside)
+    return () => document.removeEventListener('pointerdown', closeWhenOutside)
+  }, [openLogGroup])
+
+  useEffect(() => { setOpenLogGroup('') }, [type, logSearch, logGrade])
+
   const toggle = (studentId: string) => setSelected(current => {
     const next = new Set(current)
     next.has(studentId) ? next.delete(studentId) : next.add(studentId)
@@ -382,7 +403,7 @@ export function MessageCenter({ students, attendance, schoolName }: { students: 
     recipients.forEach(recipient => allGroupSelected ? next.delete(recipient.id) : next.add(recipient.id))
     return next
   })
-  const chooseType = (nextType: MessageKind) => { setType(nextType); setSelected(new Set()); setMessage(''); setSearch(''); setLogSearch(''); setLogGrade(''); setShowStudentDetails(false); setOpenRecipientGroup(''); setShowLogDetails(false); setNotice('') }
+  const chooseType = (nextType: MessageKind) => { setType(nextType); setSelected(new Set()); setMessage(''); setSearch(''); setLogSearch(''); setLogGrade(''); setShowStudentDetails(false); setOpenRecipientGroup(''); setShowLogDetails(false); setOpenLogGroup(''); setNotice('') }
 
   const send = async () => {
     if (!accountReady) { setNotice('أكمل إعداد حساب المدار التقني وتحقق من الاتصال أولاً.'); return }
@@ -514,7 +535,7 @@ export function MessageCenter({ students, attendance, schoolName }: { students: 
           <h2>{currentLogTitle}</h2>
         </div>
         <div className="feature-actions">
-          <button className="secondary-button" type="button" onClick={() => setShowLogDetails(value => !value)} aria-expanded={showLogDetails}>
+          <button className="secondary-button" type="button" onClick={() => { if (showLogDetails) setOpenLogGroup(''); setShowLogDetails(value => !value) }} aria-expanded={showLogDetails}>
             {showLogDetails ? 'إخفاء السجل' : `عرض السجل (${visibleLogs.length})`}
           </button>
           <button className="export-btn csv" type="button" onClick={exportMessageLogExcel} disabled={!visibleLogs.length}><Download size={16} /> Excel</button>
@@ -523,11 +544,21 @@ export function MessageCenter({ students, attendance, schoolName }: { students: 
       </div>
       <div className="message-log-summary">
         <div className="message-log-count"><span>عدد العمليات</span><strong>{logsLoading ? '…' : visibleLogs.length}</strong></div>
-        {hasMoreLogs && showLogDetails && <span className="message-candidate-hint">يعرض آخر {MESSAGE_LOG_LIMIT} عملية فقط. التصدير يشمل العمليات المحملة كلها.</span>}
       </div>
       {showLogDetails && <>
         <div className="feature-toolbar message-log-toolbar"><input value={logSearch} onChange={event => setLogSearch(event.target.value)} placeholder="ابحث باسم الطالب أو رقمه أو الجوال..." />{supportsLogGradeFilter && <select value={logGrade} onChange={event => setLogGrade(event.target.value)} aria-label="عرض السجل حسب الصف"><option value="">كل الصفوف ({typeLogs.length})</option>{logGrades.map(grade => <option key={grade} value={grade}>{grade} ({logRows.filter(log => log.grade === grade).length})</option>)}</select>}<span className="message-search-count">الظاهر: {visibleLogs.length}</span></div>
-        <div className="table-wrap"><table className="feature-table"><thead><tr><th>الوقت</th><th>الطالب / العملية</th><th>الصف</th><th>الفصل</th><th>المستلم</th><th>اسم المرسل</th><th>النوع</th><th>الحالة</th><th>التفاصيل</th></tr></thead><tbody>{visibleLogRows.map(log => <tr key={log.id}><td data-label="الوقت">{formatDateTime(log.createdAt)}</td><td data-label="الطالب / العملية">{log.studentName || '—'}</td><td data-label="الصف">{log.grade || '—'}</td><td data-label="الفصل">{log.classroom || '—'}</td><td data-label="المستلم" dir="ltr">{maskPhone(log.recipient)}</td><td data-label="اسم المرسل">{log.senderName || '—'}</td><td data-label="النوع">{messageTypeText(log.type)}</td><td data-label="الحالة"><span className={`status-chip ${log.status === 'sent' ? 'success' : 'failed'}`}>{log.status === 'sent' ? log.type === 'test' ? 'قُبل طلب الإرسال' : 'تم الإرسال' : 'فشل'}</span></td><td data-label="التفاصيل">{log.errorDetail || log.body}</td></tr>)}{!visibleLogs.length && <tr><td colSpan={9}>لا توجد عمليات ضمن هذا العرض.</td></tr>}</tbody></table></div>
+        {['late', 'absence'].includes(type) ? <div className="message-log-groups" ref={logGroupsRef}>
+          {messageLogGroups.map((group, index) => {
+            const groupKey = `log:${type}:${group.grade}`
+            const groupDomId = `message-log-group-${type}-${index}`
+            const groupOpen = openLogGroup === groupKey
+            return <article className={`message-log-group${groupOpen ? ' open' : ''}`} key={group.grade}>
+              <button type="button" className="message-log-group-summary" onClick={() => setOpenLogGroup(current => current === groupKey ? '' : groupKey)} aria-expanded={groupOpen} aria-controls={groupDomId}><div><span>{type === 'late' ? 'رسائل التأخر' : 'رسائل الغياب'}</span><h3>{group.grade}</h3><p>{group.logs.length} رسالة · اضغط لعرض أسماء الطلاب.</p></div><b>{groupOpen ? 'إخفاء الأسماء' : 'عرض الأسماء'}</b></button>
+              {groupOpen && <div className="message-log-group-content" id={groupDomId}><div className="table-wrap"><table className="feature-table"><thead><tr><th>الوقت</th><th>الطالب</th><th>الفصل</th><th>المستلم</th><th>الحالة</th><th>التفاصيل</th></tr></thead><tbody>{group.logs.map(log => <tr key={log.id}><td data-label="الوقت">{formatDateTime(log.createdAt)}</td><td data-label="الطالب">{log.studentName || '—'}</td><td data-label="الفصل">{log.classroom || '—'}</td><td data-label="المستلم" dir="ltr">{maskPhone(log.recipient)}</td><td data-label="الحالة"><span className={`status-chip ${log.status === 'sent' ? 'success' : 'failed'}`}>{log.status === 'sent' ? 'تم الإرسال' : 'فشل'}</span></td><td data-label="التفاصيل">{log.errorDetail || log.body}</td></tr>)}</tbody></table></div></div>}
+            </article>
+          })}
+          {!messageLogGroups.length && <p className="report-empty-state">لا توجد عمليات ضمن هذا العرض.</p>}
+        </div> : <div className="table-wrap"><table className="feature-table"><thead><tr><th>الوقت</th><th>الطالب / العملية</th><th>الصف</th><th>الفصل</th><th>المستلم</th><th>اسم المرسل</th><th>النوع</th><th>الحالة</th><th>التفاصيل</th></tr></thead><tbody>{visibleLogs.map(log => <tr key={log.id}><td data-label="الوقت">{formatDateTime(log.createdAt)}</td><td data-label="الطالب / العملية">{log.studentName || '—'}</td><td data-label="الصف">{log.grade || '—'}</td><td data-label="الفصل">{log.classroom || '—'}</td><td data-label="المستلم" dir="ltr">{maskPhone(log.recipient)}</td><td data-label="اسم المرسل">{log.senderName || '—'}</td><td data-label="النوع">{messageTypeText(log.type)}</td><td data-label="الحالة"><span className={`status-chip ${log.status === 'sent' ? 'success' : 'failed'}`}>{log.status === 'sent' ? log.type === 'test' ? 'قُبل طلب الإرسال' : 'تم الإرسال' : 'فشل'}</span></td><td data-label="التفاصيل">{log.errorDetail || log.body}</td></tr>)}{!visibleLogs.length && <tr><td colSpan={9}>لا توجد عمليات ضمن هذا العرض.</td></tr>}</tbody></table></div>}
       </>}
     </section>
   </section>

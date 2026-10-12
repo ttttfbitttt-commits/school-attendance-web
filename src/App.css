@@ -3145,20 +3145,23 @@ tbody td {
   font-size: 13px;
 }
 
-.message-late-groups {
+.message-late-groups,
+.message-log-groups {
   display: grid;
   gap: 16px;
   margin-top: 14px;
 }
 
-.message-late-group {
+.message-late-group,
+.message-log-group {
   overflow: hidden;
   border: 1px solid #cfe0f1;
   border-radius: 14px;
   background: #fff;
 }
 
-.message-recipient-group-summary {
+.message-recipient-group-summary,
+.message-log-group-summary {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -3173,31 +3176,36 @@ tbody td {
   cursor: pointer;
 }
 
-.message-recipient-group-summary span {
+.message-recipient-group-summary span,
+.message-log-group-summary span {
   color: #52708e;
   font-size: 12px;
   font-weight: 700;
 }
 
-.message-recipient-group-summary h3 {
+.message-recipient-group-summary h3,
+.message-log-group-summary h3 {
   margin: 2px 0 0;
   color: #0c4277;
   font-size: 18px;
 }
 
-.message-recipient-group-summary p {
+.message-recipient-group-summary p,
+.message-log-group-summary p {
   margin: 4px 0 0;
   color: #64748b;
   font-size: 13px;
 }
 
-.message-recipient-group-summary b {
+.message-recipient-group-summary b,
+.message-log-group-summary b {
   flex: 0 0 auto;
   color: #075ca8;
   font-size: 13px;
 }
 
-.message-recipient-group-content {
+.message-recipient-group-content,
+.message-log-group-content {
   border-top: 1px solid #dce9f5;
 }
 
@@ -3218,12 +3226,14 @@ tbody td {
 
 @media (max-width: 860px) {
   .message-recipient-group-summary,
+  .message-log-group-summary,
   .message-late-group-head {
     align-items: stretch;
     flex-direction: column;
   }
 
-  .message-recipient-group-summary b {
+  .message-recipient-group-summary b,
+  .message-log-group-summary b {
     color: #075ca8;
   }
 
