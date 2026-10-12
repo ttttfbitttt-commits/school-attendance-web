@@ -1,7 +1,7 @@
 import crypto from 'node:crypto'
 
 const NOTE_OPTIONS = new Set(['هروب من الحصة', 'نائم أثناء الدرس', 'لم يحل الواجب', 'عدم التفاعل والمشاركة', 'مشارك فعال', 'لم يحضر الكتاب أو أوراق العمل', 'استخدام الجوال أثناء الحصة', 'الحديث مع زملائه أثناء الدرس'])
-const ATTENDANCE_OPTIONS = new Set(['present', 'absent'])
+const ATTENDANCE_OPTIONS = new Set(['present', 'absent', 'late'])
 const SHEET_TYPES = new Set(['followup', 'homework', 'tests'])
 const SHEET_OPEN_TYPES = new Set([...SHEET_TYPES, 'combined'])
 const SHEET_FIELD_TYPES = new Set(['score', 'text', 'choice', 'boolean'])
@@ -152,6 +152,7 @@ async function reportRows(client, schoolId, filters = {}, teacherId = null) {
       s.subject_name AS subject,s.grade_value AS grade,s.classroom_value AS "classroomValue",s.saved_at AS "savedAt",
       COUNT(r.student_id)::int AS "studentsCount",
       COUNT(r.student_id) FILTER (WHERE r.attendance_status='present')::int AS "presentCount",
+      COUNT(r.student_id) FILTER (WHERE r.attendance_status='late')::int AS "lateCount",
       COUNT(r.student_id) FILTER (WHERE r.attendance_status='absent')::int AS "absentCount"
     FROM teacher_lesson_sessions s LEFT JOIN teacher_lesson_student_records r ON r.lesson_session_id=s.id
     WHERE ${clauses.join(' AND ')}
@@ -169,7 +170,7 @@ async function reportRows(client, schoolId, filters = {}, teacherId = null) {
   }
   return sessions.map(row => {
     const sessionRecords = grouped.get(row.id) || []
-    return { ...row, weekday: Number(row.weekday), periodNumber: Number(row.periodNumber), studentsCount: requestedStudentId ? sessionRecords.length : Number(row.studentsCount), presentCount: requestedStudentId ? sessionRecords.filter(record => record.status === 'present').length : Number(row.presentCount), absentCount: requestedStudentId ? sessionRecords.filter(record => record.status === 'absent').length : Number(row.absentCount), records: sessionRecords }
+    return { ...row, weekday: Number(row.weekday), periodNumber: Number(row.periodNumber), studentsCount: requestedStudentId ? sessionRecords.length : Number(row.studentsCount), presentCount: requestedStudentId ? sessionRecords.filter(record => record.status === 'present').length : Number(row.presentCount), lateCount: requestedStudentId ? sessionRecords.filter(record => record.status === 'late').length : Number(row.lateCount), absentCount: requestedStudentId ? sessionRecords.filter(record => record.status === 'absent').length : Number(row.absentCount), records: sessionRecords }
   })
 }
 
@@ -248,7 +249,7 @@ export async function migrateTeacherPortal(adminPool) {
       student_name text NOT NULL,
       grade_value text NOT NULL DEFAULT '',
       classroom_value text NOT NULL DEFAULT '',
-      attendance_status text NOT NULL CHECK (attendance_status IN ('present','absent')),
+      attendance_status text NOT NULL CHECK (attendance_status IN ('present','absent','late')),
       note text NOT NULL DEFAULT '',
       updated_at timestamptz NOT NULL DEFAULT now(),
       UNIQUE (lesson_session_id,student_id),
@@ -327,6 +328,13 @@ export async function migrateTeacherPortal(adminPool) {
     ON CONFLICT(school_id,config_id,assignment_id,entry_date,student_id) DO NOTHING`)
   await adminPool.query('ALTER TABLE teacher_lesson_student_records DROP CONSTRAINT IF EXISTS teacher_lesson_student_records_note_check')
   await adminPool.query('ALTER TABLE teacher_lesson_student_records DROP CONSTRAINT IF EXISTS teacher_lesson_student_records_note_check_v2')
+  await adminPool.query('ALTER TABLE teacher_lesson_student_records DROP CONSTRAINT IF EXISTS teacher_lesson_student_records_attendance_status_check')
+  await adminPool.query(`DO $$ BEGIN
+    IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conrelid='teacher_lesson_student_records'::regclass AND conname='teacher_lesson_student_records_attendance_status_check_v2') THEN
+      ALTER TABLE teacher_lesson_student_records ADD CONSTRAINT teacher_lesson_student_records_attendance_status_check_v2
+        CHECK (attendance_status IN ('present','absent','late'));
+    END IF;
+  END $$`)
   await adminPool.query(`UPDATE teacher_lesson_student_records SET note=CASE note
     WHEN 'هرب' THEN 'هروب من الحصة'
     WHEN 'نائم' THEN 'نائم أثناء الدرس'

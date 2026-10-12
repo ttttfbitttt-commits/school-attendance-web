@@ -28,7 +28,7 @@ const previousYear = () => {
 const escapeHtml = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character] || character))
 
 function statusLabel(status: LessonRecord['status']) {
-  return status === 'absent' ? 'غائب' : 'حاضر'
+  return status === 'absent' ? 'غائب' : status === 'late' ? 'تأخر عن الحصة' : 'حاضر'
 }
 
 function subjectGroups(report: DetailedStudentReport): SubjectGroup[] {

@@ -10,13 +10,14 @@ const dayNames = ['', 'الأحد', 'الاثنين', 'الثلاثاء', 'ال�
 const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Riyadh' }).format(new Date())
 const escapeHtml = (value: unknown) => String(value ?? '').replace(/[&<>'"]/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[character] || character))
 const periodLabel = (period: number) => `الحصة ${['', 'الأولى', 'الثانية', 'الثالثة', 'الرابعة', 'الخامسة', 'السادسة', 'السابعة', 'الثامنة', 'التاسعة', 'العاشرة'][period] || period}`
+const attendanceStatusLabel = (status: TeacherLessonReport['records'][number]['status']) => status === 'present' ? 'حاضر' : status === 'late' ? 'تأخر عن الحصة' : 'غائب'
 type AccountPanel = 'accounts' | 'credentials' | 'mappings' | null
 
 function reportsHtml(reports: TeacherLessonReport[]) {
   return reports.map(report => `<section class="page"><div class="heading"><strong>المعلم:</strong> ${escapeHtml(report.teacherName)}<br/>
     <strong>اليوم والتاريخ:</strong> ${escapeHtml(dayNames[report.weekday])} ${escapeHtml(formatHijriDate(report.date))} &nbsp; | &nbsp;
     <strong>الصف والفصل:</strong> ${escapeHtml(report.grade)} - ${escapeHtml(report.classroomValue)} &nbsp; | &nbsp; ${escapeHtml(periodLabel(report.periodNumber))}</div>
-    <table><thead><tr><th>الطالب</th><th>الحالة</th><th>الملاحظة</th></tr></thead><tbody>${report.records.map(row => `<tr><td>${escapeHtml(row.name)}</td><td>${row.status === 'present' ? 'حاضر' : 'غائب'}</td><td>${escapeHtml(row.note || '—')}</td></tr>`).join('')}</tbody></table>
+    <table><thead><tr><th>الطالب</th><th>الحالة</th><th>الملاحظة</th></tr></thead><tbody>${report.records.map(row => `<tr><td>${escapeHtml(row.name)}</td><td>${attendanceStatusLabel(row.status)}</td><td>${escapeHtml(row.note || '—')}</td></tr>`).join('')}</tbody></table>
     <p style="margin-top:28px">توقيع المعلم: ........................................................</p></section>`).join('')
 }
 
@@ -123,7 +124,7 @@ export function TeacherAdminCenter({ schoolName }: { schoolName: string }) {
   }
   const exportReports = () => downloadWorkbook(`تقارير-المعلمين-${formatHijriDate(reportDate)}`, [
     ['المعلم', 'التاريخ', 'الحصة', 'الصف والفصل', 'الطالب', 'الحالة', 'الملاحظة'],
-    ...reports.flatMap(report => report.records.map(row => [report.teacherName, formatHijriDate(report.date), periodLabel(report.periodNumber), `${report.grade} - ${report.classroomValue}`, row.name, row.status === 'present' ? 'حاضر' : 'غائب', row.note || '—'])),
+    ...reports.flatMap(report => report.records.map(row => [report.teacherName, formatHijriDate(report.date), periodLabel(report.periodNumber), `${report.grade} - ${report.classroomValue}`, row.name, attendanceStatusLabel(row.status), row.note || '—'])),
   ], 'تقارير المعلمين', schoolName, 'تقارير متابعة المعلمين')
   const exportCredentials = () => downloadWorkbook('بيانات-دخول-المعلمين', [
           ['الاسم', 'رقم الهوية', 'كلمة المرور'],
@@ -178,7 +179,7 @@ export function TeacherAdminCenter({ schoolName }: { schoolName: string }) {
     {tab === 'reports' && <section className="teacher-admin-card">
       <div className="teacher-section-head"><div><span>مستقلة عن سجل الحضور</span><h3>تقارير متابعة المعلمين</h3></div><div className="teacher-report-actions"><button className="outline-button" onClick={() => { if (reports.length) openPrintDocument('تقارير متابعة المعلمين', reportsHtml(reports), schoolName) }} disabled={!reports.length}><Printer size={17} /> PDF</button><button className="outline-button" onClick={exportReports} disabled={!reports.length}><FileDown size={17} /> Excel</button></div></div>
       <div className="teacher-report-filters"><HijriDatePicker label="التاريخ الهجري" value={reportDate} max={today()} onChange={setReportDate} /><label>المعلم<select value={reportTeacher} onChange={event => setReportTeacher(event.target.value)}><option value="">كل المعلمين</option>{(overview?.teachers || []).map(teacher => <option key={teacher.teacherId} value={teacher.teacherId}>{teacher.name}</option>)}</select></label><label>الملاحظة<select value={reportNote} onChange={event => setReportNote(event.target.value)}><option value="">كل الملاحظات</option>{notes.map(note => <option key={note} value={note}>{note}</option>)}</select></label><button className="primary-button" onClick={() => void loadReports()} disabled={busy === 'reports'}>{busy === 'reports' ? 'جارٍ العرض…' : 'عرض التقارير'}</button></div>
-      {!reports.length ? <p className="teacher-empty">اختر عوامل التقرير ثم اضغط «عرض التقارير».</p> : <div className="teacher-report-list">{reports.slice(0, 50).map(report => <article key={report.id}><div><strong>{report.teacherName} · {periodLabel(report.periodNumber)} · {report.classroom}</strong><span>{formatHijriDate(report.date)} · {report.presentCount} حاضر · {report.absentCount} غائب</span></div><button onClick={() => openPrintDocument('كشف متابعة طلاب الفصل', reportsHtml([report]), schoolName)} title="طباعة التقرير"><Printer size={17} /></button></article>)}</div>}
+      {!reports.length ? <p className="teacher-empty">اختر عوامل التقرير ثم اضغط «عرض التقارير».</p> : <div className="teacher-report-list">{reports.slice(0, 50).map(report => <article key={report.id}><div><strong>{report.teacherName} · {periodLabel(report.periodNumber)} · {report.classroom}</strong><span>{formatHijriDate(report.date)} · {report.presentCount} حاضر · {report.lateCount} تأخر عن الحصة · {report.absentCount} غائب</span></div><button onClick={() => openPrintDocument('كشف متابعة طلاب الفصل', reportsHtml([report]), schoolName)} title="طباعة التقرير"><Printer size={17} /></button></article>)}</div>}
     </section>}
   </section>
 }

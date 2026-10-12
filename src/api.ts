@@ -49,7 +49,7 @@ export type DetailedStudentReport = {
   summary: { schoolAbsenceDays: number; schoolLateDays: number }
   subjects: Array<{ subject: string; teacherName: string; grade: string; classroomValue: string }>
   grades: Array<{ date: string; subject: string; teacherName: string; grade: string; classroomValue: string; sheetType: TeacherSheetType; columns: TeacherSheetColumn[]; values: Record<string, string | number | boolean> }>
-  lessons: Array<{ date: string; weekday: number; periodNumber: number; subject: string; teacherName: string; classroom: string; grade: string; classroomValue: string; status: 'present' | 'absent'; note: TeacherNote | '' }>
+  lessons: Array<{ date: string; weekday: number; periodNumber: number; subject: string; teacherName: string; classroom: string; grade: string; classroomValue: string; status: 'present' | 'absent' | 'late'; note: TeacherNote | '' }>
 }
 export type MessageLog = { id: string; studentId: string | null; studentName: string; recipient: string; senderName: string; type: 'late' | 'absence' | 'general' | 'teacher' | 'test'; body: string; status: 'sent' | 'failed'; errorDetail: string; createdAt: string }
 export type MessageTeacher = { id: string; name: string; identityNumber: string; phone: string }
@@ -148,12 +148,12 @@ export type TeacherSheetOpenType = TeacherSheetType | 'combined'
 export type TeacherSheetConfig = { id?: string; subject: string; sheetType: TeacherSheetType; version: number; columns: TeacherSheetColumn[]; createdAt?: string }
 export type TeacherSheetSubject = { subject: string; configs: TeacherSheetConfig[] }
 export type TeacherSheetReport = { subject: string; sheetType: TeacherSheetOpenType; sections: Array<{ sheetType: TeacherSheetType; version: number; columns: TeacherSheetColumn[] }>; classroomId: string; classroom: string; grade: string; students: Array<{ id: string; name: string; phone: string; grade: string; classroom: string; values: Record<string, string | number | boolean> }> }
-export type TeacherLessonStudent = { id: string; name: string; phone: string; grade: string; classroom: string; status: 'present' | 'absent'; note: TeacherNote | ''; sheetValues: Record<string, string | number | boolean> }
+export type TeacherLessonStudent = { id: string; name: string; phone: string; grade: string; classroom: string; status: 'present' | 'absent' | 'late'; note: TeacherNote | ''; sheetValues: Record<string, string | number | boolean> }
 export type TeacherLesson = { assignment: { assignmentId: string; classroomId: string; classroom: string; subject: string }; date: string; periodNumber: number; mapping: { grade: string; classroom: string; mappingSource: 'automatic' | 'manual' }; sheetConfig: TeacherSheetConfig | null; sheetConfigs: TeacherSheetConfig[]; students: TeacherLessonStudent[] }
 export type TeacherLessonReport = {
   id: string; date: string; weekday: number; periodNumber: number; teacherId: string; teacherName: string; classroom: string; subject: string; grade: string; classroomValue: string; savedAt: string
-  studentsCount: number; presentCount: number; absentCount: number
-  records: Array<{ studentId: string; name: string; grade: string; classroom: string; status: 'present' | 'absent'; note: TeacherNote | '' }>
+  studentsCount: number; presentCount: number; absentCount: number; lateCount: number
+  records: Array<{ studentId: string; name: string; grade: string; classroom: string; status: 'present' | 'absent' | 'late'; note: TeacherNote | '' }>
 }
 export type TeacherAdminOverview = {
   teachers: Array<{ teacherId: string; name: string; identityNumber: string; assignments: number; accountActive: boolean; accountCreated: boolean; mustChangePassword: boolean; credentialsAvailable: boolean }>
@@ -371,7 +371,7 @@ export const api = {
   deleteLessonIncident: (id: string) => request<{ ok: boolean }>(`/lesson-flow/incidents/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   teacherDashboard: (date: string) => request<TeacherPortalDashboard>(`/teacher-portal/teacher/dashboard?date=${encodeURIComponent(date)}`),
   teacherLesson: (classroomId: string, date: string, periodNumber: number, sheetType: TeacherSheetOpenType) => request<TeacherLesson>(`/teacher-portal/teacher/lesson?classroomId=${encodeURIComponent(classroomId)}&date=${encodeURIComponent(date)}&periodNumber=${periodNumber}&sheetType=${sheetType}`),
-  saveTeacherLesson: (payload: { classroomId: string; date: string; periodNumber: number; sheetType: TeacherSheetOpenType; students: Array<{ studentId: string; status: 'present' | 'absent'; note: TeacherNote | ''; sheetValues: Record<string, string | number | boolean> }> }) => request<{ ok: boolean; saved: number }>('/teacher-portal/teacher/lesson', { method: 'PUT', body: JSON.stringify(payload) }),
+  saveTeacherLesson: (payload: { classroomId: string; date: string; periodNumber: number; sheetType: TeacherSheetOpenType; students: Array<{ studentId: string; status: 'present' | 'absent' | 'late'; note: TeacherNote | ''; sheetValues: Record<string, string | number | boolean> }> }) => request<{ ok: boolean; saved: number }>('/teacher-portal/teacher/lesson', { method: 'PUT', body: JSON.stringify(payload) }),
   teacherReports: (filters: { date?: string; from?: string; to?: string; studentId?: string; note?: string } = {}) => request<{ reports: TeacherLessonReport[] }>(`/teacher-portal/teacher/reports?${new URLSearchParams(Object.entries(filters).filter(([, value]) => value).map(([key, value]) => [key, value || '']))}`),
   changeTeacherPassword: (password: string) => request<{ ok: boolean }>('/teacher-portal/teacher/password', { method: 'POST', body: JSON.stringify({ password }) }),
   teacherSheets: () => request<{ sheets: TeacherSheetSubject[] }>('/teacher-portal/teacher/sheets'),
