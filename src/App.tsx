@@ -24,6 +24,7 @@ import {
   Maximize2,
   Menu,
   Minimize2,
+  Pencil,
   Printer,
   QrCode,
   Save,
@@ -34,6 +35,7 @@ import {
   Sparkles,
   Square,
   Upload,
+  UserPlus,
   Users,
   X,
   Zap,
@@ -64,6 +66,8 @@ type Student = {
   row: number
   qr?: string
 }
+
+type StudentDraft = Pick<Student, 'id' | 'name' | 'phone' | 'grade' | 'classroom'>
 
 type AttendanceMode = 'late' | 'present' | 'auto'
 
@@ -196,6 +200,10 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
   const [manualAttendanceSubmitting, setManualAttendanceSubmitting] = useState(false)
   const [isImporting, setIsImporting] = useState(false)
   const [showPrintableCards, setShowPrintableCards] = useState(false)
+  const [studentEditor, setStudentEditor] = useState<{ mode: 'create' | 'edit'; studentId: string } | null>(null)
+  const [studentDraft, setStudentDraft] = useState<StudentDraft>({ id: '', name: '', phone: '', grade: '', classroom: '' })
+  const [studentEditorError, setStudentEditorError] = useState('')
+  const [studentSaving, setStudentSaving] = useState(false)
   const [cardsPerPage, setCardsPerPage] = useState<CardsPerPage>(6)
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [printGradeFilter, setPrintGradeFilter] = useState('all')
@@ -626,6 +634,78 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
     setStudents(nextStudents)
     setShowPrintableCards(false)
     setNotice(`تم تجهيز باركود ثابت لـ ${nextStudents.length} طالبًا. الرمز مرتبط برقم الطالب ولا يتغير.`)
+  }
+
+  const openCreateStudent = () => {
+    setStudentEditor({ mode: 'create', studentId: '' })
+    setStudentDraft({ id: '', name: '', phone: '', grade: '', classroom: '' })
+    setStudentEditorError('')
+  }
+
+  const openEditStudent = (student: Student) => {
+    setStudentEditor({ mode: 'edit', studentId: student.id })
+    setStudentDraft({ id: student.id, name: student.name, phone: student.phone, grade: student.grade, classroom: student.classroom })
+    setStudentEditorError('')
+  }
+
+  const closeStudentEditor = () => {
+    if (studentSaving) return
+    setStudentEditor(null)
+    setStudentEditorError('')
+  }
+
+  const saveStudentEditor = async () => {
+    if (!studentEditor) return
+    const draft: StudentDraft = {
+      id: normalizeImportedStudentId(normalize(studentDraft.id)),
+      name: normalize(studentDraft.name),
+      phone: normalize(studentDraft.phone),
+      grade: normalize(studentDraft.grade),
+      classroom: normalize(studentDraft.classroom),
+    }
+    if (!draft.id || !draft.name || !draft.grade || !draft.classroom) {
+      setStudentEditorError('أدخل رقم الطالب والاسم والصف والفصل قبل الحفظ.')
+      return
+    }
+
+    setStudentSaving(true)
+    setStudentEditorError('')
+    try {
+      const result = studentEditor.mode === 'create'
+        ? await api.createStudent(draft)
+        : await api.updateStudent(studentEditor.studentId, draft)
+      let qr = ''
+      try {
+        qr = await QRCode.toDataURL(result.student.id, {
+          width: 220,
+          margin: 1,
+          color: { dark: '#102a43', light: '#ffffff' },
+        })
+      } catch {
+        // The student data is saved even if the local barcode image needs another attempt.
+      }
+      const savedStudent: Student = { ...result.student, qr: qr || undefined }
+      setStudents((current) => {
+        const next = studentEditor.mode === 'create'
+          ? [...current, savedStudent]
+          : current.map((student) => student.id === studentEditor.studentId ? savedStudent : student)
+        return [...next].sort((left, right) => left.name.localeCompare(right.name, 'ar'))
+      })
+      setShowPrintableCards(false)
+      setStudentEditor(null)
+      setNotice(studentEditor.mode === 'create'
+        ? `تمت إضافة ${savedStudent.name} ${qr ? 'وتجهيز باركوده.' : 'وسيُجهز باركوده تلقائيًا.'}`
+        : `تم حفظ التعديل على بيانات ${savedStudent.name}.`)
+    } catch (error) {
+      const code = (error as Error & { code?: string }).code
+      setStudentEditorError(code === 'student_id_exists'
+        ? 'رقم الطالب مستخدم بالفعل لطالب آخر.'
+        : code === 'student_not_found'
+          ? 'لم يعد هذا الطالب موجودًا في السجل. حدّث الصفحة ثم أعد المحاولة.'
+          : 'تعذر حفظ بيانات الطالب. تحقق من البيانات والاتصال ثم أعد المحاولة.')
+    } finally {
+      setStudentSaving(false)
+    }
   }
 
   // حفظ وقت الحضور المبكر
@@ -1824,7 +1904,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
             <section className="page-intro">
               <div>
                 <h2>بيانات الطلاب</h2>
-                <p>استورد ملف المدرسة لإدارة الطلاب وتوليد بطاقات QR ثابتة لكل طالب.</p>
+                <p>أضف الطلاب وعدّل بياناتهم مباشرة، أو استورد ملف المدرسة، ثم ولّد بطاقات QR ثابتة لكل طالب.</p>
               </div>
 
               <div className="secure-label">
@@ -1883,6 +1963,10 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
                 </div>
 
                 <div className="panel-actions">
+                  <button className="primary-button" type="button" onClick={openCreateStudent}>
+                    <UserPlus size={18} />
+                    <span>إضافة طالب</span>
+                  </button>
                   <label className="primary-button">
                     <Upload size={18} />
                     <span>{isImporting ? 'جاري الاستيراد...' : 'رفع ملف Excel'}</span>
@@ -1992,8 +2076,11 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
                           <ul className="student-group-students" id={listId}>
                             {group.students.map((student) => (
                               <li key={`${student.id}-${student.sheet}`}>
-                                <span>{student.name}</span>
-                                <small>{student.id}</small>
+                                <span><strong>{student.name}</strong><small>{student.id}</small></span>
+                                <button type="button" className="student-edit-button" onClick={() => openEditStudent(student)}>
+                                  <Pencil size={14} />
+                                  تعديل
+                                </button>
                               </li>
                             ))}
                           </ul>
@@ -2012,6 +2099,51 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
                 </div>
               )}
             </section>
+
+            {studentEditor && (
+              <div className="student-editor-overlay" onClick={closeStudentEditor} role="presentation">
+                <form className="student-editor-dialog" onClick={(event) => event.stopPropagation()} onSubmit={(event) => { event.preventDefault(); void saveStudentEditor() }}>
+                  <header className="student-editor-header">
+                    <div>
+                      <span className="panel-kicker">إدارة الطلاب</span>
+                      <h3>{studentEditor.mode === 'create' ? 'إضافة طالب جديد' : 'تعديل بيانات الطالب'}</h3>
+                      <p>{studentEditor.mode === 'create' ? 'سيُنشأ باركود ثابت فور حفظ بيانات الطالب.' : 'يبقى رقم الطالب ثابتًا لحماية سجلات الحضور والتقارير والباركود.'}</p>
+                    </div>
+                    <button type="button" className="modal-close-btn" onClick={closeStudentEditor} aria-label="إغلاق"><X size={20} /></button>
+                  </header>
+
+                  <div className="student-editor-fields">
+                    <label>
+                      <span>رقم الطالب</span>
+                      <input value={studentDraft.id} inputMode="numeric" autoComplete="off" readOnly={studentEditor.mode === 'edit'} onChange={(event) => setStudentDraft((current) => ({ ...current, id: event.target.value }))} placeholder="رقم الهوية أو الرقم المدرسي" />
+                    </label>
+                    <label>
+                      <span>اسم الطالب</span>
+                      <input value={studentDraft.name} autoComplete="off" onChange={(event) => setStudentDraft((current) => ({ ...current, name: event.target.value }))} placeholder="اكتب الاسم الكامل" autoFocus />
+                    </label>
+                    <label>
+                      <span>رقم الجوال</span>
+                      <input value={studentDraft.phone} inputMode="tel" autoComplete="off" onChange={(event) => setStudentDraft((current) => ({ ...current, phone: event.target.value }))} placeholder="اختياري لإرسال الرسائل" />
+                    </label>
+                    <label>
+                      <span>الصف</span>
+                      <input value={studentDraft.grade} autoComplete="off" onChange={(event) => setStudentDraft((current) => ({ ...current, grade: event.target.value }))} placeholder="مثال: ثالث ثانوي" />
+                    </label>
+                    <label>
+                      <span>الفصل</span>
+                      <input value={studentDraft.classroom} autoComplete="off" onChange={(event) => setStudentDraft((current) => ({ ...current, classroom: event.target.value }))} placeholder="مثال: 1" />
+                    </label>
+                  </div>
+
+                  {studentEditorError && <p className="student-editor-error" role="alert">{studentEditorError}</p>}
+
+                  <footer className="student-editor-actions">
+                    <button type="button" className="secondary-button" onClick={closeStudentEditor} disabled={studentSaving}>إلغاء</button>
+                    <button type="submit" className="primary-button" disabled={studentSaving}>{studentSaving ? 'جارٍ الحفظ...' : studentEditor.mode === 'create' ? 'حفظ وتوليد الباركود' : 'حفظ التعديل'}</button>
+                  </footer>
+                </form>
+              </div>
+            )}
 
             {showPrintableCards && (
               <div className="print-modal-overlay" onClick={() => setShowPrintableCards(false)}>

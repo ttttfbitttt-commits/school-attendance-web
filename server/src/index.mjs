@@ -165,6 +165,17 @@ function normalizedSchoolProfile(input) {
   if (![schoolName, principalName, academicYear, semester].every(value => value.length > 0 && value.length <= 160)) return null
   return { schoolName, principalName, academicYear, semester, preferences: { attendanceMode, cutoffTime, gradeAliases } }
 }
+function normalizedStudentInput(input) {
+  if (!input || typeof input !== 'object' || Array.isArray(input)) return null
+  const id = String(input.id || '').trim().replace(/^([+-]?\d+)\.0+$/, '$1')
+  const name = String(input.name || '').replace(/\s+/g, ' ').trim()
+  const phone = String(input.phone || '').replace(/\s+/g, ' ').trim()
+  const grade = String(input.grade || '').replace(/\s+/g, ' ').trim()
+  const classroom = String(input.classroom || '').replace(/\s+/g, ' ').trim()
+  if (!id || !name || !grade || !classroom || id.length > 80 || name.length > 200 || phone.length > 40 || grade.length > 100 || classroom.length > 100) return null
+  return { id, name, phone, grade, classroom }
+}
+
 async function scopedOn(databasePool, schoolId, work) {
   const client = await databasePool.connect()
   try { await client.query('BEGIN'); await client.query(`SELECT set_config('app.school_id', $1, true)`, [schoolId]); const result = await work(client); await client.query('COMMIT'); return result }
@@ -368,6 +379,35 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { school: schoolProfile(result.rows[0]) })
     }
     if (req.method === 'GET' && url.pathname === '/api/students') return json(res, 200, await scoped(user.school_id, async c => ({ students: (await c.query('SELECT id,name,phone,grade,classroom,sheet,row_number AS row FROM students WHERE school_id=$1 AND active=true ORDER BY name', [user.school_id])).rows })))
+    if (req.method === 'POST' && url.pathname === '/api/students') {
+      if (user.role !== 'admin') return json(res, 403, { error: 'forbidden' })
+      const student = normalizedStudentInput(await body(req))
+      if (!student) return json(res, 400, { error: 'invalid_student' })
+      const result = await scoped(user.school_id, async c => {
+        const existing = await c.query('SELECT active FROM students WHERE school_id=$1 AND id=$2', [user.school_id, student.id])
+        if (existing.rows[0]?.active) return { duplicate: true }
+        const saved = await c.query(`INSERT INTO students(school_id,id,name,phone,grade,classroom,sheet,row_number,active)
+          VALUES($1,$2,$3,$4,$5,$6,'manual-entry',0,true)
+          ON CONFLICT(school_id,id) DO UPDATE SET name=EXCLUDED.name,phone=EXCLUDED.phone,grade=EXCLUDED.grade,classroom=EXCLUDED.classroom,sheet=EXCLUDED.sheet,row_number=EXCLUDED.row_number,active=true,updated_at=now()
+          RETURNING id,name,phone,grade,classroom,sheet,row_number AS row`, [user.school_id, student.id, student.name, student.phone, student.grade, student.classroom])
+        return { student: saved.rows[0] }
+      })
+      if (result.duplicate) return json(res, 409, { error: 'student_id_exists' })
+      return json(res, 201, { ok: true, student: result.student })
+    }
+    const studentRoute = /^\/api\/students\/([^/]+)$/.exec(url.pathname)
+    if (req.method === 'PATCH' && studentRoute) {
+      if (user.role !== 'admin') return json(res, 403, { error: 'forbidden' })
+      const studentId = decodeURIComponent(studentRoute[1]).trim()
+      const student = normalizedStudentInput({ ...(await body(req)), id: studentId })
+      if (!student) return json(res, 400, { error: 'invalid_student' })
+      const result = await scoped(user.school_id, async c => c.query(`UPDATE students
+        SET name=$3,phone=$4,grade=$5,classroom=$6,updated_at=now()
+        WHERE school_id=$1 AND id=$2 AND active=true
+        RETURNING id,name,phone,grade,classroom,sheet,row_number AS row`, [user.school_id, studentId, student.name, student.phone, student.grade, student.classroom]))
+      if (!result.rowCount) return json(res, 404, { error: 'student_not_found' })
+      return json(res, 200, { ok: true, student: result.rows[0] })
+    }
     if (req.method === 'PUT' && url.pathname === '/api/students') {
       if (user.role !== 'admin') return json(res,403,{error:'forbidden'})
       const { students=[] } = await body(req)
