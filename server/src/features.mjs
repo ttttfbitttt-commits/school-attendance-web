@@ -807,9 +807,11 @@ export async function handleFeatureRequest(context) {
   if (req.method === 'GET' && url.pathname === '/api/messages') {
     const requestedType = String(url.searchParams.get('type') || '').trim()
     const messageType = ['late', 'absence', 'general', 'teacher', 'test'].includes(requestedType) ? requestedType : ''
+    const requestedLimit = Number.parseInt(String(url.searchParams.get('limit') || ''), 10)
+    const limit = Number.isInteger(requestedLimit) ? Math.max(1, Math.min(requestedLimit, 5000)) : 5000
     const params = messageType ? [user.school_id, messageType] : [user.school_id]
     const result = await scoped(user.school_id, async client => client.query(`SELECT id,student_id AS "studentId",student_name AS "studentName",recipient,sender_name AS "senderName",message_type AS type,message_body AS body,status,error_detail AS "errorDetail",created_at AS "createdAt"
-      FROM message_logs WHERE school_id=$1${messageType ? ' AND message_type=$2' : ''} ORDER BY created_at DESC LIMIT 200`, params))
+      FROM message_logs WHERE school_id=$1${messageType ? ' AND message_type=$2' : ''} ORDER BY created_at DESC LIMIT $${params.length + 1}`, [...params, limit]))
     json(res, 200, { messages: result.rows })
     return true
   }

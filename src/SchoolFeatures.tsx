@@ -512,7 +512,7 @@ export function MessageCenter({ students, attendance, schoolName }: { students: 
     </tr>`).join('')
     const title = currentLogTitle
     const emptyRow = '<tr><td colspan="9">لا توجد عمليات مسجلة ضمن هذا العرض.</td></tr>'
-    openPrintDocument(title, `<section class="page"><table><thead><tr><th>الوقت</th><th>الطالب / العملية</th><th>الصف</th><th>الفصل</th><th>المستلم</th><th>اسم المرسل</th><th>النوع</th><th>الحالة</th><th>التفاصيل</th></tr></thead><tbody>${body || emptyRow}</tbody></table><p class="meta">عدد العمليات: ${visibleLogs.length} · آخر 200 عملية</p></section>`, schoolName, 'landscape')
+    openPrintDocument(title, `<section class="page"><table><thead><tr><th>الوقت</th><th>الطالب / العملية</th><th>الصف</th><th>الفصل</th><th>المستلم</th><th>اسم المرسل</th><th>النوع</th><th>الحالة</th><th>التفاصيل</th></tr></thead><tbody>${body || emptyRow}</tbody></table><p class="meta">عدد العمليات المعروضة: ${visibleLogs.length}</p></section>`, schoolName, 'landscape')
   }
 
   return <section className="feature-page">
@@ -585,7 +585,7 @@ export function MessageCenter({ students, attendance, schoolName }: { students: 
     <section className="panel message-log-panel">
       <div className="panel-header">
         <div>
-          <span className="panel-kicker">آخر 200 عملية من هذا النوع</span>
+          <span className="panel-kicker">سجل عمليات الإرسال من هذا النوع</span>
           <h2>{currentLogTitle}</h2>
         </div>
         <div className="feature-actions">
