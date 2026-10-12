@@ -635,6 +635,52 @@ function printDaily(title: string, rows: DailyRow[], schoolName: string, date: s
 }
 
 function DailyList({ id, title, date, onDate, rows, onStatus, onAll, onExcel, onPdf, onCancelApproval, cancelBusy = false, busy = false, actionNotice = '', late = false }: { id?: string; title: string; date: string; onDate: (value: string) => void; rows: DailyRow[]; onStatus: (ids: string[], status: 'unexcused' | 'excused') => void; onAll: (status: 'unexcused' | 'excused') => void; onExcel: () => void; onPdf: () => void; onCancelApproval?: () => void; cancelBusy?: boolean; busy?: boolean; actionNotice?: string; late?: boolean }) {
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [openGrade, setOpenGrade] = useState('')
+  const [openClassroom, setOpenClassroom] = useState('')
+  const lateGroups = useMemo(() => {
+    if (!late) return [] as Array<{ grade: string; rows: DailyRow[]; classrooms: Array<{ classroom: string; rows: DailyRow[] }> }>
+    const byGrade = new Map<string, DailyRow[]>()
+    rows.forEach(row => {
+      const grade = row.grade.trim() || 'صف غير محدد'
+      byGrade.set(grade, [...(byGrade.get(grade) || []), row])
+    })
+    return [...byGrade.entries()].map(([grade, gradeRows]) => {
+      const byClassroom = new Map<string, DailyRow[]>()
+      gradeRows.forEach(row => {
+        const classroom = row.classroom.trim() || 'الفصل غير المحدد'
+        byClassroom.set(classroom, [...(byClassroom.get(classroom) || []), row])
+      })
+      return {
+        grade,
+        rows: gradeRows,
+        classrooms: [...byClassroom.entries()].map(([classroom, classroomRows]) => ({
+          classroom,
+          rows: [...classroomRows].sort((left, right) => left.name.localeCompare(right.name, 'ar')),
+        })).sort((left, right) => left.classroom.localeCompare(right.classroom, 'ar', { numeric: true })),
+      }
+    }).sort((left, right) => left.grade.localeCompare(right.grade, 'ar', { numeric: true }))
+  }, [late, rows])
+
+  useEffect(() => {
+    setSelected(current => new Set([...current].filter(studentId => rows.some(row => row.studentId === studentId))))
+    setOpenGrade('')
+    setOpenClassroom('')
+  }, [date, rows])
+
+  const toggleRows = (items: DailyRow[]) => setSelected(current => {
+    const next = new Set(current)
+    const allSelected = items.length > 0 && items.every(item => next.has(item.studentId))
+    items.forEach(item => allSelected ? next.delete(item.studentId) : next.add(item.studentId))
+    return next
+  })
+
+  const applySelected = (status: 'unexcused' | 'excused') => {
+    if (!selected.size) return
+    onStatus([...selected], status)
+    setSelected(new Set())
+  }
+
   return <section id={id} className="panel daily-report-panel">
     <div className="panel-header">
       <div><span className="panel-kicker">سجل يومي</span><h2>{title}</h2><p>العدد: {rows.length} طالبًا</p>{onCancelApproval && <p>اختر تاريخًا سابقًا من التقويم لمراجعة سجله أو إلغاء اعتماده.</p>}</div>
@@ -648,7 +694,45 @@ function DailyList({ id, title, date, onDate, rows, onStatus, onAll, onExcel, on
       <button className="export-btn pdf" type="button" onClick={onPdf} disabled={!rows.length}><Printer size={16} /> PDF</button>
     </div>
     {actionNotice && <p className="report-action-notice" role="status" aria-live="polite">{actionNotice}</p>}
-    <div className="daily-list">{rows.map(row => <article key={row.studentId} className="daily-row"><div><strong>{row.name}</strong><small>{row.grade || '—'} · {row.classroom || '—'} · <span dir="ltr">{row.phone || '—'}</span>{late && row.time ? ` · ${row.time}` : ''}</small></div><select value={row.status} disabled={busy || cancelBusy} onChange={event => onStatus([row.studentId], event.target.value as 'unexcused' | 'excused')}><option value="unexcused">بدون عذر</option><option value="excused">بعذر</option></select></article>)}{!rows.length && <p className="report-empty-state">لا توجد سجلات لهذا التاريخ.</p>}</div>
+    {late ? <>
+      <div className="late-report-selection-toolbar" aria-live="polite">
+        <div><strong>تحديد طلاب التأخر</strong><span>{selected.size ? `تم تحديد ${selected.size} طالباً. اختر الإجراء المطلوب.` : 'افتح الصف ثم الفصل لتحديد فصل كامل أو طلاب محددين.'}</span></div>
+        <div>
+          <button type="button" className="secondary-button" onClick={() => applySelected('excused')} disabled={!selected.size || busy || cancelBusy}>اعتبار المحددين بعذر</button>
+          <button type="button" className="secondary-button" onClick={() => applySelected('unexcused')} disabled={!selected.size || busy || cancelBusy}>اعتبار المحددين بدون عذر</button>
+        </div>
+      </div>
+      <div className="late-report-grade-groups">
+        {lateGroups.map((group, groupIndex) => {
+          const gradeKey = `late-grade:${group.grade}`
+          const gradeOpen = openGrade === gradeKey
+          const allGradeSelected = group.rows.length > 0 && group.rows.every(row => selected.has(row.studentId))
+          const gradeId = `late-report-grade-${groupIndex}`
+          return <article className={`late-report-grade-card${gradeOpen ? ' open' : ''}`} key={group.grade}>
+            <button type="button" className="late-report-grade-summary" onClick={() => { setOpenGrade(current => current === gradeKey ? '' : gradeKey); setOpenClassroom('') }} aria-expanded={gradeOpen} aria-controls={gradeId}>
+              <div><span>صف الطلاب المتأخرين</span><h3>{group.grade}</h3><p>{group.rows.length} طالباً · {group.classrooms.length} فصول</p></div><b>{gradeOpen ? 'إخفاء الفصول' : 'عرض الفصول'}</b>
+            </button>
+            {gradeOpen && <div className="late-report-grade-content" id={gradeId}>
+              <div className="late-report-group-actions"><span>تحديد الصف كاملاً</span><button type="button" className="secondary-button" onClick={() => toggleRows(group.rows)} disabled={busy || cancelBusy}>{allGradeSelected ? `إلغاء تحديد ${group.grade}` : `تحديد ${group.grade} (${group.rows.length})`}</button></div>
+              <div className="late-report-class-grid">{group.classrooms.map((classroom, classroomIndex) => {
+                const classroomKey = `late-classroom:${group.grade}:${classroom.classroom}`
+                const classroomOpen = openClassroom === classroomKey
+                const classroomId = `late-report-classroom-${groupIndex}-${classroomIndex}`
+                const allClassSelected = classroom.rows.length > 0 && classroom.rows.every(row => selected.has(row.studentId))
+                return <article className={`late-report-class-card${classroomOpen ? ' open' : ''}`} key={classroom.classroom}>
+                  <button type="button" className="late-report-class-summary" onClick={() => setOpenClassroom(current => current === classroomKey ? '' : classroomKey)} aria-expanded={classroomOpen} aria-controls={classroomId}><div><span>الفصل</span><h4>{classroom.classroom}</h4><p>{classroom.rows.length} طالباً{allClassSelected ? ' · محدد بالكامل' : ''}</p></div><b>{classroomOpen ? 'إخفاء الطلاب' : 'عرض الطلاب'}</b></button>
+                  {classroomOpen && <div className="late-report-class-content" id={classroomId}>
+                    <div className="late-report-group-actions compact"><span>تحديد الفصل</span><button type="button" className="secondary-button" onClick={() => toggleRows(classroom.rows)} disabled={busy || cancelBusy}>{allClassSelected ? 'إلغاء تحديد الفصل' : `تحديد الفصل (${classroom.rows.length})`}</button></div>
+                    <div className="daily-list late-report-student-list">{classroom.rows.map(row => <article key={row.studentId} className="daily-row"><label className="late-report-student-check"><input type="checkbox" checked={selected.has(row.studentId)} disabled={busy || cancelBusy} onChange={() => toggleRows([row])} /><span><strong>{row.name}</strong><small>{row.grade || '—'} · {row.classroom || '—'} · <span dir="ltr">{row.phone || '—'}</span>{row.time ? ` · ${row.time}` : ''}</small></span></label><select value={row.status} disabled={busy || cancelBusy} onChange={event => onStatus([row.studentId], event.target.value as 'unexcused' | 'excused')}><option value="unexcused">بدون عذر</option><option value="excused">بعذر</option></select></article>)}</div>
+                  </div>}
+                </article>
+              })}</div>
+            </div>}
+          </article>
+        })}
+      </div>
+      {!lateGroups.length && <p className="report-empty-state">لا توجد سجلات لهذا التاريخ.</p>}
+    </> : <div className="daily-list">{rows.map(row => <article key={row.studentId} className="daily-row"><div><strong>{row.name}</strong><small>{row.grade || '—'} · {row.classroom || '—'} · <span dir="ltr">{row.phone || '—'}</span></small></div><select value={row.status} disabled={busy || cancelBusy} onChange={event => onStatus([row.studentId], event.target.value as 'unexcused' | 'excused')}><option value="unexcused">بدون عذر</option><option value="excused">بعذر</option></select></article>)}{!rows.length && <p className="report-empty-state">لا توجد سجلات لهذا التاريخ.</p>}</div>}
   </section>
 }
 

@@ -319,6 +319,7 @@ export const api = {
   updateStudent: (studentId: string, student: StudentInput) => request<{ ok: boolean; student: StudentRecord }>(`/students/${encodeURIComponent(studentId)}`, { method: 'PATCH', body: JSON.stringify(student) }),
   attendance: () => request<{ records: unknown[] }>('/attendance'),
   markAttendance: (studentId: string, status: 'present' | 'late') => request<{ ok: boolean; duplicate?: boolean }>('/attendance', { method: 'POST', body: JSON.stringify({ studentId, status }) }),
+  updateAttendanceStatus: (studentId: string, status: 'present' | 'late') => request<{ ok: boolean; studentId: string; status: 'present' | 'late'; time: string }>('/attendance', { method: 'PATCH', body: JSON.stringify({ studentId, status }) }),
   markAttendanceBulk: (studentIds: string[], status: 'present' | 'late') => request<{ ok: boolean; created: string[]; duplicates: string[]; missing: string[] }>('/attendance/bulk', { method: 'POST', body: JSON.stringify({ studentIds, status }) }),
   almadar: () => request<{ account: AlmadarAccount }>('/almadar'),
   saveAlmadar: (settings: { username: string; password: string; apiKey: string; senderName: string }) => request<{ ok: boolean }>('/almadar', { method: 'PUT', body: JSON.stringify(settings) }),

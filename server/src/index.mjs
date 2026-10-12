@@ -425,6 +425,17 @@ const server = http.createServer(async (req, res) => {
       return json(res,200,{ok:true,students:normalizedStudents.length})
     }
     if (req.method === 'GET' && url.pathname === '/api/attendance') return json(res,200, await scoped(user.school_id, async c => ({ records:(await c.query(`SELECT a.student_id AS "studentId", to_char(a.attendance_date,'YYYY-MM-DD') AS date, to_char(a.recorded_at AT TIME ZONE 'Asia/Riyadh','HH24:MI:SS') AS time, s.name,s.grade,s.classroom,s.phone,a.status FROM attendance_logs a JOIN students s ON s.school_id=a.school_id AND s.id=a.student_id WHERE a.school_id=$1 AND a.attendance_date=$2 ORDER BY a.recorded_at DESC`,[user.school_id,url.searchParams.get('date') || todayRiyadh()])).rows })))
+    if (req.method === 'PATCH' && url.pathname === '/api/attendance') {
+      const { studentId, status } = await body(req)
+      if (!studentId || !['present', 'late'].includes(status)) return json(res, 400, { error: 'invalid_attendance' })
+      const attendanceDate = todayRiyadh()
+      const result = await scoped(user.school_id, async c => c.query(`UPDATE attendance_logs
+        SET status=$4,excuse_status=CASE WHEN $4='late' THEN 'unexcused' ELSE excuse_status END
+        WHERE school_id=$1 AND student_id=$2 AND attendance_date=$3
+        RETURNING status,to_char(recorded_at AT TIME ZONE 'Asia/Riyadh','HH24:MI:SS') AS time`, [user.school_id, String(studentId), attendanceDate, status]))
+      if (!result.rowCount) return json(res, 404, { error: 'attendance_not_found' })
+      return json(res, 200, { ok: true, studentId: String(studentId), status: result.rows[0].status, time: result.rows[0].time })
+    }
     if (req.method === 'POST' && url.pathname === '/api/attendance') {
       const { studentId, status } = await body(req); if (!studentId || !['present','late'].includes(status)) return json(res,400,{error:'invalid_attendance'})
       const attendanceDate = todayRiyadh()

@@ -198,6 +198,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
   const [activeNav, setActiveNav] = useState<'dashboard' | 'students' | 'attendance' | 'cooperation' | 'behavior' | 'lessons' | 'teachers' | 'administrators' | 'referrals' | 'reports' | 'messages' | 'backup'>('attendance')
   const [manualAttendanceSelection, setManualAttendanceSelection] = useState<Student[]>([])
   const [manualAttendanceSubmitting, setManualAttendanceSubmitting] = useState(false)
+  const [attendanceStatusUpdating, setAttendanceStatusUpdating] = useState<Set<string>>(new Set())
   const [isImporting, setIsImporting] = useState(false)
   const [showPrintableCards, setShowPrintableCards] = useState(false)
   const [studentEditor, setStudentEditor] = useState<{ mode: 'create' | 'edit'; studentId: string } | null>(null)
@@ -1253,6 +1254,26 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
       })
       .catch(() => setNotice('تعذر حفظ التحضير اليدوي في الخادم. تحقق من الاتصال ثم أعد المحاولة.'))
       .finally(() => setManualAttendanceSubmitting(false))
+  }
+
+  const toggleAttendanceStatus = async (record: ScanRecord) => {
+    if (attendanceStatusUpdating.has(record.studentId)) return
+    const nextStatus: 'present' | 'late' = record.status === 'late' ? 'present' : 'late'
+    setAttendanceStatusUpdating((current) => new Set(current).add(record.studentId))
+    setScanLog((current) => current.map((item) => item.studentId === record.studentId ? { ...item, status: nextStatus } : item))
+    try {
+      await api.updateAttendanceStatus(record.studentId, nextStatus)
+      setNotice(`${record.name}: تم تعديل الحالة إلى ${nextStatus === 'present' ? 'حاضر' : 'متأخر'}.`)
+    } catch {
+      setScanLog((current) => current.map((item) => item.studentId === record.studentId ? { ...item, status: record.status } : item))
+      setNotice(`تعذر تعديل حالة ${record.name}. حدّث الصفحة ثم أعد المحاولة.`)
+    } finally {
+      setAttendanceStatusUpdating((current) => {
+        const next = new Set(current)
+        next.delete(record.studentId)
+        return next
+      })
+    }
   }
 
   // Export attended students only so separate teacher files can be merged safely.
@@ -2804,9 +2825,15 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
                           <td data-label="الفصل">{record.classroom || '—'}</td>
                           <td data-label="رقم الجوال" style={{ direction: 'ltr' }}>{record.phone || '—'}</td>
                           <td data-label="الحالة">
-                            <span className={`log-status-badge ${record.status}`}>
-                              {record.status === 'present' ? '✓ حاضر' : '⏰ متأخر'}
-                            </span>
+                            <button
+                              type="button"
+                              className={`log-status-badge ${record.status} interactive`}
+                              onClick={() => void toggleAttendanceStatus(record)}
+                              disabled={attendanceStatusUpdating.has(record.studentId)}
+                              title={record.status === 'present' ? 'اضغط لتحويل الطالب إلى متأخر' : 'اضغط لتحويل الطالب إلى حاضر'}
+                            >
+                              {attendanceStatusUpdating.has(record.studentId) ? 'جارٍ التعديل...' : record.status === 'present' ? '✓ حاضر' : '⏰ متأخر'}
+                            </button>
                           </td>
                         </tr>
                       ))}

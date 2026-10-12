@@ -2328,11 +2328,18 @@ tbody td {
 
 .log-status-badge {
   display: inline-block;
+  border: 0;
   padding: 4px 12px;
   border-radius: 999px;
   font-weight: 700;
   font-size: 12px;
+  font-family: inherit;
 }
+
+.log-status-badge.interactive { cursor:pointer; transition:transform .16s ease,box-shadow .16s ease; }
+.log-status-badge.interactive:hover:not(:disabled) { transform:translateY(-1px); box-shadow:0 3px 10px rgba(16,42,67,.18); }
+.log-status-badge.interactive:focus-visible { outline:3px solid rgba(20,118,201,.3); outline-offset:2px; }
+.log-status-badge.interactive:disabled { cursor:wait; opacity:.72; }
 
 .log-status-badge.present {
   background: #dcfce7;
@@ -2863,6 +2870,35 @@ tbody td {
 .daily-row small,
 .history-row small { margin-top: 5px; color: #64748b; }
 .daily-row select { min-width: 132px; min-height: 38px; padding: 7px 9px; border: 1px solid #bfdbfe; border-radius: 9px; color: #123b63; background: #fff; font: inherit; }
+.late-report-selection-toolbar { display:flex; align-items:center; justify-content:space-between; gap:14px; margin:13px 0; padding:13px 15px; border:1px solid #cfe2f0; border-radius:13px; background:#f7fbfe; }
+.late-report-selection-toolbar>div:first-child { display:grid; gap:3px; }
+.late-report-selection-toolbar strong { color:#123e63; font-size:14px; }
+.late-report-selection-toolbar span { color:#64748b; font-size:12px; }
+.late-report-selection-toolbar>div:last-child { display:flex; flex-wrap:wrap; gap:8px; }
+.late-report-grade-groups { display:grid; gap:12px; margin-top:14px; }
+.late-report-grade-card { overflow:hidden; border:1px solid #cbddeb; border-radius:14px; background:#fff; box-shadow:0 7px 18px rgba(22,66,101,.05); }
+.late-report-grade-card.open { border-color:#78b6e1; }
+.late-report-grade-summary { display:flex; align-items:center; justify-content:space-between; gap:14px; width:100%; padding:16px; border:0; background:#fff; color:inherit; text-align:right; font:inherit; cursor:pointer; }
+.late-report-grade-summary:hover,.late-report-grade-card.open .late-report-grade-summary { background:#f3f9fd; }
+.late-report-grade-summary span,.late-report-class-summary span { display:block; color:#668096; font-size:11px; font-weight:800; }
+.late-report-grade-summary h3 { margin:3px 0 0; color:#0d4f85; font-size:19px; }
+.late-report-grade-summary p,.late-report-class-summary p { margin:4px 0 0; color:#64748b; font-size:12px; }
+.late-report-grade-summary>b,.late-report-class-summary>b { flex:none; color:#0968ac; font-size:12px; }
+.late-report-grade-content { border-top:1px solid #e2ebf1; }
+.late-report-group-actions { display:flex; align-items:center; justify-content:space-between; gap:10px; padding:11px 14px; background:#fbfdff; color:#49677e; font-size:12px; font-weight:800; }
+.late-report-group-actions.compact { padding:10px 11px; border-bottom:1px solid #e6eef3; }
+.late-report-class-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(245px,1fr)); gap:11px; padding:12px; background:#f4f9fc; }
+.late-report-class-card { overflow:hidden; border:1px solid #d3e2ec; border-radius:12px; background:#fff; }
+.late-report-class-card.open { border-color:#8abfe4; }
+.late-report-class-summary { display:flex; align-items:center; justify-content:space-between; gap:10px; width:100%; padding:13px; border:0; background:#fff; color:inherit; text-align:right; font:inherit; cursor:pointer; }
+.late-report-class-summary:hover,.late-report-class-card.open .late-report-class-summary { background:#f8fcff; }
+.late-report-class-summary h4 { margin:3px 0 0; color:#155d94; font-size:16px; }
+.late-report-class-content { border-top:1px solid #e3edf3; }
+.late-report-student-list { margin:0; padding:10px; background:#fbfdff; }
+.late-report-student-list .daily-row { padding:11px; }
+.late-report-student-check { display:flex; align-items:flex-start; gap:9px; min-width:0; cursor:pointer; }
+.late-report-student-check input { flex:none; width:17px; height:17px; margin:2px 0 0; accent-color:#1179c3; }
+.late-report-student-check span { min-width:0; overflow-wrap:anywhere; }
 .history-row { cursor: pointer; }
 .history-row:hover { border-color: #60a5fa; background: #f8fbff; }
 .count-card-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 13px; margin: 16px 0; }
@@ -2931,6 +2967,14 @@ tbody td {
   .daily-row,
   .history-row { align-items: stretch; flex-direction: column; gap: 10px; }
   .daily-row select { width: 100%; }
+  .late-report-selection-toolbar { align-items:stretch; flex-direction:column; }
+  .late-report-selection-toolbar>div:last-child { display:grid; grid-template-columns:1fr 1fr; }
+  .late-report-selection-toolbar .secondary-button { width:100%; }
+  .late-report-group-actions { align-items:stretch; flex-direction:column; }
+  .late-report-group-actions .secondary-button { width:100%; }
+  .late-report-class-grid { grid-template-columns:1fr; }
+  .late-report-student-list .daily-row { align-items:stretch; }
+  .late-report-student-check { width:100%; }
   .count-card-grid { grid-template-columns: 1fr; gap: 10px; }
   .count-card { min-height: 90px; }
   .student-picker { display: grid; grid-template-columns: 1fr; }
