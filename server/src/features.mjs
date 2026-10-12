@@ -236,7 +236,7 @@ export async function migrateFeatures(pool) {
       student_name text NOT NULL DEFAULT '',
       recipient text NOT NULL,
       sender_name text NOT NULL,
-      message_type text NOT NULL CHECK (message_type IN ('late','absence','general','test')),
+      message_type text NOT NULL CHECK (message_type IN ('late','absence','general','teacher','test')),
       message_body text NOT NULL,
       status text NOT NULL CHECK (status IN ('sent','failed')),
       error_detail text NOT NULL DEFAULT '',
@@ -279,7 +279,7 @@ export async function migrateFeatures(pool) {
     ALTER TABLE attendance_logs DROP CONSTRAINT IF EXISTS attendance_logs_excuse_status_check;
     ALTER TABLE attendance_logs ADD CONSTRAINT attendance_logs_excuse_status_check CHECK (excuse_status IN ('unexcused','excused'));
     ALTER TABLE message_logs DROP CONSTRAINT IF EXISTS message_logs_message_type_check;
-    ALTER TABLE message_logs ADD CONSTRAINT message_logs_message_type_check CHECK (message_type IN ('late','absence','general','test'));
+    ALTER TABLE message_logs ADD CONSTRAINT message_logs_message_type_check CHECK (message_type IN ('late','absence','general','teacher','test'));
     CREATE INDEX IF NOT EXISTS student_excuses_school_student ON student_excuses(school_id,student_id,start_date DESC);
     CREATE UNIQUE INDEX IF NOT EXISTS student_excuses_unique_period ON student_excuses(school_id,student_id,start_date,COALESCE(end_date,'infinity'::date));
     CREATE INDEX IF NOT EXISTS message_logs_school_created ON message_logs(school_id,created_at DESC);
@@ -806,7 +806,7 @@ export async function handleFeatureRequest(context) {
 
   if (req.method === 'GET' && url.pathname === '/api/messages') {
     const requestedType = String(url.searchParams.get('type') || '').trim()
-    const messageType = ['late', 'absence', 'general', 'test'].includes(requestedType) ? requestedType : ''
+    const messageType = ['late', 'absence', 'general', 'teacher', 'test'].includes(requestedType) ? requestedType : ''
     const params = messageType ? [user.school_id, messageType] : [user.school_id]
     const result = await scoped(user.school_id, async client => client.query(`SELECT id,student_id AS "studentId",student_name AS "studentName",recipient,sender_name AS "senderName",message_type AS type,message_body AS body,status,error_detail AS "errorDetail",created_at AS "createdAt"
       FROM message_logs WHERE school_id=$1${messageType ? ' AND message_type=$2' : ''} ORDER BY created_at DESC LIMIT 200`, params))
@@ -814,17 +814,44 @@ export async function handleFeatureRequest(context) {
     return true
   }
 
+  if (req.method === 'GET' && url.pathname === '/api/messages/teachers') {
+    if (!adminOnly()) { json(res, 403, { error: 'forbidden' }); return true }
+    const result = await scoped(user.school_id, async client => client.query(`SELECT id,full_name AS name,
+      identity_number AS "identityNumber",phone FROM lesson_teachers
+      WHERE school_id=$1 AND active=true ORDER BY full_name`, [user.school_id]))
+    json(res, 200, { teachers: result.rows })
+    return true
+  }
+
   if (req.method === 'POST' && url.pathname === '/api/messages/send') {
     if (!adminOnly()) { json(res, 403, { error: 'forbidden' }); return true }
     const input = await body(req)
-    const type = ['late', 'absence', 'general'].includes(input.type) ? input.type : null
+    const type = ['late', 'absence', 'general', 'teacher'].includes(input.type) ? input.type : null
     const studentIds = Array.isArray(input.studentIds) ? [...new Set(input.studentIds.map(value => String(value || '').trim()).filter(Boolean))].slice(0, 300) : []
+    const teacherIds = Array.isArray(input.teacherIds) ? [...new Set(input.teacherIds.map(value => String(value || '').trim()).filter(value => /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value)))].slice(0, 300) : []
     const message = String(input.message || '').trim().slice(0, 1200)
-    if (!type || !studentIds.length || (type === 'general' && !message)) { json(res, 400, { error: 'invalid_message' }); return true }
+    const recipientIds = type === 'teacher' ? teacherIds : studentIds
+    if (!type || !recipientIds.length || (['general', 'teacher'].includes(type) && !message)) { json(res, 400, { error: 'invalid_message' }); return true }
     const account = await accountForSchool(user.school_id, scoped)
     if (!account) { json(res, 400, { error: 'almadar_not_configured' }); return true }
     const school = await scoped(user.school_id, async client => client.query('SELECT name FROM schools WHERE id=$1', [user.school_id]))
     const result = await scoped(user.school_id, async client => {
+      if (type === 'teacher') {
+        const teachers = (await client.query(`SELECT id,full_name AS name,phone FROM lesson_teachers
+          WHERE school_id=$1 AND active=true AND id=ANY($2::uuid[]) ORDER BY full_name`, [user.school_id, teacherIds])).rows
+        const apiKey = decrypt(account.api_key_encrypted)
+        const rows = []
+        for (const teacher of teachers) {
+          const recipient = normalizePhone(teacher.phone)
+          const outcome = recipient
+            ? await sendMessage(apiKey, { number: recipient, senderName: account.sender_name, sendAtOption: 'Now', messageBody: message, allow_duplicate: true })
+            : { ok: false, error: 'invalid_recipient_phone' }
+          await client.query(`INSERT INTO message_logs(school_id,student_id,student_name,recipient,sender_name,message_type,message_body,status,error_detail,sent_by)
+            VALUES($1,$2,$3,$4,$5,'teacher',$6,$7,$8,$9)`, [user.school_id, teacher.id, teacher.name, recipient || String(teacher.phone || ''), account.sender_name, message, outcome.ok ? 'sent' : 'failed', outcome.ok ? '' : outcome.error, user.user_id])
+          rows.push({ teacherId: teacher.id, ok: outcome.ok })
+        }
+        return rows
+      }
       const students = (await client.query('SELECT id,name,phone,grade,classroom FROM students WHERE school_id=$1 AND active=true AND id=ANY($2::text[]) ORDER BY name', [user.school_id, studentIds])).rows
       const late = type === 'late' ? (await client.query(`SELECT student_id,to_char(recorded_at AT TIME ZONE $3,'HH24:MI:SS') AS time FROM attendance_logs WHERE school_id=$1 AND attendance_date=$2 AND status='late' AND student_id=ANY($4::text[])`, [user.school_id, todayRiyadh(), RIYADH_TIME_ZONE, studentIds])).rows : []
       const confirmedAbsences = type === 'absence' ? (await client.query(`SELECT absence.student_id

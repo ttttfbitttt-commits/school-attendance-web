@@ -51,7 +51,8 @@ export type DetailedStudentReport = {
   grades: Array<{ date: string; subject: string; teacherName: string; grade: string; classroomValue: string; sheetType: TeacherSheetType; columns: TeacherSheetColumn[]; values: Record<string, string | number | boolean> }>
   lessons: Array<{ date: string; weekday: number; periodNumber: number; subject: string; teacherName: string; classroom: string; grade: string; classroomValue: string; status: 'present' | 'absent'; note: TeacherNote | '' }>
 }
-export type MessageLog = { id: string; studentId: string | null; studentName: string; recipient: string; senderName: string; type: 'late' | 'absence' | 'general' | 'test'; body: string; status: 'sent' | 'failed'; errorDetail: string; createdAt: string }
+export type MessageLog = { id: string; studentId: string | null; studentName: string; recipient: string; senderName: string; type: 'late' | 'absence' | 'general' | 'teacher' | 'test'; body: string; status: 'sent' | 'failed'; errorDetail: string; createdAt: string }
+export type MessageTeacher = { id: string; name: string; identityNumber: string; phone: string }
 export type LessonTimeSlot = { weekday: number; periodNumber: number; startTime: string; endTime: string }
 export type LessonClassroom = { id: string; name: string; qrToken: string }
 export type LessonTeacher = { id: string; name: string; identityNumber: string }
@@ -338,7 +339,8 @@ export const api = {
   studentHistory: (type: 'absence' | 'late', studentId: string) => request<StudentHistory>(`/reports/student-history?type=${type}&studentId=${encodeURIComponent(studentId)}`),
   detailedStudentReport: (studentId: string, from: string, to: string) => request<DetailedStudentReport>(`/reports/student-detail?studentId=${encodeURIComponent(studentId)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`),
   messages: (type?: MessageLog['type']) => request<{ messages: MessageLog[] }>(`/messages${type ? `?type=${encodeURIComponent(type)}` : ''}`),
-  sendMessages: (payload: { studentIds: string[]; type: 'late' | 'absence' | 'general'; message?: string }) => request<{ ok: boolean; sent: number; failed: number }>('/messages/send', { method: 'POST', body: JSON.stringify(payload) }),
+  messageTeachers: () => request<{ teachers: MessageTeacher[] }>('/messages/teachers'),
+  sendMessages: (payload: { studentIds?: string[]; teacherIds?: string[]; type: 'late' | 'absence' | 'general' | 'teacher'; message?: string }) => request<{ ok: boolean; sent: number; failed: number }>('/messages/send', { method: 'POST', body: JSON.stringify(payload) }),
   lessonOverview: () => request<LessonFlowOverview>('/lesson-flow/overview'),
   teacherDayAbsences: (date = '') => request<{ date: string; teachers: TeacherDayAbsence[] }>(`/lesson-flow/teacher-day-absences${date ? `?date=${encodeURIComponent(date)}` : ''}`),
   addTeacherDayAbsences: (teacherIds: string[], date = '') => request<{ date: string; added: number; teachers: TeacherDayAbsence[] }>('/lesson-flow/teacher-day-absences', { method: 'POST', body: JSON.stringify({ teacherIds, date }) }),

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import * as XLSX from 'xlsx'
 import { CheckCircle2, Download, FileText, Mail, Printer, RefreshCw, Save, Send, ShieldCheck, XCircle } from 'lucide-react'
-import { api, type LessonIncidentReportRow, type MessageLog } from './api'
+import { api, type LessonIncidentReportRow, type MessageLog, type MessageTeacher } from './api'
 import { StudentDetailedReport } from './StudentDetailedReport'
 import { HijriDatePicker } from './HijriDatePicker'
 import { formatHijriDate, formatHijriDateTime } from './dateUtils'
@@ -14,12 +14,13 @@ const reportWeekday = (weekday: number) => ['الأحد', 'الاثنين', 'ا�
 const escapeHtml = (value: unknown) => String(value ?? '').replace(/[&<>'"]/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[character] || character))
 const maskPhone = (phone: string) => phone.length > 4 ? `${phone.slice(0, 3)}••••${phone.slice(-3)}` : phone
 const formatDateTime = (value: string) => formatHijriDateTime(value)
-type MessageKind = 'late' | 'absence' | 'general'
+type MessageKind = 'late' | 'absence' | 'general' | 'teacher'
+type MessageRecipient = { id: string; name: string; phone: string; grade?: string; classroom?: string; identityNumber?: string }
 const MESSAGE_CANDIDATE_LIMIT = 50
 const MESSAGE_LOG_LIMIT = 40
 const MESSAGE_SEND_BATCH_SIZE = 100
-const messageLogTitle = (type: MessageKind) => type === 'general' ? 'سجل الرسائل العامة' : type === 'late' ? 'سجل رسائل التأخر' : 'سجل رسائل الغياب'
-const messageTypeText = (type: MessageLog['type']) => type === 'test' ? 'اختبار المدار' : type === 'late' ? 'تأخر' : type === 'absence' ? 'غياب' : 'عامة'
+const messageLogTitle = (type: MessageKind) => type === 'general' ? 'سجل الرسائل العامة' : type === 'teacher' ? 'سجل رسائل المعلمين' : type === 'late' ? 'سجل رسائل التأخر' : 'سجل رسائل الغياب'
+const messageTypeText = (type: MessageLog['type']) => type === 'test' ? 'اختبار المدار' : type === 'teacher' ? 'معلمون' : type === 'late' ? 'تأخر' : type === 'absence' ? 'غياب' : 'عامة'
 
 export function reportBrandHeader(title: string, schoolName: string) {
   const logoUrl = `${window.location.origin}/moe-logo.png`
@@ -206,6 +207,8 @@ export function MessageCenter({ students, attendance, schoolName }: { students: 
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [message, setMessage] = useState('')
   const [logs, setLogs] = useState<MessageLog[]>([])
+  const [teachers, setTeachers] = useState<MessageTeacher[]>([])
+  const [teachersLoading, setTeachersLoading] = useState(false)
   const [confirmedAbsenceIds, setConfirmedAbsenceIds] = useState<Set<string>>(new Set())
   const [absenceCandidatesLoading, setAbsenceCandidatesLoading] = useState(false)
   const [showStudentDetails, setShowStudentDetails] = useState(false)
@@ -243,16 +246,33 @@ export function MessageCenter({ students, attendance, schoolName }: { students: 
     return () => { active = false }
   }, [type])
 
+  useEffect(() => {
+    if (type !== 'teacher') return
+    let active = true
+    setTeachersLoading(true)
+    void api.messageTeachers().then(result => {
+      if (active) setTeachers(result.teachers)
+    }).catch(() => {
+      if (active) setNotice('تعذر تحميل قائمة المعلمين. أعد فتح تبويب رسائل المعلمين.')
+    }).finally(() => {
+      if (active) setTeachersLoading(false)
+    })
+    return () => { active = false }
+  }, [type])
+
   const lateIds = useMemo(() => new Set(attendance.filter(record => record.status === 'late').map(record => record.studentId)), [attendance])
   const attendanceIds = useMemo(() => new Set(attendance.map(record => record.studentId)), [attendance])
-  const eligibleCandidates = useMemo(() => students.filter(student => {
+  const eligibleStudentCandidates = useMemo(() => students.filter(student => {
     if (type === 'late' && !lateIds.has(student.id)) return false
     if (type === 'absence' && (!confirmedAbsenceIds.has(student.id) || attendanceIds.has(student.id))) return false
     return true
   }), [students, type, lateIds, confirmedAbsenceIds, attendanceIds])
+  const eligibleCandidates = useMemo<MessageRecipient[]>(() => type === 'teacher'
+    ? teachers.map(teacher => ({ id: teacher.id, name: teacher.name, phone: teacher.phone, identityNumber: teacher.identityNumber }))
+    : eligibleStudentCandidates.map(student => ({ id: student.id, name: student.name, phone: student.phone, grade: student.grade, classroom: student.classroom })), [type, teachers, eligibleStudentCandidates])
   const candidates = useMemo(() => {
     const query = search.trim().toLowerCase()
-    return !query ? eligibleCandidates : eligibleCandidates.filter(student => `${student.name} ${student.id} ${student.grade} ${student.classroom}`.toLowerCase().includes(query))
+    return !query ? eligibleCandidates : eligibleCandidates.filter(recipient => `${recipient.name} ${recipient.id} ${recipient.grade || ''} ${recipient.classroom || ''} ${recipient.identityNumber || ''}`.toLowerCase().includes(query))
   }, [eligibleCandidates, search])
   const visibleCandidates = useMemo(() => candidates.slice(0, MESSAGE_CANDIDATE_LIMIT), [candidates])
   const hasMoreCandidates = candidates.length > visibleCandidates.length
@@ -261,6 +281,9 @@ export function MessageCenter({ students, attendance, schoolName }: { students: 
   const visibleLogRows = useMemo(() => visibleLogs.slice(0, MESSAGE_LOG_LIMIT), [visibleLogs])
   const hasMoreLogs = visibleLogs.length > visibleLogRows.length
   const currentLogTitle = messageLogTitle(type)
+  const recipientsLoading = (type === 'absence' && absenceCandidatesLoading) || (type === 'teacher' && teachersLoading)
+  const recipientLabel = type === 'teacher' ? 'عدد المعلمين' : 'عدد الطلاب المناسبين'
+  const recipientWord = type === 'teacher' ? 'المعلمين' : 'الطلاب'
 
   useEffect(() => {
     setSelected(current => {
@@ -286,8 +309,8 @@ export function MessageCenter({ students, attendance, schoolName }: { students: 
 
   const send = async () => {
     if (!accountReady) { setNotice('أكمل إعداد حساب المدار التقني وتحقق من الاتصال أولاً.'); return }
-    if (!selected.size) { setNotice('اختر طالباً واحداً على الأقل.'); return }
-    if (type === 'general' && !message.trim()) { setNotice('اكتب نص الرسالة العامة.'); return }
+    if (!selected.size) { setNotice(type === 'teacher' ? 'اختر معلماً واحداً على الأقل.' : 'اختر طالباً واحداً على الأقل.'); return }
+    if (['general', 'teacher'].includes(type) && !message.trim()) { setNotice(type === 'teacher' ? 'اكتب نص الرسالة الموجهة للمعلمين.' : 'اكتب نص الرسالة العامة.'); return }
     if (!window.confirm(`سيتم إرسال ${selected.size} رسالة. هل تريد المتابعة؟`)) return
     const studentIds = [...selected]
     setSending(true)
@@ -300,7 +323,9 @@ export function MessageCenter({ students, attendance, schoolName }: { students: 
         const batch = studentIds.slice(start, start + MESSAGE_SEND_BATCH_SIZE)
         setSendProgress({ completed: start, total: studentIds.length })
         try {
-          const result = await api.sendMessages({ studentIds: batch, type, message: type === 'general' ? message.trim() : undefined })
+          const result = await api.sendMessages(type === 'teacher'
+            ? { teacherIds: batch, type, message: message.trim() }
+            : { studentIds: batch, type, message: type === 'general' ? message.trim() : undefined })
           sent += result.sent
           failed += result.failed
           completedBatches += 1
@@ -358,28 +383,29 @@ export function MessageCenter({ students, attendance, schoolName }: { students: 
   }
 
   return <section className="feature-page">
-    <section className="panel feature-intro"><div><span className="panel-kicker">المدار التقني</span><h2>الرسائل النصية</h2><p>اختر الطلاب، راجع النوع، ثم أرسل. رسائل الغياب والتأخر تنشأ تلقائياً باسم الطالب والمدرسة.</p></div><Mail size={34} /></section>
+    <section className="panel feature-intro"><div><span className="panel-kicker">المدار التقني</span><h2>الرسائل النصية</h2><p>اختر الطلاب أو المعلمين، راجع النوع، ثم أرسل. رسائل الغياب والتأخر تنشأ تلقائياً باسم الطالب والمدرسة.</p></div><Mail size={34} /></section>
     <section className="panel message-compose-panel">
       <div className="message-type-tabs">
         <button className={type === 'general' ? 'active' : ''} onClick={() => chooseType('general')} type="button">رسالة عامة</button>
         <button className={type === 'late' ? 'active' : ''} onClick={() => chooseType('late')} type="button">رسائل التأخر اليوم</button>
         <button className={type === 'absence' ? 'active' : ''} onClick={() => chooseType('absence')} type="button">رسائل الغياب اليوم</button>
+        <button className={type === 'teacher' ? 'active' : ''} onClick={() => chooseType('teacher')} type="button">رسائل المعلمين</button>
       </div>
-      {type === 'general' ? <label className="message-body-field">نص الرسالة<textarea value={message} onChange={event => setMessage(event.target.value)} placeholder="اكتب الرسالة التي سترسل للطلاب المحددين..." maxLength={1200} /></label> : <div className="automatic-message-note">سيُنشأ النص تلقائياً لكل طالب بحسب {type === 'late' ? 'وقت تأخره' : 'غيابه المعتمد'} اليوم، ويتضمن اسمه واسم المدرسة.</div>}
+      {['general', 'teacher'].includes(type) ? <label className="message-body-field">نص الرسالة<textarea value={message} onChange={event => setMessage(event.target.value)} placeholder={type === 'teacher' ? 'اكتب الرسالة التي سترسل للمعلمين المحددين...' : 'اكتب الرسالة التي سترسل للطلاب المحددين...'} maxLength={1200} /></label> : <div className="automatic-message-note">سيُنشأ النص تلقائياً لكل طالب بحسب {type === 'late' ? 'وقت تأخره' : 'غيابه المعتمد'} اليوم، ويتضمن اسمه واسم المدرسة.</div>}
       <div className="message-recipient-summary" aria-busy={sending}>
-        <div className="message-recipient-count"><span>عدد الطلاب المناسبين</span><strong>{type === 'absence' && absenceCandidatesLoading ? '…' : eligibleCandidates.length}</strong>{selected.size > 0 && <small>المحددون: {selected.size}</small>}</div>
+        <div className="message-recipient-count"><span>{recipientLabel}</span><strong>{recipientsLoading ? '…' : eligibleCandidates.length}</strong>{selected.size > 0 && <small>المحددون: {selected.size}</small>}</div>
         <div className="feature-actions">
-          <button type="button" className="secondary-button" onClick={() => setShowStudentDetails(value => !value)} aria-expanded={showStudentDetails} aria-controls="message-student-list" disabled={sending || (type === 'absence' && absenceCandidatesLoading)}>{showStudentDetails ? 'إخفاء بيانات الطلاب' : `عرض بيانات الطلاب (${eligibleCandidates.length})`}</button>
-          <button type="button" className="secondary-button" onClick={selectAllCandidates} disabled={sending || !eligibleCandidates.length || (type === 'absence' && absenceCandidatesLoading)}>تحديد الكل ({eligibleCandidates.length})</button>
+          <button type="button" className="secondary-button" onClick={() => setShowStudentDetails(value => !value)} aria-expanded={showStudentDetails} aria-controls="message-student-list" disabled={sending || recipientsLoading}>{showStudentDetails ? `إخفاء بيانات ${recipientWord}` : `عرض بيانات ${recipientWord} (${eligibleCandidates.length})`}</button>
+          <button type="button" className="secondary-button" onClick={selectAllCandidates} disabled={sending || !eligibleCandidates.length || recipientsLoading}>تحديد الكل ({eligibleCandidates.length})</button>
           {showStudentDetails && search.trim() && <button type="button" className="secondary-button" onClick={selectSearchResults} disabled={sending || !candidates.length}>تحديد نتائج البحث ({candidates.length})</button>}
           {selected.size > 0 && <button type="button" className="secondary-button" onClick={() => setSelected(new Set())} disabled={sending}>إلغاء التحديد</button>}
           <button type="button" className="primary-button" onClick={() => void send()} disabled={sending || !selected.size}><Send size={16} /> {sending && sendProgress ? `جارٍ الإرسال ${sendProgress.completed}/${sendProgress.total}` : `إرسال إلى ${selected.size}`}</button>
         </div>
       </div>
       {showStudentDetails && <>
-        <div className="feature-toolbar"><input value={search} onChange={event => setSearch(event.target.value)} placeholder="ابحث عن طالب بالاسم أو الرقم..." /><span className="message-search-count">المعروض: {candidates.length} من {eligibleCandidates.length}</span></div>
-        {hasMoreCandidates && <p className="message-candidate-hint">يعرض أول {MESSAGE_CANDIDATE_LIMIT} طالباً فقط. زر «تحديد الكل» يحدد جميع الطلاب المناسبين، وزر «تحديد نتائج البحث» يحدد جميع نتائج البحث.</p>}
-        <div className="table-wrap" id="message-student-list"><table className="feature-table"><thead><tr><th><input type="checkbox" aria-label="تحديد الطلاب المعروضين" checked={visibleCandidates.length > 0 && visibleCandidates.every(student => selected.has(student.id))} onChange={toggleVisibleCandidates} disabled={sending || !visibleCandidates.length} /></th><th>الطالب</th><th>الصف والفصل</th><th>الجوال</th></tr></thead><tbody>{visibleCandidates.map(student => <tr key={student.id}><td data-label="اختيار"><input type="checkbox" checked={selected.has(student.id)} onChange={() => toggle(student.id)} disabled={sending} /></td><td data-label="الطالب"><strong>{student.name}</strong><small>{student.id}</small></td><td data-label="الصف والفصل">{student.grade || '—'} · {student.classroom || '—'}</td><td data-label="الجوال" dir="ltr">{student.phone || '—'}</td></tr>)}{!candidates.length && <tr><td colSpan={4}>لا يوجد طلاب مناسبون لهذا النوع من الرسائل اليوم.</td></tr>}</tbody></table></div>
+        <div className="feature-toolbar"><input value={search} onChange={event => setSearch(event.target.value)} placeholder={type === 'teacher' ? 'ابحث عن معلم بالاسم أو رقم الهوية...' : 'ابحث عن طالب بالاسم أو الرقم...'} /><span className="message-search-count">المعروض: {candidates.length} من {eligibleCandidates.length}</span></div>
+        {hasMoreCandidates && <p className="message-candidate-hint">يعرض أول {MESSAGE_CANDIDATE_LIMIT} {type === 'teacher' ? 'معلماً' : 'طالباً'} فقط. زر «تحديد الكل» يحدد جميع {recipientWord}، وزر «تحديد نتائج البحث» يحدد جميع نتائج البحث.</p>}
+        <div className="table-wrap" id="message-student-list"><table className="feature-table"><thead><tr><th><input type="checkbox" aria-label={`تحديد ${recipientWord} المعروضين`} checked={visibleCandidates.length > 0 && visibleCandidates.every(recipient => selected.has(recipient.id))} onChange={toggleVisibleCandidates} disabled={sending || !visibleCandidates.length} /></th><th>{type === 'teacher' ? 'المعلم' : 'الطالب'}</th><th>{type === 'teacher' ? 'رقم الهوية' : 'الصف والفصل'}</th><th>الجوال</th></tr></thead><tbody>{visibleCandidates.map(recipient => <tr key={recipient.id}><td data-label="اختيار"><input type="checkbox" checked={selected.has(recipient.id)} onChange={() => toggle(recipient.id)} disabled={sending} /></td><td data-label={type === 'teacher' ? 'المعلم' : 'الطالب'}><strong>{recipient.name}</strong><small>{type === 'teacher' ? recipient.identityNumber : recipient.id}</small></td><td data-label={type === 'teacher' ? 'رقم الهوية' : 'الصف والفصل'}>{type === 'teacher' ? recipient.identityNumber || '—' : `${recipient.grade || '—'} · ${recipient.classroom || '—'}`}</td><td data-label="الجوال" dir="ltr">{recipient.phone || '—'}</td></tr>)}{!candidates.length && <tr><td colSpan={4}>{type === 'teacher' ? 'لا يوجد معلمون مضافون أو متاحون للرسائل حالياً.' : 'لا يوجد طلاب مناسبون لهذا النوع من الرسائل اليوم.'}</td></tr>}</tbody></table></div>
       </>}
       {notice && <div className="notice-box" role="status">{notice}</div>}
     </section>
