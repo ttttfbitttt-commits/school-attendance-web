@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import * as XLSX from 'xlsx'
 import { CheckCircle2, Download, FileText, Mail, Printer, RefreshCw, Save, Send, ShieldCheck, XCircle } from 'lucide-react'
 import { api, type LessonIncidentReportRow, type MessageLog, type MessageTeacher } from './api'
@@ -232,11 +232,13 @@ export function MessageCenter({ students, attendance, schoolName }: { students: 
   const [confirmedAbsenceIds, setConfirmedAbsenceIds] = useState<Set<string>>(new Set())
   const [absenceCandidatesLoading, setAbsenceCandidatesLoading] = useState(false)
   const [showStudentDetails, setShowStudentDetails] = useState(false)
+  const [openRecipientGroup, setOpenRecipientGroup] = useState('')
   const [showLogDetails, setShowLogDetails] = useState(false)
   const [logsLoading, setLogsLoading] = useState(false)
   const [notice, setNotice] = useState('')
   const [sending, setSending] = useState(false)
   const [sendProgress, setSendProgress] = useState<{ completed: number; total: number } | null>(null)
+  const recipientGroupsRef = useRef<HTMLDivElement | null>(null)
 
   const load = () => {
     setLogsLoading(true)
@@ -350,6 +352,17 @@ export function MessageCenter({ students, attendance, schoolName }: { students: 
     })
   }, [eligibleCandidateIds])
 
+  useEffect(() => {
+    if (!openRecipientGroup) return
+    const closeWhenOutside = (event: PointerEvent) => {
+      if (!recipientGroupsRef.current?.contains(event.target as Node)) setOpenRecipientGroup('')
+    }
+    document.addEventListener('pointerdown', closeWhenOutside)
+    return () => document.removeEventListener('pointerdown', closeWhenOutside)
+  }, [openRecipientGroup])
+
+  useEffect(() => { setOpenRecipientGroup('') }, [type, search])
+
   const toggle = (studentId: string) => setSelected(current => {
     const next = new Set(current)
     next.has(studentId) ? next.delete(studentId) : next.add(studentId)
@@ -369,7 +382,7 @@ export function MessageCenter({ students, attendance, schoolName }: { students: 
     recipients.forEach(recipient => allGroupSelected ? next.delete(recipient.id) : next.add(recipient.id))
     return next
   })
-  const chooseType = (nextType: MessageKind) => { setType(nextType); setSelected(new Set()); setMessage(''); setSearch(''); setLogSearch(''); setLogGrade(''); setShowStudentDetails(false); setShowLogDetails(false); setNotice('') }
+  const chooseType = (nextType: MessageKind) => { setType(nextType); setSelected(new Set()); setMessage(''); setSearch(''); setLogSearch(''); setLogGrade(''); setShowStudentDetails(false); setOpenRecipientGroup(''); setShowLogDetails(false); setNotice('') }
 
   const send = async () => {
     if (!accountReady) { setNotice('أكمل إعداد حساب المدار التقني وتحقق من الاتصال أولاً.'); return }
@@ -405,6 +418,7 @@ export function MessageCenter({ students, attendance, schoolName }: { students: 
       setNotice(`اكتمل الإرسال: ${sent} ناجحة، ${failed} فاشلة.`)
       setSelected(new Set())
       setShowStudentDetails(false)
+      setOpenRecipientGroup('')
       load()
     } finally {
       setSending(false)
@@ -463,7 +477,7 @@ export function MessageCenter({ students, attendance, schoolName }: { students: 
       <div className="message-recipient-summary" aria-busy={sending}>
         <div className="message-recipient-count"><span>{recipientLabel}</span><strong>{recipientsLoading ? '…' : eligibleCandidates.length}</strong>{selected.size > 0 && <small>المحددون: {selected.size}</small>}</div>
         <div className="feature-actions">
-          <button type="button" className="secondary-button" onClick={() => setShowStudentDetails(value => !value)} aria-expanded={showStudentDetails} aria-controls="message-student-list" disabled={sending || recipientsLoading}>{showStudentDetails ? `إخفاء بيانات ${recipientWord}` : `عرض بيانات ${recipientWord} (${eligibleCandidates.length})`}</button>
+          <button type="button" className="secondary-button" onClick={() => { if (showStudentDetails) setOpenRecipientGroup(''); setShowStudentDetails(value => !value) }} aria-expanded={showStudentDetails} aria-controls="message-student-list" disabled={sending || recipientsLoading}>{showStudentDetails ? `إخفاء بيانات ${recipientWord}` : `عرض بيانات ${recipientWord} (${eligibleCandidates.length})`}</button>
           <button type="button" className="secondary-button" onClick={selectAllCandidates} disabled={sending || !eligibleCandidates.length || recipientsLoading}>تحديد الكل ({eligibleCandidates.length})</button>
           {showStudentDetails && search.trim() && <button type="button" className="secondary-button" onClick={selectSearchResults} disabled={sending || !candidates.length}>تحديد نتائج البحث ({candidates.length})</button>}
           {selected.size > 0 && <button type="button" className="secondary-button" onClick={() => setSelected(new Set())} disabled={sending}>إلغاء التحديد</button>}
@@ -472,12 +486,17 @@ export function MessageCenter({ students, attendance, schoolName }: { students: 
       </div>
       {showStudentDetails && <>
         <div className="feature-toolbar"><input value={search} onChange={event => setSearch(event.target.value)} placeholder={type === 'teacher' ? 'ابحث عن معلم بالاسم أو رقم الهوية...' : 'ابحث عن طالب بالاسم أو الرقم...'} /><span className="message-search-count">المعروض: {candidates.length} من {eligibleCandidates.length}</span></div>
-        {['late', 'absence'].includes(type) ? <div className="message-late-groups" id="message-student-list">
+        {['late', 'absence'].includes(type) ? <div className="message-late-groups" id="message-student-list" ref={recipientGroupsRef}>
           {studentMessageGroups.map(group => {
             const allGroupSelected = group.recipients.length > 0 && group.recipients.every(recipient => selected.has(recipient.id))
-            return <article className="message-late-group" key={group.grade}>
-              <header className="message-late-group-head"><div><span>{type === 'late' ? 'تأخر اليوم' : 'غياب اليوم المعتمد'}</span><h3>{group.grade}</h3><p>{group.recipients.length} طالباً{type === 'late' ? ' · تظهر ساعة الحضور قبل الإرسال.' : ' · يظهر جميع طلاب الغياب المعتمد قبل الإرسال.'}</p></div><button type="button" className="secondary-button" onClick={() => toggleRecipientGroup(group.recipients)} disabled={sending || !group.recipients.length}>{allGroupSelected ? `إلغاء تحديد ${group.grade}` : `تحديد ${group.grade} (${group.recipients.length})`}</button></header>
-              <div className="table-wrap"><table className="feature-table"><thead><tr><th><input type="checkbox" aria-label={`تحديد ${group.grade}`} checked={allGroupSelected} onChange={() => toggleRecipientGroup(group.recipients)} disabled={sending || !group.recipients.length} /></th><th>الطالب</th><th>الفصل</th>{type === 'late' && <th>وقت الحضور</th>}<th>الجوال</th></tr></thead><tbody>{group.recipients.map(recipient => <tr key={recipient.id}><td data-label="اختيار"><input type="checkbox" checked={selected.has(recipient.id)} onChange={() => toggle(recipient.id)} disabled={sending} /></td><td data-label="الطالب"><strong>{recipient.name}</strong><small>{recipient.id}</small></td><td data-label="الفصل">{recipient.classroom || '—'}</td>{type === 'late' && <td data-label="وقت الحضور" dir="ltr"><strong>{recipient.time ? recipient.time.slice(0, 5) : '—'}</strong></td>}<td data-label="الجوال" dir="ltr">{recipient.phone || '—'}</td></tr>)}</tbody></table></div>
+            const groupKey = `${type}:${group.grade}`
+            const groupDomId = `message-group-${type}-${studentMessageGroups.indexOf(group)}`
+            const groupOpen = openRecipientGroup === groupKey
+            return <article className={`message-late-group${groupOpen ? ' open' : ''}`} key={group.grade}>
+              <button type="button" className="message-recipient-group-summary" onClick={() => setOpenRecipientGroup(current => current === groupKey ? '' : groupKey)} aria-expanded={groupOpen} aria-controls={groupDomId}><div><span>{type === 'late' ? 'تأخر اليوم' : 'غياب اليوم المعتمد'}</span><h3>{group.grade}</h3><p>{group.recipients.length} طالباً{type === 'late' ? ' · اضغط لعرض الأسماء وأوقات الحضور.' : ' · اضغط لعرض الأسماء.'}</p></div><b>{groupOpen ? 'إخفاء الأسماء' : 'عرض الأسماء'}</b></button>
+              {groupOpen && <div className="message-recipient-group-content" id={groupDomId}><header className="message-late-group-head"><p>{type === 'late' ? 'راجع ساعة حضور كل طالب قبل الإرسال.' : 'راجع أسماء طلاب الغياب المعتمد قبل الإرسال.'}</p><button type="button" className="secondary-button" onClick={() => toggleRecipientGroup(group.recipients)} disabled={sending || !group.recipients.length}>{allGroupSelected ? `إلغاء تحديد ${group.grade}` : `تحديد ${group.grade} (${group.recipients.length})`}</button></header>
+                <div className="table-wrap"><table className="feature-table"><thead><tr><th><input type="checkbox" aria-label={`تحديد ${group.grade}`} checked={allGroupSelected} onChange={() => toggleRecipientGroup(group.recipients)} disabled={sending || !group.recipients.length} /></th><th>الطالب</th><th>الفصل</th>{type === 'late' && <th>وقت الحضور</th>}<th>الجوال</th></tr></thead><tbody>{group.recipients.map(recipient => <tr key={recipient.id}><td data-label="اختيار"><input type="checkbox" checked={selected.has(recipient.id)} onChange={() => toggle(recipient.id)} disabled={sending} /></td><td data-label="الطالب"><strong>{recipient.name}</strong><small>{recipient.id}</small></td><td data-label="الفصل">{recipient.classroom || '—'}</td>{type === 'late' && <td data-label="وقت الحضور" dir="ltr"><strong>{recipient.time ? recipient.time.slice(0, 5) : '—'}</strong></td>}<td data-label="الجوال" dir="ltr">{recipient.phone || '—'}</td></tr>)}</tbody></table></div>
+              </div>}
             </article>
           })}
           {!studentMessageGroups.length && <p className="report-empty-state">{type === 'late' ? 'لا يوجد طلاب متأخرون مسجلون لهذا اليوم.' : 'لا يوجد طلاب غيابهم معتمد لهذا اليوم.'}</p>}
