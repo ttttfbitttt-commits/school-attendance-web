@@ -3145,6 +3145,59 @@ tbody td {
   font-size: 13px;
 }
 
+.message-late-groups {
+  display: grid;
+  gap: 16px;
+  margin-top: 14px;
+}
+
+.message-late-group {
+  overflow: hidden;
+  border: 1px solid #cfe0f1;
+  border-radius: 14px;
+  background: #fff;
+}
+
+.message-late-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 14px 16px;
+  border-bottom: 1px solid #dce9f5;
+  background: #f3f8fd;
+}
+
+.message-late-group-head span {
+  color: #52708e;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.message-late-group-head h3 {
+  margin: 2px 0 0;
+  color: #0c4277;
+  font-size: 18px;
+}
+
+.message-late-group-head p {
+  margin: 4px 0 0;
+  color: #64748b;
+  font-size: 13px;
+}
+
+@media (max-width: 860px) {
+  .message-late-group-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .message-late-group-head .secondary-button {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
 .message-log-summary {
   display: flex;
   align-items: center;
