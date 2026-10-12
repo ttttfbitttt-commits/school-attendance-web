@@ -21,6 +21,22 @@ const MESSAGE_LOG_LIMIT = 40
 const MESSAGE_SEND_BATCH_SIZE = 100
 const messageLogTitle = (type: MessageKind) => type === 'general' ? 'سجل الرسائل العامة' : type === 'teacher' ? 'سجل رسائل المعلمين' : type === 'late' ? 'سجل رسائل التأخر' : 'سجل رسائل الغياب'
 const messageTypeText = (type: MessageLog['type']) => type === 'test' ? 'اختبار المدار' : type === 'teacher' ? 'معلمون' : type === 'late' ? 'تأخر' : type === 'absence' ? 'غياب' : 'عامة'
+const canonicalMessageGrade = (value: string) => {
+  const original = value.trim() || 'الصف غير المحدد'
+  const normalized = original.replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي')
+  if (!normalized.includes('ثانوي')) return original
+  if (normalized.includes('اول')) return 'أول ثانوي'
+  if (normalized.includes('ثاني')) return 'ثاني ثانوي'
+  if (normalized.includes('ثالث')) return 'ثالث ثانوي'
+  return original
+}
+const messageGradeRank = (grade: string) => {
+  const normalized = grade.replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي')
+  if (normalized.includes('اول')) return 1
+  if (normalized.includes('ثاني')) return 2
+  if (normalized.includes('ثالث')) return 3
+  return 99
+}
 
 export function reportBrandHeader(title: string, schoolName: string) {
   const logoUrl = `${window.location.origin}/moe-logo.png`
@@ -204,6 +220,8 @@ export function MessageCenter({ students, attendance, schoolName }: { students: 
   const [accountReady, setAccountReady] = useState(false)
   const [type, setType] = useState<MessageKind>('general')
   const [search, setSearch] = useState('')
+  const [logSearch, setLogSearch] = useState('')
+  const [logGrade, setLogGrade] = useState('')
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [message, setMessage] = useState('')
   const [logs, setLogs] = useState<MessageLog[]>([])
@@ -293,37 +311,34 @@ export function MessageCenter({ students, attendance, schoolName }: { students: 
   }, [eligibleCandidates, search])
   const visibleCandidates = useMemo(() => candidates.slice(0, MESSAGE_CANDIDATE_LIMIT), [candidates])
   const hasMoreCandidates = candidates.length > visibleCandidates.length
-  const lateGroups = useMemo(() => {
-    if (type !== 'late') return [] as Array<{ grade: string; recipients: MessageRecipient[] }>
+  const studentMessageGroups = useMemo(() => {
+    if (!['late', 'absence'].includes(type)) return [] as Array<{ grade: string; recipients: MessageRecipient[] }>
     const groups = new Map<string, MessageRecipient[]>()
     candidates.forEach(recipient => {
-      const originalGrade = recipient.grade?.trim() || 'الصف غير المحدد'
-      const normalizedGrade = originalGrade.replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي')
-      const grade = normalizedGrade.includes('ثانوي') && (normalizedGrade.includes('اول') || normalizedGrade.includes('الأول'))
-        ? 'أول ثانوي'
-        : normalizedGrade.includes('ثانوي') && (normalizedGrade.includes('ثاني') || normalizedGrade.includes('الثاني'))
-          ? 'ثاني ثانوي'
-          : normalizedGrade.includes('ثانوي') && (normalizedGrade.includes('ثالث') || normalizedGrade.includes('الثالث'))
-            ? 'ثالث ثانوي'
-            : originalGrade
+      const grade = canonicalMessageGrade(recipient.grade || '')
       groups.set(grade, [...(groups.get(grade) || []), recipient])
     })
-    const rank = (grade: string) => {
-      const normalized = grade.replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي')
-      if (normalized.includes('اول') || normalized.includes('الأول')) return 1
-      if (normalized.includes('ثاني') || normalized.includes('الثاني')) return 2
-      if (normalized.includes('ثالث') || normalized.includes('الثالث')) return 3
-      return 99
-    }
     return [...groups.entries()]
       .map(([grade, recipients]) => ({ grade, recipients: [...recipients].sort((a, b) => a.name.localeCompare(b.name, 'ar')) }))
-      .sort((a, b) => rank(a.grade) - rank(b.grade) || a.grade.localeCompare(b.grade, 'ar'))
+      .sort((a, b) => messageGradeRank(a.grade) - messageGradeRank(b.grade) || a.grade.localeCompare(b.grade, 'ar'))
   }, [type, candidates])
   const eligibleCandidateIds = useMemo(() => new Set(eligibleCandidates.map(student => student.id)), [eligibleCandidates])
-  const visibleLogs = useMemo(() => logs.filter(log => log.type === type), [logs, type])
+  const studentLookup = useMemo(() => new Map(students.map(student => [student.id, student])), [students])
+  const typeLogs = useMemo(() => logs.filter(log => log.type === type), [logs, type])
+  const logRows = useMemo(() => typeLogs.map(log => {
+    const student = log.studentId ? studentLookup.get(log.studentId) : undefined
+    return { ...log, grade: student ? canonicalMessageGrade(student.grade) : '', classroom: student?.classroom || '' }
+  }), [typeLogs, studentLookup])
+  const logGrades = useMemo(() => [...new Set(logRows.map(log => log.grade).filter(Boolean))]
+    .sort((a, b) => messageGradeRank(a) - messageGradeRank(b) || a.localeCompare(b, 'ar')), [logRows])
+  const visibleLogs = useMemo(() => {
+    const query = logSearch.trim().toLowerCase()
+    return logRows.filter(log => (!logGrade || log.grade === logGrade) && (!query || `${log.studentName} ${log.studentId || ''} ${log.recipient} ${log.grade} ${log.classroom}`.toLowerCase().includes(query)))
+  }, [logRows, logSearch, logGrade])
   const visibleLogRows = useMemo(() => visibleLogs.slice(0, MESSAGE_LOG_LIMIT), [visibleLogs])
   const hasMoreLogs = visibleLogs.length > visibleLogRows.length
   const currentLogTitle = messageLogTitle(type)
+  const supportsLogGradeFilter = type !== 'teacher'
   const recipientsLoading = (type === 'absence' && absenceCandidatesLoading) || (type === 'teacher' && teachersLoading) || (type === 'late' && lateCandidatesLoading)
   const recipientLabel = type === 'teacher' ? 'عدد المعلمين' : 'عدد الطلاب المناسبين'
   const recipientWord = type === 'teacher' ? 'المعلمين' : 'الطلاب'
@@ -354,7 +369,7 @@ export function MessageCenter({ students, attendance, schoolName }: { students: 
     recipients.forEach(recipient => allGroupSelected ? next.delete(recipient.id) : next.add(recipient.id))
     return next
   })
-  const chooseType = (nextType: MessageKind) => { setType(nextType); setSelected(new Set()); setMessage(''); setSearch(''); setShowStudentDetails(false); setShowLogDetails(false); setNotice('') }
+  const chooseType = (nextType: MessageKind) => { setType(nextType); setSelected(new Set()); setMessage(''); setSearch(''); setLogSearch(''); setLogGrade(''); setShowStudentDetails(false); setShowLogDetails(false); setNotice('') }
 
   const send = async () => {
     if (!accountReady) { setNotice('أكمل إعداد حساب المدار التقني وتحقق من الاتصال أولاً.'); return }
@@ -400,10 +415,12 @@ export function MessageCenter({ students, attendance, schoolName }: { students: 
   const exportMessageLogExcel = () => downloadWorkbook(
     currentLogTitle.replace(/\s+/g, '_'),
     [
-      ['الوقت', 'الطالب / العملية', 'المستلم', 'اسم المرسل', 'النوع', 'الحالة', 'التفاصيل'],
+      ['الوقت', 'الطالب / العملية', 'الصف', 'الفصل', 'المستلم', 'اسم المرسل', 'النوع', 'الحالة', 'التفاصيل'],
     ...visibleLogs.map(log => [
         formatDateTime(log.createdAt),
         log.studentName || '—',
+        log.grade || '—',
+        log.classroom || '—',
         maskPhone(log.recipient),
         log.senderName || '—',
         messageTypeText(log.type),
@@ -420,6 +437,8 @@ export function MessageCenter({ students, attendance, schoolName }: { students: 
     const body = visibleLogs.map(log => `<tr>
       <td>${escapeHtml(formatDateTime(log.createdAt))}</td>
       <td>${escapeHtml(log.studentName || '—')}</td>
+      <td>${escapeHtml(log.grade || '—')}</td>
+      <td>${escapeHtml(log.classroom || '—')}</td>
       <td dir="ltr">${escapeHtml(maskPhone(log.recipient))}</td>
       <td>${escapeHtml(log.senderName || '—')}</td>
       <td>${messageTypeText(log.type)}</td>
@@ -427,8 +446,8 @@ export function MessageCenter({ students, attendance, schoolName }: { students: 
       <td>${escapeHtml(log.errorDetail || log.body)}</td>
     </tr>`).join('')
     const title = currentLogTitle
-    const emptyRow = '<tr><td colspan="7">لا توجد عمليات مسجلة لهذا النوع حتى الآن.</td></tr>'
-    openPrintDocument(title, `<section class="page"><table><thead><tr><th>الوقت</th><th>الطالب / العملية</th><th>المستلم</th><th>اسم المرسل</th><th>النوع</th><th>الحالة</th><th>التفاصيل</th></tr></thead><tbody>${body || emptyRow}</tbody></table><p class="meta">عدد العمليات: ${visibleLogs.length} · آخر 200 عملية</p></section>`, schoolName, 'landscape')
+    const emptyRow = '<tr><td colspan="9">لا توجد عمليات مسجلة ضمن هذا العرض.</td></tr>'
+    openPrintDocument(title, `<section class="page"><table><thead><tr><th>الوقت</th><th>الطالب / العملية</th><th>الصف</th><th>الفصل</th><th>المستلم</th><th>اسم المرسل</th><th>النوع</th><th>الحالة</th><th>التفاصيل</th></tr></thead><tbody>${body || emptyRow}</tbody></table><p class="meta">عدد العمليات: ${visibleLogs.length} · آخر 200 عملية</p></section>`, schoolName, 'landscape')
   }
 
   return <section className="feature-page">
@@ -453,15 +472,15 @@ export function MessageCenter({ students, attendance, schoolName }: { students: 
       </div>
       {showStudentDetails && <>
         <div className="feature-toolbar"><input value={search} onChange={event => setSearch(event.target.value)} placeholder={type === 'teacher' ? 'ابحث عن معلم بالاسم أو رقم الهوية...' : 'ابحث عن طالب بالاسم أو الرقم...'} /><span className="message-search-count">المعروض: {candidates.length} من {eligibleCandidates.length}</span></div>
-        {type === 'late' ? <div className="message-late-groups" id="message-student-list">
-          {lateGroups.map(group => {
+        {['late', 'absence'].includes(type) ? <div className="message-late-groups" id="message-student-list">
+          {studentMessageGroups.map(group => {
             const allGroupSelected = group.recipients.length > 0 && group.recipients.every(recipient => selected.has(recipient.id))
             return <article className="message-late-group" key={group.grade}>
-              <header className="message-late-group-head"><div><span>تأخر اليوم</span><h3>{group.grade}</h3><p>{group.recipients.length} طالباً · تظهر ساعة الحضور قبل الإرسال.</p></div><button type="button" className="secondary-button" onClick={() => toggleRecipientGroup(group.recipients)} disabled={sending || !group.recipients.length}>{allGroupSelected ? `إلغاء تحديد ${group.grade}` : `تحديد ${group.grade} (${group.recipients.length})`}</button></header>
-              <div className="table-wrap"><table className="feature-table"><thead><tr><th><input type="checkbox" aria-label={`تحديد ${group.grade}`} checked={allGroupSelected} onChange={() => toggleRecipientGroup(group.recipients)} disabled={sending || !group.recipients.length} /></th><th>الطالب</th><th>الفصل</th><th>وقت الحضور</th><th>الجوال</th></tr></thead><tbody>{group.recipients.map(recipient => <tr key={recipient.id}><td data-label="اختيار"><input type="checkbox" checked={selected.has(recipient.id)} onChange={() => toggle(recipient.id)} disabled={sending} /></td><td data-label="الطالب"><strong>{recipient.name}</strong><small>{recipient.id}</small></td><td data-label="الفصل">{recipient.classroom || '—'}</td><td data-label="وقت الحضور" dir="ltr"><strong>{recipient.time ? recipient.time.slice(0, 5) : '—'}</strong></td><td data-label="الجوال" dir="ltr">{recipient.phone || '—'}</td></tr>)}</tbody></table></div>
+              <header className="message-late-group-head"><div><span>{type === 'late' ? 'تأخر اليوم' : 'غياب اليوم المعتمد'}</span><h3>{group.grade}</h3><p>{group.recipients.length} طالباً{type === 'late' ? ' · تظهر ساعة الحضور قبل الإرسال.' : ' · يظهر جميع طلاب الغياب المعتمد قبل الإرسال.'}</p></div><button type="button" className="secondary-button" onClick={() => toggleRecipientGroup(group.recipients)} disabled={sending || !group.recipients.length}>{allGroupSelected ? `إلغاء تحديد ${group.grade}` : `تحديد ${group.grade} (${group.recipients.length})`}</button></header>
+              <div className="table-wrap"><table className="feature-table"><thead><tr><th><input type="checkbox" aria-label={`تحديد ${group.grade}`} checked={allGroupSelected} onChange={() => toggleRecipientGroup(group.recipients)} disabled={sending || !group.recipients.length} /></th><th>الطالب</th><th>الفصل</th>{type === 'late' && <th>وقت الحضور</th>}<th>الجوال</th></tr></thead><tbody>{group.recipients.map(recipient => <tr key={recipient.id}><td data-label="اختيار"><input type="checkbox" checked={selected.has(recipient.id)} onChange={() => toggle(recipient.id)} disabled={sending} /></td><td data-label="الطالب"><strong>{recipient.name}</strong><small>{recipient.id}</small></td><td data-label="الفصل">{recipient.classroom || '—'}</td>{type === 'late' && <td data-label="وقت الحضور" dir="ltr"><strong>{recipient.time ? recipient.time.slice(0, 5) : '—'}</strong></td>}<td data-label="الجوال" dir="ltr">{recipient.phone || '—'}</td></tr>)}</tbody></table></div>
             </article>
           })}
-          {!lateGroups.length && <p className="report-empty-state">لا يوجد طلاب متأخرون مسجلون لهذا اليوم.</p>}
+          {!studentMessageGroups.length && <p className="report-empty-state">{type === 'late' ? 'لا يوجد طلاب متأخرون مسجلون لهذا اليوم.' : 'لا يوجد طلاب غيابهم معتمد لهذا اليوم.'}</p>}
         </div> : <>
           {hasMoreCandidates && <p className="message-candidate-hint">يعرض أول {MESSAGE_CANDIDATE_LIMIT} {type === 'teacher' ? 'معلماً' : 'طالباً'} فقط. زر «تحديد الكل» يحدد جميع {recipientWord}، وزر «تحديد نتائج البحث» يحدد جميع نتائج البحث.</p>}
           <div className="table-wrap" id="message-student-list"><table className="feature-table"><thead><tr><th><input type="checkbox" aria-label={`تحديد ${recipientWord} المعروضين`} checked={visibleCandidates.length > 0 && visibleCandidates.every(recipient => selected.has(recipient.id))} onChange={toggleVisibleCandidates} disabled={sending || !visibleCandidates.length} /></th><th>{type === 'teacher' ? 'المعلم' : 'الطالب'}</th><th>{type === 'teacher' ? 'رقم الهوية' : 'الصف والفصل'}</th><th>الجوال</th></tr></thead><tbody>{visibleCandidates.map(recipient => <tr key={recipient.id}><td data-label="اختيار"><input type="checkbox" checked={selected.has(recipient.id)} onChange={() => toggle(recipient.id)} disabled={sending} /></td><td data-label={type === 'teacher' ? 'المعلم' : 'الطالب'}><strong>{recipient.name}</strong><small>{type === 'teacher' ? recipient.identityNumber : recipient.id}</small></td><td data-label={type === 'teacher' ? 'رقم الهوية' : 'الصف والفصل'}>{type === 'teacher' ? recipient.identityNumber || '—' : `${recipient.grade || '—'} · ${recipient.classroom || '—'}`}</td><td data-label="الجوال" dir="ltr">{recipient.phone || '—'}</td></tr>)}{!candidates.length && <tr><td colSpan={4}>{type === 'teacher' ? 'لا يوجد معلمون مضافون أو متاحون للرسائل حالياً.' : 'لا يوجد طلاب مناسبون لهذا النوع من الرسائل اليوم.'}</td></tr>}</tbody></table></div>
@@ -487,7 +506,10 @@ export function MessageCenter({ students, attendance, schoolName }: { students: 
         <div className="message-log-count"><span>عدد العمليات</span><strong>{logsLoading ? '…' : visibleLogs.length}</strong></div>
         {hasMoreLogs && showLogDetails && <span className="message-candidate-hint">يعرض آخر {MESSAGE_LOG_LIMIT} عملية فقط. التصدير يشمل العمليات المحملة كلها.</span>}
       </div>
-      {showLogDetails && <div className="table-wrap"><table className="feature-table"><thead><tr><th>الوقت</th><th>الطالب / العملية</th><th>المستلم</th><th>اسم المرسل</th><th>النوع</th><th>الحالة</th><th>التفاصيل</th></tr></thead><tbody>{visibleLogRows.map(log => <tr key={log.id}><td data-label="الوقت">{formatDateTime(log.createdAt)}</td><td data-label="الطالب / العملية">{log.studentName || '—'}</td><td data-label="المستلم" dir="ltr">{maskPhone(log.recipient)}</td><td data-label="اسم المرسل">{log.senderName || '—'}</td><td data-label="النوع">{messageTypeText(log.type)}</td><td data-label="الحالة"><span className={`status-chip ${log.status === 'sent' ? 'success' : 'failed'}`}>{log.status === 'sent' ? log.type === 'test' ? 'قُبل طلب الإرسال' : 'تم الإرسال' : 'فشل'}</span></td><td data-label="التفاصيل">{log.errorDetail || log.body}</td></tr>)}{!visibleLogs.length && <tr><td colSpan={7}>لا توجد عمليات من هذا النوع حتى الآن.</td></tr>}</tbody></table></div>}
+      {showLogDetails && <>
+        <div className="feature-toolbar message-log-toolbar"><input value={logSearch} onChange={event => setLogSearch(event.target.value)} placeholder="ابحث باسم الطالب أو رقمه أو الجوال..." />{supportsLogGradeFilter && <select value={logGrade} onChange={event => setLogGrade(event.target.value)} aria-label="عرض السجل حسب الصف"><option value="">كل الصفوف ({typeLogs.length})</option>{logGrades.map(grade => <option key={grade} value={grade}>{grade} ({logRows.filter(log => log.grade === grade).length})</option>)}</select>}<span className="message-search-count">الظاهر: {visibleLogs.length}</span></div>
+        <div className="table-wrap"><table className="feature-table"><thead><tr><th>الوقت</th><th>الطالب / العملية</th><th>الصف</th><th>الفصل</th><th>المستلم</th><th>اسم المرسل</th><th>النوع</th><th>الحالة</th><th>التفاصيل</th></tr></thead><tbody>{visibleLogRows.map(log => <tr key={log.id}><td data-label="الوقت">{formatDateTime(log.createdAt)}</td><td data-label="الطالب / العملية">{log.studentName || '—'}</td><td data-label="الصف">{log.grade || '—'}</td><td data-label="الفصل">{log.classroom || '—'}</td><td data-label="المستلم" dir="ltr">{maskPhone(log.recipient)}</td><td data-label="اسم المرسل">{log.senderName || '—'}</td><td data-label="النوع">{messageTypeText(log.type)}</td><td data-label="الحالة"><span className={`status-chip ${log.status === 'sent' ? 'success' : 'failed'}`}>{log.status === 'sent' ? log.type === 'test' ? 'قُبل طلب الإرسال' : 'تم الإرسال' : 'فشل'}</span></td><td data-label="التفاصيل">{log.errorDetail || log.body}</td></tr>)}{!visibleLogs.length && <tr><td colSpan={9}>لا توجد عمليات ضمن هذا العرض.</td></tr>}</tbody></table></div>
+      </>}
     </section>
   </section>
 }
