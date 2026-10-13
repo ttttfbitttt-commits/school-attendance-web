@@ -657,6 +657,66 @@ export async function handleTeacherPortalRequest(context) {
     return true
   }
 
+  if (req.method === 'GET' && url.pathname === '/api/teacher-portal/teacher/comprehensive-report/options') {
+    if (!teacherOnly()) { json(res, 403, { error: 'forbidden' }); return true }
+    const result = await scoped(user.school_id, async client => {
+      const active = await activeImport(client, user.school_id)
+      if (!active) return []
+      const assignments = (await client.query(`SELECT DISTINCT ON (a.subject_name,a.classroom_id)
+          a.subject_name AS subject,a.classroom_id AS "classroomId",c.name AS "classroomName"
+        FROM lesson_schedule_assignments a JOIN lesson_classrooms c ON c.id=a.classroom_id AND c.school_id=a.school_id
+        WHERE a.school_id=$1 AND a.import_id=$2 AND a.teacher_id=$3 AND a.subject_name IS NOT NULL AND btrim(a.subject_name) <> ''
+        ORDER BY a.subject_name,a.classroom_id,c.name`, [user.school_id, active.id, user.teacher_id])).rows
+      const options = []
+      for (const assignment of assignments) {
+        const roster = await rosterForClassroom(client, user.school_id, assignment.classroomId)
+        if (!roster.mapping) continue
+        options.push({ subject: assignment.subject, grade: roster.mapping.grade, classroom: roster.mapping.classroom, classroomId: assignment.classroomId })
+      }
+      return options.sort((left, right) => left.subject.localeCompare(right.subject, 'ar') || left.grade.localeCompare(right.grade, 'ar', { numeric: true }) || left.classroom.localeCompare(right.classroom, 'ar', { numeric: true }))
+    })
+    json(res, 200, { options: result })
+    return true
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/teacher-portal/teacher/comprehensive-report') {
+    if (!teacherOnly()) { json(res, 403, { error: 'forbidden' }); return true }
+    const type = String(url.searchParams.get('type') || '')
+    const subject = clean(url.searchParams.get('subject'), 200)
+    const classroomId = String(url.searchParams.get('classroomId') || '')
+    if (!['absence', 'late', 'notes'].includes(type) || !subject || !validId(classroomId)) { json(res, 400, { error: 'invalid_comprehensive_report' }); return true }
+    const result = await scoped(user.school_id, async client => {
+      const active = await activeImport(client, user.school_id)
+      if (!active) return { error: 'schedule_not_imported' }
+      const assigned = await client.query(`SELECT 1 FROM lesson_schedule_assignments
+        WHERE school_id=$1 AND import_id=$2 AND teacher_id=$3 AND subject_name=$4 AND classroom_id=$5 LIMIT 1`, [user.school_id, active.id, user.teacher_id, subject, classroomId])
+      if (!assigned.rowCount) return { error: 'lesson_not_assigned' }
+      const roster = await rosterForClassroom(client, user.school_id, classroomId)
+      if (!roster.mapping) return { error: 'classroom_not_mapped' }
+      const statusClause = type === 'absence' ? "r.attendance_status='absent'" : type === 'late' ? "r.attendance_status='late'" : "r.note <> ''"
+      const eventRows = (await client.query(`SELECT DISTINCT r.student_id AS "studentId",r.student_name AS name,
+          to_char(s.session_date,'YYYY-MM-DD') AS date,r.note
+        FROM teacher_lesson_sessions s JOIN teacher_lesson_student_records r ON r.lesson_session_id=s.id AND r.school_id=s.school_id
+        WHERE s.school_id=$1 AND s.teacher_id=$2 AND s.subject_name=$3
+          AND (s.classroom_id=$4 OR (s.grade_value=$5 AND s.classroom_value=$6)) AND ${statusClause}
+        ORDER BY date,r.student_name,r.note`, [user.school_id, user.teacher_id, subject, classroomId, roster.mapping.grade, roster.mapping.classroom])).rows
+      const eventsByStudent = new Map(roster.students.map(student => [student.id, []]))
+      for (const row of eventRows) {
+        const events = eventsByStudent.get(row.studentId)
+        if (!events) continue
+        if (type === 'notes') events.push({ date: row.date, note: row.note })
+        else if (!events.some(event => event.date === row.date)) events.push({ date: row.date })
+      }
+      return {
+        type, subject, classroomId, grade: roster.mapping.grade, classroom: roster.mapping.classroom,
+        students: roster.students.map(student => ({ ...student, events: (eventsByStudent.get(student.id) || []).sort((left, right) => left.date.localeCompare(right.date)) })),
+      }
+    })
+    if (result.error) { json(res, result.error === 'lesson_not_assigned' ? 403 : 409, result); return true }
+    json(res, 200, result)
+    return true
+  }
+
   if (req.method === 'GET' && url.pathname === '/api/teacher-portal/teacher/reports') {
     if (!teacherOnly()) { json(res, 403, { error: 'forbidden' }); return true }
     const result = await scoped(user.school_id, client => reportRows(client, user.school_id, Object.fromEntries(url.searchParams), user.teacher_id))

@@ -157,6 +157,12 @@ export type TeacherLessonReport = {
   studentsCount: number; presentCount: number; absentCount: number; lateCount: number
   records: Array<{ studentId: string; name: string; grade: string; classroom: string; status: 'present' | 'absent' | 'late'; note: TeacherNote | '' }>
 }
+export type TeacherComprehensiveReportType = 'absence' | 'late' | 'notes'
+export type TeacherComprehensiveReportOption = { subject: string; grade: string; classroom: string; classroomId: string }
+export type TeacherComprehensiveReport = {
+  type: TeacherComprehensiveReportType; subject: string; grade: string; classroom: string; classroomId: string
+  students: Array<{ id: string; name: string; grade: string; classroom: string; events: Array<{ date: string; note?: TeacherNote }> }>
+}
 export type TeacherAdminOverview = {
   teachers: Array<{ teacherId: string; name: string; identityNumber: string; assignments: number; accountActive: boolean; accountCreated: boolean; mustChangePassword: boolean; credentialsAvailable: boolean }>
   classroomMappings: Array<{ classroomId: string; classroom: string; grade: string | null; classroomValue: string | null; mappingSource: 'automatic' | 'manual' | null }>
@@ -378,6 +384,8 @@ export const api = {
   teacherLesson: (classroomId: string, date: string, periodNumber: number, sheetType: TeacherSheetOpenType) => request<TeacherLesson>(`/teacher-portal/teacher/lesson?classroomId=${encodeURIComponent(classroomId)}&date=${encodeURIComponent(date)}&periodNumber=${periodNumber}&sheetType=${sheetType}`),
   saveTeacherLesson: (payload: { classroomId: string; date: string; periodNumber: number; sheetType: TeacherSheetOpenType; students: Array<{ studentId: string; status: 'present' | 'absent' | 'late'; note: TeacherNote | ''; sheetValues: Record<string, string | number | boolean> }> }) => request<{ ok: boolean; saved: number }>('/teacher-portal/teacher/lesson', { method: 'PUT', body: JSON.stringify(payload) }),
   teacherReports: (filters: { date?: string; from?: string; to?: string; studentId?: string; note?: string } = {}) => request<{ reports: TeacherLessonReport[] }>(`/teacher-portal/teacher/reports?${new URLSearchParams(Object.entries(filters).filter(([, value]) => value).map(([key, value]) => [key, value || '']))}`),
+  teacherComprehensiveReportOptions: () => request<{ options: TeacherComprehensiveReportOption[] }>('/teacher-portal/teacher/comprehensive-report/options'),
+  teacherComprehensiveReport: (type: TeacherComprehensiveReportType, subject: string, classroomId: string) => request<TeacherComprehensiveReport>(`/teacher-portal/teacher/comprehensive-report?${new URLSearchParams({ type, subject, classroomId })}`),
   changeTeacherPassword: (password: string) => request<{ ok: boolean }>('/teacher-portal/teacher/password', { method: 'POST', body: JSON.stringify({ password }) }),
   teacherSheets: () => request<{ sheets: TeacherSheetSubject[] }>('/teacher-portal/teacher/sheets'),
   saveTeacherSheetConfig: (subjectName: string, sheetType: TeacherSheetType, columns: TeacherSheetColumn[]) => request<{ config: TeacherSheetConfig }>('/teacher-portal/teacher/sheets/config', { method: 'PUT', body: JSON.stringify({ subjectName, sheetType, columns }) }),
