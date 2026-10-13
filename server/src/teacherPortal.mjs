@@ -693,7 +693,7 @@ export async function handleTeacherPortalRequest(context) {
       if (!assigned.rowCount) return { error: 'lesson_not_assigned' }
       const roster = await rosterForClassroom(client, user.school_id, classroomId)
       if (!roster.mapping) return { error: 'classroom_not_mapped' }
-      const statusClause = type === 'absence' ? "r.attendance_status='absent'" : type === 'late' ? "r.attendance_status='late'" : "r.note <> ''"
+      const statusClause = type === 'absence' ? "r.attendance_status='absent'" : type === 'late' ? "r.attendance_status='late'" : "r.note <> '' AND r.note <> 'مشارك فعال'"
       const eventRows = (await client.query(`SELECT DISTINCT r.student_id AS "studentId",r.student_name AS name,
           to_char(s.session_date,'YYYY-MM-DD') AS date,r.note
         FROM teacher_lesson_sessions s JOIN teacher_lesson_student_records r ON r.lesson_session_id=s.id AND r.school_id=s.school_id
