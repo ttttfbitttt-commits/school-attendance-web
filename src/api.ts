@@ -437,6 +437,7 @@ export const api = {
     request<{ records: BehaviorRecord[] }>(`/behavior/records?${new URLSearchParams(Object.entries(filters).filter(([, value]) => value).map(([key, value]) => [key, value || '']))}`),
   approveBehaviorRecord: (recordId: string) => request<{ ok: boolean; recurrence: number; amount: number }>(`/behavior/records/${encodeURIComponent(recordId)}/approve`, { method: 'POST', body: '{}' }),
   cancelBehaviorRecord: (recordId: string, reason: string) => request<{ ok: boolean }>(`/behavior/records/${encodeURIComponent(recordId)}/cancel`, { method: 'POST', body: JSON.stringify({ reason }) }),
+  deleteBehaviorRecord: (recordId: string) => request<{ ok: boolean; deletedIncident: boolean }>('/behavior/records/' + encodeURIComponent(recordId) + '/permanent', { method: 'DELETE' }),
   updateBehaviorAction: (recordId: string, actionId: string, payload: { state: BehaviorActionStep['state']; reason?: string; evidence?: string }) =>
     request<{ ok: boolean }>(`/behavior/records/${encodeURIComponent(recordId)}/actions/${encodeURIComponent(actionId)}`, { method: 'PUT', body: JSON.stringify(payload) }),
   behaviorStudentProfile: (studentId: string) => request<BehaviorStudentProfile>(`/behavior/students/${encodeURIComponent(studentId)}`),

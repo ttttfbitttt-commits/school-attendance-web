@@ -3,7 +3,7 @@ import * as XLSX from 'xlsx'
 import {
   ArrowRight, Award, Check, CheckCircle2, ChevronLeft, CircleAlert, ClipboardCheck, ClipboardList,
   FileBarChart2, FileSpreadsheet, Loader2, LockKeyhole, PlusCircle, Printer, RefreshCcw, RotateCcw,
-  Save, Search, ShieldAlert, UserRoundSearch, Users, XCircle,
+  Save, Search, ShieldAlert, Trash2, UserRoundSearch, Users, XCircle,
 } from 'lucide-react'
 import {
   api,
@@ -40,6 +40,7 @@ const errorMessage = (error: unknown) => {
     deduction_fully_compensated: 'تم تعويض هذا الحسم بالكامل.',
     compensation_already_recorded: 'تم تسجيل فرصة التعويض نفسها سابقاً.',
     forbidden: 'هذه العملية متاحة لمدير المدرسة فقط.',
+    record_not_found: 'تعذر العثور على السجل المطلوب.',
   }
   return messages[code] || 'تعذر إكمال العملية. أعد المحاولة.'
 }
@@ -199,6 +200,19 @@ export function BehaviorCenter({ school, role }: { school: SchoolDetails; role: 
     catch (err) { setError(errorMessage(err)) } finally { setBusy(false) }
   }
 
+  const permanentlyDeleteRecord = async (record: BehaviorRecord) => {
+    const confirmation = window.prompt('سيحذف سجل ' + record.name + ' نهائياً من السجل والتقارير والدرجات. اكتب اسم الطالب كاملاً للتأكيد:')?.trim() || ''
+    if (!confirmation) return
+    if (confirmation !== record.name) { setError('لم يطابق الاسم المدخل اسم الطالب، لذلك لم يُحذف السجل.'); return }
+    setBusy(true); setError('')
+    try {
+      await api.deleteBehaviorRecord(record.id)
+      setExpandedRecord('')
+      setNotice('تم حذف سجل ' + record.name + ' نهائياً.')
+      await Promise.all([loadRecords(recordStatus ? { status: recordStatus } : {}), loadBase()])
+    } catch (err) { setError(errorMessage(err)) } finally { setBusy(false) }
+  }
+
   const updateAction = async (recordId: string, action: BehaviorActionStep, state: BehaviorActionStep['state']) => {
     const reason = state === 'not_executed' ? window.prompt('اكتب سبب عدم تنفيذ الإجراء:')?.trim() || '' : ''
     if (state === 'not_executed' && !reason) return
@@ -296,7 +310,7 @@ export function BehaviorCenter({ school, role }: { school: SchoolDetails; role: 
 
       {(view === 'records' || view === 'approvals') && <section className="panel behavior-records-panel">
         <div className="behavior-section-head"><div><span className="panel-kicker">{view === 'approvals' ? 'قرار المدير' : 'السجل الزمني'}</span><h3>{view === 'approvals' ? 'الاعتمادات المعلقة' : 'السجلات والمتابعة'}</h3></div>{view === 'records' && <select value={recordStatus} onChange={event => setRecordStatus(event.target.value as BehaviorStatus | '')}><option value="">جميع الحالات</option><option value="pending">بانتظار الاعتماد</option><option value="approved">معتمد</option><option value="cancelled">ملغى</option></select>}</div>
-        {loading ? <div className="behavior-inline-loading"><Loader2 className="spin" />جاري التحميل...</div> : <div className="behavior-record-list">{!records.length && <div className="behavior-empty">لا توجد سجلات ضمن هذا الاختيار.</div>}{records.map(record => <article key={record.id} className={expandedRecord === record.id ? 'open' : ''}><button className="behavior-record-summary" type="button" onClick={() => setExpandedRecord(current => current === record.id ? '' : record.id)}><span className={`behavior-degree degree-${record.degree || 0}`}>{record.degree ? `د${record.degree}` : <Award size={17} />}</span><span><strong>{record.name}</strong><small>{record.ruleTitle} · {record.date}</small></span><span className={`behavior-status ${record.status}`}>{statusLabel[record.status]}</span><b>{record.descriptiveOnly ? 'وصفي' : record.amount ? `${record.amount} درجة` : 'دون حسم'}</b><ChevronLeft /></button>{expandedRecord === record.id && <div className="behavior-record-details"><dl><div><dt>المرحلة</dt><dd>{stageLabel[record.stage] || 'غير محددة'}</dd></div><div><dt>الصف والفصل</dt><dd>{record.grade} / {record.classroom}</dd></div><div><dt>التكرار</dt><dd>{record.recurrence}</dd></div><div><dt>الإجراء</dt><dd>{record.procedureName}</dd></div><div><dt>نوع التعليم</dt><dd>{record.mode === 'in_person' ? 'حضوري' : 'إلكتروني'}</dd></div></dl>{record.description && <p>{record.description}</p>} {!!record.actionSteps?.length && <div className="behavior-actions-list"><strong>خطوات الإجراء</strong>{record.actionSteps.map(action => <div key={action.id}><span className={`action-state ${action.state}`}>{action.state === 'required' ? 'مطلوب' : action.state === 'executed' ? 'نُفذ' : 'لم ينفذ'}</span><p>{action.label}{action.reason && <small>السبب: {action.reason}</small>}{action.evidence && <small>الشاهد: {action.evidence}</small>}</p>{record.status === 'approved' && action.state === 'required' && <span className="action-buttons"><button onClick={() => updateAction(record.id, action, 'executed')}><Check size={15} />تم التنفيذ</button><button onClick={() => updateAction(record.id, action, 'not_executed')}><XCircle size={15} />تعذر التنفيذ</button></span>}</div>)}</div>}<div className="behavior-record-buttons"><button className="secondary-button" onClick={() => openProfile(record.studentId)}><UserRoundSearch size={16} />ملف الطالب</button><button className="secondary-button" onClick={() => printOfficialForms([record])}><Printer size={16} />نموذج رسمي</button>{record.status === 'pending' && role === 'admin' && <button className="primary-button" disabled={busy} onClick={() => approveRecord(record.id)}><CheckCircle2 size={16} />اعتماد</button>}{record.status !== 'cancelled' && role === 'admin' && <button className="danger-button" disabled={busy} onClick={() => cancelRecord(record.id)}><RotateCcw size={16} />إلغاء وتصحيح</button>}</div></div>}</article>)}</div>}
+        {loading ? <div className="behavior-inline-loading"><Loader2 className="spin" />جاري التحميل...</div> : <div className="behavior-record-list">{!records.length && <div className="behavior-empty">لا توجد سجلات ضمن هذا الاختيار.</div>}{records.map(record => <article key={record.id} className={expandedRecord === record.id ? 'open' : ''}><button className="behavior-record-summary" type="button" onClick={() => setExpandedRecord(current => current === record.id ? '' : record.id)}><span className={`behavior-degree degree-${record.degree || 0}`}>{record.degree ? `د${record.degree}` : <Award size={17} />}</span><span><strong>{record.name}</strong><small>{record.ruleTitle} · {record.date}</small></span><span className={`behavior-status ${record.status}`}>{statusLabel[record.status]}</span><b>{record.descriptiveOnly ? 'وصفي' : record.amount ? `${record.amount} درجة` : 'دون حسم'}</b><ChevronLeft /></button>{expandedRecord === record.id && <div className="behavior-record-details"><dl><div><dt>المرحلة</dt><dd>{stageLabel[record.stage] || 'غير محددة'}</dd></div><div><dt>الصف والفصل</dt><dd>{record.grade} / {record.classroom}</dd></div><div><dt>التكرار</dt><dd>{record.recurrence}</dd></div><div><dt>الإجراء</dt><dd>{record.procedureName}</dd></div><div><dt>نوع التعليم</dt><dd>{record.mode === 'in_person' ? 'حضوري' : 'إلكتروني'}</dd></div></dl>{record.description && <p>{record.description}</p>} {!!record.actionSteps?.length && <div className="behavior-actions-list"><strong>خطوات الإجراء</strong>{record.actionSteps.map(action => <div key={action.id}><span className={`action-state ${action.state}`}>{action.state === 'required' ? 'مطلوب' : action.state === 'executed' ? 'نُفذ' : 'لم ينفذ'}</span><p>{action.label}{action.reason && <small>السبب: {action.reason}</small>}{action.evidence && <small>الشاهد: {action.evidence}</small>}</p>{record.status === 'approved' && action.state === 'required' && <span className="action-buttons"><button onClick={() => updateAction(record.id, action, 'executed')}><Check size={15} />تم التنفيذ</button><button onClick={() => updateAction(record.id, action, 'not_executed')}><XCircle size={15} />تعذر التنفيذ</button></span>}</div>)}</div>}<div className="behavior-record-buttons"><button className="secondary-button" onClick={() => openProfile(record.studentId)}><UserRoundSearch size={16} />ملف الطالب</button><button className="secondary-button" onClick={() => printOfficialForms([record])}><Printer size={16} />نموذج رسمي</button>{record.status === 'pending' && role === 'admin' && <button className="primary-button" disabled={busy} onClick={() => approveRecord(record.id)}><CheckCircle2 size={16} />اعتماد</button>}{record.status !== 'cancelled' && role === 'admin' && <button className="danger-button" disabled={busy} onClick={() => cancelRecord(record.id)}><RotateCcw size={16} />إلغاء وتصحيح</button>}{role === 'admin' && <button className="danger-button" disabled={busy} onClick={() => permanentlyDeleteRecord(record)}><Trash2 size={16} />حذف نهائي</button>}</div></div>}</article>)}</div>}
       </section>}
 
       {view === 'compensation' && <section className="panel behavior-profile-panel">
