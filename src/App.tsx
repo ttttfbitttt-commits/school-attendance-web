@@ -784,6 +784,14 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
   }
 
   const selectAttendanceMode = (mode: AttendanceMode) => {
+    if (mode === attendanceMode) return
+    const details: Record<AttendanceMode, { title: string; explanation: string }> = {
+      present: { title: 'تحضير الطلاب', explanation: 'سيُسجَّل كل طالب يُمسح باركوده أو يُضاف يدوياً بوصفه حاضرًا، مهما كان وقت التسجيل.' },
+      late: { title: 'حصر التأخر', explanation: 'سيُسجَّل كل طالب يُمسح باركوده أو يُضاف يدوياً بوصفه متأخرًا. استخدمه للطلاب المتأخرين فقط.' },
+      auto: { title: 'التحضير التلقائي', explanation: `سيحدد النظام الحالة حسب وقت التسجيل: حاضر قبل ${cutoffTime} ومتأخر بعده.` },
+    }
+    const selected = details[mode]
+    if (!window.confirm(`تأكيد طريقة الحصر: ${selected.title}\n\n${selected.explanation}\n\nهل تريد اعتماد هذه الطريقة؟`)) return
     setAttendanceMode(mode)
     savePreferences({ attendanceMode: mode, cutoffTime, gradeAliases })
   }

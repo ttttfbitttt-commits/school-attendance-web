@@ -245,7 +245,7 @@ export function TeacherCooperationPanel({ status, onRefresh }: { status: Teacher
     <header className="cooperation-motivation"><Handshake size={32} /><div><span>{periodLabel(status.activePeriod || 1)} متاحة الآن حتى {status.windowEnd}</span><h2>تعاونك مع الإدارة يدل على وعيك</h2><p>ساهم في سرعة تحضير الطلاب وانضباط بداية اليوم الدراسي.</p></div></header>
     <div className="cooperation-live-stats"><article><strong>{status.ownCount}</strong><span>طالبًا ساهمت في تحضيرهم اليوم</span></article><article><strong>{status.contributors.length}</strong><span>معلمًا متعاونًا اليوم</span></article><article><strong>{periodLabel(status.activePeriod || 1)}</strong><span>{status.windowStart} — {status.windowEnd}</span></article></div>
     <div className="cooperation-camera-actions">
-      {!cameraActive ? <button className="cooperation-camera-start" onClick={() => void startCamera()}><Camera size={21} /> فتح الكاميرا</button> : <button className="cooperation-camera-stop" onClick={stopCamera}><Square size={18} fill="currentColor" /> إيقاف الكاميرا</button>}
+      {!cameraActive ? <button className="cooperation-camera-start" onClick={() => void startCamera()}><Camera size={21} /> بدء تحضير الطلاب</button> : <button className="cooperation-camera-stop" onClick={stopCamera}><Square size={18} fill="currentColor" /> إيقاف الكاميرا</button>}
       <button onClick={() => void toggleFullScreen()}>{fullScreen ? <Minimize2 size={17} /> : <Maximize2 size={17} />}{fullScreen ? 'تصغير' : 'ملء الشاشة'}</button>
       {torchSupported && <button className={torchOn ? 'active' : ''} onClick={() => void toggleTorch()}><Flashlight size={17} />{torchOn ? 'إطفاء الفلاش' : 'تشغيل الفلاش'}</button>}
     </div>

@@ -123,11 +123,7 @@ export async function handleTeacherCooperationRequest({ req, res, url, user, bod
       if (existing.rowCount) return { outcome: 'duplicate', student, attendance: existing.rows[0], periodNumber: window.activePeriod }
       const teacher = await client.query('SELECT full_name AS name FROM lesson_teachers WHERE school_id=$1 AND id=$2 AND active=true', [user.school_id, user.teacher_id])
       if (!teacher.rowCount) return { error: 'teacher_account_not_ready' }
-      const school = await client.query('SELECT preferences FROM schools WHERE id=$1', [user.school_id])
-      const preferences = school.rows[0]?.preferences && typeof school.rows[0].preferences === 'object' ? school.rows[0].preferences : {}
-      const mode = ['present', 'late', 'auto'].includes(preferences.attendanceMode) ? preferences.attendanceMode : 'auto'
-      const cutoff = /^([01]\d|2[0-3]):[0-5]\d$/.test(preferences.cutoffTime || '') ? preferences.cutoffTime : '07:30'
-      const status = mode === 'late' ? 'late' : mode === 'present' ? 'present' : clock.hm > cutoff ? 'late' : 'present'
+      const status = 'present'
       const inserted = await client.query(`INSERT INTO attendance_logs(school_id,student_id,attendance_date,recorded_by,status)
         VALUES($1,$2,$3,$4,$5) ON CONFLICT(school_id,student_id,attendance_date) DO NOTHING
         RETURNING id,status,to_char(recorded_at AT TIME ZONE 'Asia/Riyadh','HH24:MI:SS') AS time`, [user.school_id, student.id, clock.date, user.user_id, status])
@@ -165,11 +161,7 @@ export async function handleTeacherCooperationRequest({ req, res, url, user, bod
         WHERE school_id=$1 AND active=true AND id=ANY($2::text[]) ORDER BY name`, [user.school_id, studentIds])).rows
       const foundIds = new Set(students.map(student => student.id))
       if (!students.length) return { error: 'student_not_found' }
-      const school = await client.query('SELECT preferences FROM schools WHERE id=$1', [user.school_id])
-      const preferences = school.rows[0]?.preferences && typeof school.rows[0].preferences === 'object' ? school.rows[0].preferences : {}
-      const mode = ['present', 'late', 'auto'].includes(preferences.attendanceMode) ? preferences.attendanceMode : 'auto'
-      const cutoff = /^([01]\d|2[0-3]):[0-5]\d$/.test(preferences.cutoffTime || '') ? preferences.cutoffTime : '07:30'
-      const status = mode === 'late' ? 'late' : mode === 'present' ? 'present' : clock.hm > cutoff ? 'late' : 'present'
+      const status = 'present'
       const ids = students.map(student => student.id)
       await client.query(`DELETE FROM absence_records WHERE school_id=$1 AND student_id=ANY($2::text[]) AND absence_date=$3::date`, [user.school_id, ids, clock.date])
       const inserted = await client.query(`INSERT INTO attendance_logs(school_id,student_id,attendance_date,recorded_by,status)
