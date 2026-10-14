@@ -488,13 +488,13 @@ export async function handleBehaviorRequest({ req, res, url, user, pool, body, j
       const found = await client.query('SELECT id,incident_id FROM behavior_student_records WHERE school_id=$1 AND id=$2 FOR UPDATE', [user.school_id, permanentDeleteMatch[1]])
       if (!found.rowCount) return { error: 'record_not_found' }
       const record = found.rows[0]
-      await client.query('DELETE FROM behavior_audit_logs WHERE school_id=$1 AND ((entity_type=\'record\' AND entity_id=$2) OR (entity_type=\'action\' AND entity_id IN (SELECT id::text FROM behavior_action_steps WHERE school_id=$1 AND record_id=$2)) OR (entity_type=\'movement\' AND entity_id IN (SELECT id::text FROM behavior_score_movements WHERE school_id=$1 AND record_id=$2)))', [user.school_id, record.id])
+      await client.query('DELETE FROM behavior_audit_logs WHERE school_id=$1 AND ((entity_type=\'record\' AND entity_id=$2::text) OR (entity_type=\'action\' AND entity_id IN (SELECT id::text FROM behavior_action_steps WHERE school_id=$1 AND record_id=$2)) OR (entity_type=\'movement\' AND entity_id IN (SELECT id::text FROM behavior_score_movements WHERE school_id=$1 AND record_id=$2)))', [user.school_id, record.id])
       await client.query('DELETE FROM behavior_score_movements WHERE school_id=$1 AND record_id=$2', [user.school_id, record.id])
       await client.query('DELETE FROM behavior_action_steps WHERE school_id=$1 AND record_id=$2', [user.school_id, record.id])
       await client.query('DELETE FROM behavior_student_records WHERE school_id=$1 AND id=$2', [user.school_id, record.id])
       const remaining = Number((await client.query('SELECT COUNT(*)::int AS count FROM behavior_student_records WHERE school_id=$1 AND incident_id=$2', [user.school_id, record.incident_id])).rows[0].count)
       if (!remaining) {
-        await client.query('DELETE FROM behavior_audit_logs WHERE school_id=$1 AND entity_type=\'incident\' AND entity_id=$2', [user.school_id, record.incident_id])
+        await client.query('DELETE FROM behavior_audit_logs WHERE school_id=$1 AND entity_type=\'incident\' AND entity_id=$2::text', [user.school_id, record.incident_id])
         await client.query('DELETE FROM behavior_incidents WHERE school_id=$1 AND id=$2', [user.school_id, record.incident_id])
       }
       return { ok: true, deletedIncident: !remaining }
