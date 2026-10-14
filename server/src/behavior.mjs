@@ -1,4 +1,4 @@
-const CATALOG_VERSION = '1447.1'
+const CATALOG_VERSION = '1447.2'
 const MODES = new Set(['in_person', 'remote'])
 const EDUCATION_STAGES = new Set(['primary', 'middle', 'secondary'])
 const RECORD_STATUSES = new Set(['pending', 'approved', 'cancelled'])
@@ -63,44 +63,31 @@ const degreeProcedures = {
   ],
 }
 
-const catalogSeeds = [
-  ['P1-UNIFORM', 'عدم التقيد بالزي المدرسي', 1, ['primary'], 'in_person', 6, 19],
-  ['P1-MORNING-LATE', 'التأخر الصباحي', 1, ['primary'], 'in_person', 6, 19],
-  ['P1-ASSEMBLY-ABSENT', 'عدم حضور الاصطفاف الصباحي مع وجود الطالب في المدرسة', 1, ['primary'], 'in_person', 6, 19],
-  ['P1-CLASS-LATE', 'التأخر في الدخول إلى الحصص', 1, ['primary'], 'in_person', 6, 19],
-  ['P1-EATING', 'تناول الأطعمة أو المشروبات أثناء الدرس دون استئذان', 1, ['primary'], 'in_person', 6, 19],
-  ['P1-SLEEPING', 'النوم داخل الفصل', 1, ['primary'], 'in_person', 6, 19],
-  ['P2-CLASS-ABSENCE', 'عدم حضور الحصة الدراسية أو الهروب منها', 2, ['primary'], 'in_person', 7, 20],
-  ['P2-LEAVE-NO-PERMIT', 'الدخول أو الخروج من الفصل دون استئذان', 2, ['primary'], 'in_person', 7, 20],
-  ['P2-CHAOS', 'إثارة الفوضى داخل الفصل أو المدرسة أو وسائل النقل المدرسي', 2, ['primary'], 'in_person', 7, 20],
-  ['P2-FIGHT', 'الشجار أو الاشتراك في مضاربة جماعية', 2, ['primary'], 'in_person', 7, 20],
-  ['P2-INSULT', 'التلفظ بكلمات نابية أو التهديد أو السخرية من الطلبة', 2, ['primary'], 'in_person', 7, 20],
-  ['P3-ASSAULT', 'التعرض لأحد الطلبة بالضرب', 3, ['primary'], 'in_person', 8, 21],
-  ['P3-RECORDING', 'التصوير أو التسجيل الصوتي للطلبة دون إذن', 3, ['primary'], 'in_person', 8, 21],
-  ['P3-SCHOOL-ESCAPE', 'الهروب من المدرسة', 3, ['primary'], 'in_person', 8, 21],
-  ['MS1-MORNING-LATE', 'التأخر الصباحي', 1, ['middle_secondary'], 'in_person', 10, 24],
-  ['MS1-ASSEMBLY-ABSENT', 'عدم حضور الاصطفاف الصباحي مع وجود الطالب في المدرسة', 1, ['middle_secondary'], 'in_person', 10, 24],
-  ['MS1-CLASS-LATE', 'التأخر في الدخول إلى الحصص', 1, ['middle_secondary'], 'in_person', 10, 24],
-  ['MS1-CLASS-DISRUPTION', 'إعاقة سير الحصة بالحديث الجانبي أو المقاطعة أو تناول الطعام', 1, ['middle_secondary'], 'in_person', 10, 24],
-  ['MS1-SLEEPING', 'النوم داخل الفصل', 1, ['middle_secondary'], 'in_person', 10, 24],
-  ['MS2-CLASS-ABSENCE', 'عدم حضور الحصة الدراسية أو الهروب منها', 2, ['middle_secondary'], 'in_person', 11, 25],
-  ['MS2-LEAVE-NO-PERMIT', 'الدخول أو الخروج من الفصل دون استئذان', 2, ['middle_secondary'], 'in_person', 11, 25],
-  ['MS2-CHAOS', 'إثارة الفوضى داخل الفصل أو المدرسة أو وسائل النقل المدرسي', 2, ['middle_secondary'], 'in_person', 11, 25],
-  ['MS3-FIGHT', 'الشجار أو الاشتراك في مضاربة جماعية', 3, ['middle_secondary'], 'in_person', 12, 26],
-  ['MS3-INSULT', 'التلفظ بكلمات نابية أو التهديد أو السخرية من الطلبة', 3, ['middle_secondary'], 'in_person', 12, 26],
-  ['MS3-DAMAGE', 'إلحاق الضرر المتعمد بممتلكات الطلبة أو تجهيزات المدرسة', 3, ['middle_secondary'], 'in_person', 12, 26],
-  ['MS3-DANGEROUS-MATERIAL', 'إحضار مواد أو ألعاب خطرة إلى المدرسة', 3, ['middle_secondary'], 'in_person', 12, 26],
-  ['MS4-INJURY', 'تعمد إصابة أحد الطلبة بالضرب أو بأداة', 4, ['middle_secondary'], 'in_person', 13, 28],
-  ['MS4-THEFT', 'سرقة ممتلكات الطلبة أو المدرسة', 4, ['middle_secondary'], 'in_person', 13, 28],
-  ['MS4-SMOKING', 'التدخين بأنواعه داخل المدرسة', 4, ['middle_secondary'], 'in_person', 13, 28],
-  ['MS4-SCHOOL-ESCAPE', 'الهروب من المدرسة', 4, ['middle_secondary'], 'in_person', 13, 28],
-  ['R1-DIGITAL-ETIQUETTE', 'عدم الالتزام بآداب الحضور والتعامل الرقمي', 1, ['primary', 'middle_secondary'], 'remote', 19, 35],
-  ['R2-CLASS-DISRUPTION', 'تعمد التشويش أو تعطيل الحصة الإلكترونية', 2, ['primary', 'middle_secondary'], 'remote', 20, 36],
-  ['R3-UNAUTHORIZED-RECORDING', 'تصوير أو تسجيل الحصة الإلكترونية دون إذن', 3, ['primary', 'middle_secondary'], 'remote', 21, 36],
-  ['R4-DIGITAL-HARM', 'الإضرار المتعمد بالمنصة أو حسابات الآخرين', 4, ['primary', 'middle_secondary'], 'remote', 22, 37],
-  ['R5-CYBERCRIME', 'التهديد أو الابتزاز أو ارتكاب مخالفة معلوماتية جسيمة', 5, ['primary', 'middle_secondary'], 'remote', 27, 42],
+const catalogGroups = [
+  ['P1',1,['primary'],'in_person',6,19,['عدم التقيد بالزي المدرسي','التأخر الصباحي','عدم حضور الاصطفاف الصباحي في حال كان الطالب متواجدًا داخل المدرسة','التأخر عن الاصطفاف الصباحي في حال كان الطالب متواجدًا داخل المدرسة أو العبث أثناءه','التأخر في الدخول إلى الحصص','تناول الأطعمة أو المشروبات أثناء الدرس دون استئذان','النوم داخل الفصل','تكرار خروج ودخول الطلبة من البوابة قبل وقت الحضور والانصراف','التجاهر أمام بوابة المدرسة']],
+  ['P2',2,['primary'],'in_person',7,20,['عدم حضور الحصة الدراسية أو الهروب منها','الدخول أو الخروج من الفصل دون استئذان','دخول فصل آخر دون استئذان','إثارة الفوضى داخل الفصل أو المدرسة أو وسائل النقل المدرسي','الشجار أو الاشتراك في مضاربة جماعية','الإشارة بحركات مخلة بالأدب تجاه الطلبة','التلفظ بكلمات نابية على الطلبة أو تهديدهم أو السخرية منهم','إلحاق الضرر المتعمد بممتلكات الطلبة','العبث بتجهيزات المدرسة أو مبانيها','تمزيق الكتب الدراسية']],
+  ['P3',3,['primary'],'in_person',8,21,['إلحاق الضرر المتعمد بتجهيزات المدرسة أو مبانيها','سرقة شيء من ممتلكات الطلبة أو المدرسة','التعرض لأحد الطلبة بالضرب','التصوير أو التسجيل الصوتي للطلبة','الهروب من المدرسة','التوقيع عن ولي الأمر من غير علمه على المخاطبات المتبادلة بين المدرسة وولي الأمر','إحضار أو استخدام المواد أو الألعاب الخطرة إلى المدرسة']],
+  ['P4',4,['primary'],'in_person',9,23,['الإساءة أو الاستهزاء بشيء من شعائر الإسلام','الإساءة للدولة أو رموزها','التحرش الجنسي','إشعال النار داخل المدرسة','حيازة السجائر بأنواعها','التدخين بأنواعه داخل المدرسة','حيازة آلة حادة مثل السكاكين','الجرائم المعلوماتية بكافة أنواعها','المظاهر أو الصور أو الشعارات التي تدل على الشذوذ الجنسي أو الترويج لها','التنمر بجميع أنواعه وأشكاله','حيازة أو عرض المواد الإعلامية الممنوعة المقروءة أو المسموعة أو المرئية']],
+  ['MS1',1,['middle_secondary'],'in_person',10,24,['التأخر الصباحي','عدم حضور الاصطفاف الصباحي في حال كان الطالب متواجدًا داخل المدرسة','التأخر عن الاصطفاف الصباحي في حال كان الطالب متواجدًا داخل المدرسة أو العبث أثناءه','التأخر في الدخول إلى الحصص','إعاقة سير الحصص الدراسية كالحديث الجانبي والمقاطعة المستمرة غير الهادفة وتناول الأطعمة أو المشروبات أثناء الدرس','النوم داخل الفصل','تكرار خروج ودخول الطلبة من البوابة قبل وقت الحضور والانصراف','التجاهر أمام بوابة المدرسة']],
+  ['MS2',2,['middle_secondary'],'in_person',11,25,['عدم حضور الحصة الدراسية أو الهروب منها','الدخول أو الخروج من الفصل دون استئذان','دخول فصل آخر دون استئذان','إثارة الفوضى داخل الفصل أو المدرسة أو وسائل النقل المدرسي']],
+  ['MS3',3,['middle_secondary'],'in_person',12,26,['عدم التقيد بالزي المدرسي','الشجار أو الاشتراك في مضاربة جماعية','الإشارة بحركات مخلة بالأدب تجاه الطلبة','التلفظ بكلمات نابية على الطلبة أو تهديدهم أو السخرية منهم','إلحاق الضرر المتعمد بممتلكات الطلبة','العبث بتجهيزات المدرسة أو مبانيها','إحضار المواد أو الألعاب الخطرة إلى المدرسة دون استخدامها','حيازة السجائر بأنواعها','حيازة المواد الإعلامية الممنوعة المقروءة أو المسموعة أو المرئية','التوقيع عن ولي الأمر من غير علمه على المخاطبات المتبادلة بين المدرسة وولي الأمر','تمزيق الكتب الدراسية']],
+  ['MS4',4,['middle_secondary'],'in_person',13,28,['تعمد إصابة أحد الطلبة بالضرب باليد أو باستخدام أدوات غير حادة تُحدث إصابة','سرقة شيء من ممتلكات الطلبة أو المدرسة','التصوير أو التسجيل الصوتي للطلبة','إلحاق الضرر المتعمد بتجهيزات المدرسة أو مبانيها','التدخين بأنواعه داخل المدرسة','الهروب من المدرسة','إحضار أو استخدام المواد أو الألعاب الخطرة إلى المدرسة','عرض أو ترويج المواد الإعلامية الممنوعة المقروءة أو المسموعة أو المرئية']],
+  ['MS5',5,['middle_secondary'],'in_person',14,29,['الإساءة أو الاستهزاء بشيء من شعائر الإسلام','الإساءة للدولة أو رموزها','بث أو ترويج أفكار ومعتقدات متطرفة أو تكفيرية أو إلحادية أو مسيئة للأمن المجتمعي','الإساءة إلى الأديان السماوية أو إثارة ما يسبب العنصرية أو الفتن القبلية أو الطائفية أو المذهبية','التزوير أو الاستخدام أو الاستفادة من الوثائق أو الأختام الرسمية بطريقة غير مشروعة نظامًا','التحرش الجنسي','المظاهر أو الصور أو الشعارات التي تدل على الشذوذ الجنسي أو الترويج لها','إشعال النار داخل المدرسة','حيازة أو استخدام أو تهديد الطلبة بالأسلحة النارية أو ما في حكمها','حيازة أو تعاطي أو ترويج المخدرات أو المسكرات','الجرائم المعلوماتية بكافة أنواعها','ابتزاز الطلبة','التنمر بجميع أنواعه وأشكاله']],
+  ['ALL4-STAFF',4,['primary','middle_secondary'],'in_person',15,30,['تهديد المعلمين أو الإداريين أو من في حكمهم من منسوبي المدرسة','التلفظ بألفاظ غير لائقة تجاه المعلمين أو الإداريين أو من في حكمهم من منسوبي المدرسة','السخرية من المعلمين أو الإداريين أو من في حكمهم من منسوبي المدرسة قولًا أو فعلًا','التوقيع عن أحد منسوبي المدرسة على المخاطبات المتبادلة بين المدرسة وأولياء الأمور','تصوير المعلمين أو الإداريين أو من في حكمهم من منسوبي المدرسة أو التسجيل الصوتي لهم دون إذن خطي']],
+  ['ALL5-STAFF',5,['primary','middle_secondary'],'in_person',16,31,['إلحاق الضرر بممتلكات المعلمين أو الإداريين أو من في حكمهم من منسوبي المدرسة أو سرقتها','الإشارة بحركات مخلة بالأدب تجاه المعلمين أو الإداريين أو من في حكمهم من منسوبي المدرسة','الاعتداء بالضرب على المعلمين أو الإداريين أو من في حكمهم من منسوبي المدرسة','ابتزاز المعلمين أو الإداريين أو من في حكمهم من منسوبي المدرسة','الجرائم المعلوماتية تجاه المعلمين أو الإداريين أو من في حكمهم من منسوبي المدرسة']],
+  ['RP1',1,['primary'],'remote',19,34,['التأخر في حضور الحصة الافتراضية','الخروج المتكرر من الحصص الافتراضية في منصات التعليم الإلكترونية المعتمدة دون عذر مقبول','إعاقة سير الحصص الافتراضية كالكتابة في المحادثة وتشتيت انتباه الطلبة والمقاطعة المستمرة غير الهادفة أثناء الحصة']],
+  ['RP2',2,['primary'],'remote',20,35,['الهروب من الحصة الافتراضية','الإرسال المتعمد لمواد أو روابط ليس لها علاقة بالمحتوى']],
+  ['RP3',3,['primary'],'remote',21,36,['استخدام صور منافية للقيم والذوق العام في حالة الطالب','التلفظ بكلمات نابية على الطلبة أو تهديدهم أو السخرية منهم','كتابة عبارات أو إرسال صور أو مقاطع فيديو مخلة بالآداب للمعلمين أو للطلبة','التصوير أو التسجيل الصوتي للمعلمين أو للطلبة','إساءة استخدام معلومات الدخول الشخصية في المنصات التعليمية']],
+  ['RP4',4,['primary'],'remote',22,37,['الإساءة أو الاستهزاء بشيء من شعائر الإسلام','الإساءة للدولة أو رموزها','التنمر الإلكتروني','التحرش الجنسي الإلكتروني','الجرائم المعلوماتية بكافة أنواعها','المظاهر أو الصور أو الشعارات التي تدل على الشذوذ الجنسي أو الترويج لها']],
+  ['RMS1',1,['middle_secondary'],'remote',23,38,['التأخر في حضور الحصة الافتراضية','الخروج المتكرر من الحصص الافتراضية في منصات التعليم الإلكترونية المعتمدة دون عذر مقبول','إعاقة سير الحصص الافتراضية كالكتابة في المحادثة وتشتيت انتباه الطلبة والمقاطعة المستمرة غير الهادفة أثناء الحصة']],
+  ['RMS2',2,['middle_secondary'],'remote',24,39,['الهروب من الحصة الافتراضية','الإرسال المتعمد لمواد أو روابط ليس لها علاقة بالمحتوى']],
+  ['RMS3',3,['middle_secondary'],'remote',25,40,['استخدام صور منافية للقيم والذوق العام في حالة الطالب','التلفظ بكلمات نابية على الطلبة أو تهديدهم أو السخرية منهم','تصوير أو تسجيل الدروس الافتراضية ونشرها','إساءة استخدام معلومات الدخول الشخصية في المنصات التعليمية']],
+  ['RMS4',4,['middle_secondary'],'remote',26,41,['كتابة عبارات أو إرسال صور أو مقاطع فيديو مخلة بالآداب للمعلمين أو لزملائهم من الطلبة','التصوير أو التسجيل الصوتي للمعلمين أو للطلبة']],
+  ['RMS5',5,['middle_secondary'],'remote',27,42,['الإساءة أو الاستهزاء بشيء من شعائر الإسلام','الإساءة للدولة أو رموزها','بث أو ترويج أفكار ومعتقدات متطرفة أو تكفيرية أو إلحادية أو مسيئة للأمن المجتمعي','الإساءة إلى الأديان السماوية أو إثارة ما يسبب العنصرية أو الفتن القبلية أو الطائفية أو المذهبية','ابتزاز الطلبة','التنمر الإلكتروني','التحرش الجنسي الإلكتروني','المظاهر أو الصور أو الشعارات التي تدل على الشذوذ الجنسي أو الترويج لها','الترويج للمخدرات','الجرائم المعلوماتية بكافة أنواعها']],
 ]
-
+const catalogSeeds = catalogGroups.flatMap(([prefix, degree, stageScope, mode, article, page, titles]) =>
+  titles.map((title, index) => [prefix + '-' + String(index + 1).padStart(2, '0'), title, degree, stageScope, mode, article, page]),
+)
 const distinguishedSeeds = [
   ['D-ATTENDANCE', 'الانضباط وعدم الغياب دون عذر خلال الفصل الدراسي', 5],
   ['D-COMMUNITY', 'المشاركة في خدمة مجتمعية موثقة', 5],
@@ -117,8 +104,8 @@ function ruleRow(row) {
   }
 }
 
-async function catalogRule(pool, code) {
-  const result = await pool.query('SELECT * FROM behavior_catalog_rules WHERE code=$1 AND active=true', [code])
+async function catalogRule(pool, code, includeInactive = false) {
+  const result = await pool.query('SELECT * FROM behavior_catalog_rules WHERE code=$1' + (includeInactive ? '' : ' AND active=true'), [code])
   return result.rowCount ? ruleRow(result.rows[0]) : null
 }
 
@@ -262,6 +249,9 @@ export async function migrateBehavior(adminPool) {
         deduction_amount=EXCLUDED.deduction_amount,official_article=EXCLUDED.official_article,official_page=EXCLUDED.official_page,procedures=EXCLUDED.procedures,sensitive=EXCLUDED.sensitive,active=true`,
     [code, CATALOG_VERSION, title, degree, stageScope, mode, [0, 1, 2, 3, 10, 15][degree], article, page, JSON.stringify(degreeProcedures[degree]), degree >= 4])
   }
+  const activeViolationCodes = catalogSeeds.map(([code]) => code)
+  await adminPool.query("UPDATE behavior_catalog_rules SET active=false WHERE category='violation' AND rule_version LIKE '1447.%' AND NOT (code=ANY($1::text[]))", [activeViolationCodes])
+
   for (const [code, title, score] of distinguishedSeeds) {
     await adminPool.query(`INSERT INTO behavior_catalog_rules(code,rule_version,category,title,stage_scope,mode,distinguished_score,official_article,official_page,procedures)
       VALUES($1,$2,'distinguished',$3,ARRAY['primary','middle_secondary']::text[],'in_person',$4,5,18,'[]'::jsonb)
@@ -319,7 +309,7 @@ export async function handleBehaviorRequest({ req, res, url, user, pool, body, j
         COUNT(r.id) FILTER (WHERE r.status='pending')::int AS "pendingCount"
         FROM students s LEFT JOIN behavior_student_records r ON r.school_id=s.school_id AND r.student_id=s.id
         WHERE s.school_id=$1 AND s.active=true AND ($2='' OR s.name ILIKE '%'||$2||'%' OR s.id ILIKE '%'||$2||'%')
-        GROUP BY s.school_id,s.id ORDER BY s.grade,s.classroom,s.name LIMIT 500`, [user.school_id, search])).rows,
+        GROUP BY s.school_id,s.id ORDER BY s.grade,s.classroom,s.name`, [user.school_id, search])).rows,
     }))
     json(res, 200, { students: result.rows.map(row => {
       const profile = gradeProfile(row.grade, result.schoolName)
@@ -434,7 +424,7 @@ export async function handleBehaviorRequest({ req, res, url, user, pool, body, j
       if (!found.rowCount) return { error: 'record_not_found' }
       const record = found.rows[0]
       if (record.status !== 'pending') return { error: 'record_not_pending' }
-      const rule = await catalogRule(pool, record.rule_code)
+      const rule = await catalogRule(pool, record.rule_code, true)
       if (!rule) return { error: 'rule_not_found' }
       const approved = Number((await client.query(`SELECT COUNT(*)::int AS count FROM behavior_student_records WHERE school_id=$1 AND student_id=$2 AND rule_code=$3 AND status='approved'`, [user.school_id, record.student_id, record.rule_code])).rows[0].count)
       const procedure = rule.category === 'violation' ? rule.procedures[approved] : { name: 'اعتماد السلوك المتميز', items: ['مراجعة الشاهد واعتماد الاستحقاق.'], deduct: false }
