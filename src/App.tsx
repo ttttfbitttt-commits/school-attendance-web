@@ -216,7 +216,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
   const [showGradeEditor, setShowGradeEditor] = useState(false)
 
   // نظام حصر الحضور بالكاميرا
-  const [attendanceMode, setAttendanceMode] = useState<AttendanceMode>('auto')
+  const [attendanceMode, setAttendanceMode] = useState<AttendanceMode>('present')
   const [cutoffTime, setCutoffTime] = useState<string>('07:30')
   const [cutoffDraft, setCutoffDraft] = useState<string>('07:30')
   const [cutoffSavedNotice, setCutoffSavedNotice] = useState(false)
@@ -260,6 +260,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
         const remoteStudents = studentResult.students as Student[]
         const remoteRecords = attendanceResult.records as Array<Omit<ScanRecord, 'day'>>
         applySchoolProfile(remoteSchool)
+        setAttendanceMode('present')
         setStudents(remoteStudents)
         setScanLog(remoteRecords.map((record) => ({
           ...record,
