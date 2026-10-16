@@ -113,6 +113,36 @@ function TeacherSheetStart({ sheets, schedule, onOpen }: { sheets: TeacherSheetS
   </div>
 }
 
+function TeacherNoorSheetGuide({ sheets, onBack }: { sheets: TeacherSheetSubject[]; onBack: () => void }) {
+  const [subject, setSubject] = useState(sheets[0]?.subject || '')
+  return <section className="teacher-noor-guide" aria-labelledby="teacher-noor-guide-title">
+    <div className="teacher-section-head">
+      <div>
+        <button type="button" className="outline-button" onClick={onBack}>العودة إلى الكشوف</button>
+        <span className="teacher-experimental-badge">تجريبي</span>
+        <h2 id="teacher-noor-guide-title">نسخ نموذج كشف من نور</h2>
+        <p>أداة جديدة تساعد على إعداد كشف المادة بالأعمدة الظاهرة في نظام نور.</p>
+      </div>
+      <Copy size={30} />
+    </div>
+    <div className="teacher-noor-guide-body">
+      <div className="teacher-noor-warning"><strong>قبل البدء</strong><span>اختر المادة أولًا، ولا تكتب كلمة مرور نور أو أي بيانات دخول داخل هذه الصفحة.</span></div>
+      <label className="teacher-noor-subject-select">المادة المطلوب إنشاء كشفها<select value={subject} onChange={event => setSubject(event.target.value)}><option value="">اختر المادة</option>{sheets.map(sheet => <option key={sheet.subject} value={sheet.subject}>{sheet.subject}</option>)}</select></label>
+      <ol className="teacher-noor-guide-steps">
+        <li>افتح نظام نور من الجوال أو الكمبيوتر وسجّل دخولك بالطريقة المعتادة.</li>
+        <li>افتح رصد درجات المادة والفترة المطلوبة.</li>
+        <li>التقط صورة واضحة لرأس الجدول، تشمل أسماء الأعمدة والدرجات القصوى فقط.</li>
+        <li>ستعرض الأداة الأعمدة للتأكد من أسمائها وحدود درجاتها قبل إنشاء الكشف.</li>
+        <li>يمكن تعديل الاسم أو الدرجة القصوى أو ترتيب العمود قبل اعتماد النموذج.</li>
+      </ol>
+      <div className="teacher-noor-next-step">
+        <strong>{subject ? `المادة المختارة: ${subject}` : 'اختر المادة أولًا'}</strong>
+        <span>هذه الصفحة تعرض خطوات التجربة واختيار المادة. ستظهر هنا قراءة الصورة ومراجعة الأعمدة قبل اعتماد النموذج.</span>
+      </div>
+    </div>
+  </section>
+}
+
 function TeacherSheetRoster({ lesson, selected, states, updateSheetValue, exportSheet, printSheet, saveLesson, busy }: { lesson: TeacherLesson; selected: TeacherPortalScheduleItem; states: Record<string, StudentState>; updateSheetValue: (studentId: string, columnId: string, value: string | number | boolean) => void; exportSheet: () => void; printSheet: () => void; saveLesson: () => void; busy: string }) {
   const columns = getSheetColumns(lesson)
   const applyColumnValue = (column: RenderSheetColumn, value: string | number | boolean) => lesson.students.forEach(student => updateSheetValue(student.id, column.key, value))
@@ -374,7 +404,7 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
   const [activeTab, setActiveTab] = useState<TeacherTab>('home')
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [sheets, setSheets] = useState<TeacherSheetSubject[]>([])
-  const [sheetMode, setSheetMode] = useState<'menu' | 'setup' | 'start'>('menu')
+  const [sheetMode, setSheetMode] = useState<'menu' | 'setup' | 'start' | 'noorGuide'>('menu')
   const [activeLessonDate, setActiveLessonDate] = useState(date)
   const [sheetOnlyView, setSheetOnlyView] = useState(false)
   const [selectedSheetType, setSelectedSheetType] = useState<TeacherSheetOpenType>('followup')
@@ -597,7 +627,7 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
     </>}
     {activeTab === 'cooperation' && cooperationStatus?.available && <TeacherCooperationPanel status={cooperationStatus} onRefresh={loadCooperationStatus} />}
     {activeTab === 'referrals' && <TeacherReferralCenter date={date} schedule={dashboard?.schedule || []} schoolName={dashboard?.schoolName || 'المدرسة'} teacherName={dashboard?.teacher.name || account.displayName} />}
-    {activeTab === 'sheets' && <section className="teacher-card"><div className="teacher-section-head"><div><span>إدارة الكشوف</span><h2>الكشوف</h2><p>جهز كشف كل مادة مرة واحدة، أو ابدأ المتابعة مباشرة.</p></div><FileSpreadsheet size={30} /></div>{sheetMode === 'menu' && <div className="teacher-sheet-menu"><button type="button" onClick={() => { setLesson(null); setSelected(null); setSheetOnlyView(false); setSheetMode('setup') }}><FileSpreadsheet size={30} /><strong>إعداد الكشوف</strong><small>أنشئ الأعمدة والدرجات لكل مادة</small></button><button type="button" onClick={() => setSheetMode('start')}><BookOpenCheck size={30} /><strong>بدء المتابعة</strong><small>اختر المادة والفصل والكشف ثم افتح الطلاب</small></button></div>}{sheetMode === 'setup' && <><button type="button" className="outline-button teacher-sheet-back" onClick={() => setSheetMode('menu')}>العودة إلى الكشوف</button><TeacherSheetsSetup sheets={sheets} onSaved={config => setSheets(current => current.map(subject => subject.subject === config.subject ? { ...subject, configs: [...subject.configs.filter(item => item.sheetType !== config.sheetType), config] } : subject))} onDeleted={(subjectName, sheetType) => setSheets(current => current.map(subject => subject.subject === subjectName ? { ...subject, configs: subject.configs.filter(config => config.sheetType !== sheetType) } : subject))} /></>}{sheetMode === 'start' && <><button type="button" className="outline-button teacher-sheet-back" onClick={() => setSheetMode('menu')}>العودة إلى الكشوف</button><TeacherSheetStart sheets={sheets} schedule={dashboard?.weekSchedule || []} onOpen={(item, type) => void openLesson(item, type, true)} /></>}{sheetMode !== 'setup' && sheetOnlyView && lesson && selected && <TeacherSheetRoster lesson={lesson} selected={selected} states={states} updateSheetValue={updateSheetValue} exportSheet={exportSheet} printSheet={printSheet} saveLesson={saveLesson} busy={busy} />}</section>}
+    {activeTab === 'sheets' && <section className="teacher-card"><div className="teacher-section-head"><div><span>إدارة الكشوف</span><h2>الكشوف</h2><p>جهز كشف كل مادة مرة واحدة، أو ابدأ المتابعة مباشرة.</p></div><FileSpreadsheet size={30} /></div>{sheetMode === 'menu' && <div className="teacher-sheet-menu"><button type="button" onClick={() => { setLesson(null); setSelected(null); setSheetOnlyView(false); setSheetMode('setup') }}><FileSpreadsheet size={30} /><strong>إعداد الكشوف</strong><small>أنشئ الأعمدة والدرجات لكل مادة</small></button><button type="button" onClick={() => setSheetMode('start')}><BookOpenCheck size={30} /><strong>بدء المتابعة</strong><small>اختر المادة والفصل والكشف ثم افتح الطلاب</small></button><button type="button" className="teacher-noor-sheet-menu-button" onClick={() => { setLesson(null); setSelected(null); setSheetOnlyView(false); setSheetMode('noorGuide') }}><span className="teacher-experimental-badge">تجريبي</span><Copy size={30} /><strong>نسخ نموذج من نور</strong><small>تعرف على طريقة إنشاء كشف مطابق لأعمدة نور</small></button></div>}{sheetMode === 'setup' && <><button type="button" className="outline-button teacher-sheet-back" onClick={() => setSheetMode('menu')}>العودة إلى الكشوف</button><TeacherSheetsSetup sheets={sheets} onSaved={config => setSheets(current => current.map(subject => subject.subject === config.subject ? { ...subject, configs: [...subject.configs.filter(item => item.sheetType !== config.sheetType), config] } : subject))} onDeleted={(subjectName, sheetType) => setSheets(current => current.map(subject => subject.subject === subjectName ? { ...subject, configs: subject.configs.filter(config => config.sheetType !== sheetType) } : subject))} /></>}{sheetMode === 'start' && <><button type="button" className="outline-button teacher-sheet-back" onClick={() => setSheetMode('menu')}>العودة إلى الكشوف</button><TeacherSheetStart sheets={sheets} schedule={dashboard?.weekSchedule || []} onOpen={(item, type) => void openLesson(item, type, true)} /></>}{sheetMode === 'noorGuide' && <TeacherNoorSheetGuide sheets={sheets} onBack={() => setSheetMode('menu')} />}{sheetMode !== 'setup' && sheetMode !== 'noorGuide' && sheetOnlyView && lesson && selected && <TeacherSheetRoster lesson={lesson} selected={selected} states={states} updateSheetValue={updateSheetValue} exportSheet={exportSheet} printSheet={printSheet} saveLesson={saveLesson} busy={busy} />}</section>}
     {activeTab === 'reports' && <TeacherReportsTab key={reportsKey} schedule={dashboard?.weekSchedule || []} schoolName={dashboard?.schoolName || 'المدرسة'} teacherName={dashboard?.teacher.name || account.displayName} />}
     {printPreview && <div className="teacher-print-overlay" role="dialog" aria-modal="true" aria-label="معاينة الطباعة"><div className="teacher-print-actions"><button type="button" className="outline-button" onClick={() => setPrintPreview('')}>إغلاق والعودة</button><button type="button" className="primary-button" onClick={() => window.print()}><Printer size={16} /> طباعة / حفظ PDF</button></div><div className="teacher-print-preview" dangerouslySetInnerHTML={{ __html: printPreview }} /></div>}
     </div>
