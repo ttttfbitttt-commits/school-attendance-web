@@ -5255,6 +5255,19 @@ tbody td {
   }
 }
 
+/* Experimental Noor sheet image selection */
+.teacher-noor-upload-block { display:grid; gap:8px; padding:15px; border:1px dashed #a6c5dc; border-radius:13px; background:#f8fcff; color:#536f83; font-size:13px; line-height:1.6; }
+.teacher-noor-upload-block > strong { color:var(--navy); }
+.teacher-noor-upload-button { width:max-content; min-height:42px; display:inline-flex; align-items:center; justify-content:center; margin-top:4px; }
+.teacher-noor-upload-button input { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); clip-path:inset(50%); white-space:nowrap; }
+.teacher-noor-image-preview { display:grid; grid-template-columns:minmax(0,1fr) minmax(150px,260px); gap:12px; align-items:start; margin-top:4px; padding-top:13px; border-top:1px solid #d8e7f1; }
+.teacher-noor-image-preview > div { display:grid; gap:5px; }
+.teacher-noor-image-preview strong { color:var(--navy); }
+.teacher-noor-image-preview span { overflow-wrap:anywhere; }
+.teacher-noor-image-preview small { color:#718a9d; }
+.teacher-noor-image-preview img { width:100%; max-height:220px; object-fit:contain; border:1px solid #cbddeb; border-radius:10px; background:#fff; }
+@media (max-width:640px) { .teacher-noor-upload-button { width:100%; }.teacher-noor-image-preview { grid-template-columns:1fr; }.teacher-noor-image-preview img { max-height:260px; } }
+
 /* Teacher portal: its records are intentionally independent of school attendance. */
 .teacher-portal { display:flex; align-items:flex-start; gap:20px; }
 .teacher-workspace { flex:1; min-width:0; }

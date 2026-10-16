@@ -115,6 +115,19 @@ function TeacherSheetStart({ sheets, schedule, onOpen }: { sheets: TeacherSheetS
 
 function TeacherNoorSheetGuide({ sheets, onBack }: { sheets: TeacherSheetSubject[]; onBack: () => void }) {
   const [subject, setSubject] = useState(sheets[0]?.subject || '')
+  const [imageName, setImageName] = useState('')
+  const [imagePreview, setImagePreview] = useState('')
+  const [imageError, setImageError] = useState('')
+  const chooseImage = (file?: File) => {
+    setImageError('')
+    if (!file) return
+    if (!file.type.startsWith('image/')) { setImageError('اختر صورة بصيغة PNG أو JPG أو WEBP.'); return }
+    if (file.size > 8 * 1024 * 1024) { setImageError('حجم الصورة أكبر من 8 ميجابايت. اختر صورة أصغر وواضحة.'); return }
+    const reader = new FileReader()
+    reader.onload = () => { setImageName(file.name); setImagePreview(String(reader.result || '')) }
+    reader.onerror = () => setImageError('تعذر قراءة الصورة. اخترها مرة أخرى.')
+    reader.readAsDataURL(file)
+  }
   return <section className="teacher-noor-guide" aria-labelledby="teacher-noor-guide-title">
     <div className="teacher-section-head">
       <div>
@@ -128,6 +141,13 @@ function TeacherNoorSheetGuide({ sheets, onBack }: { sheets: TeacherSheetSubject
     <div className="teacher-noor-guide-body">
       <div className="teacher-noor-warning"><strong>قبل البدء</strong><span>اختر المادة أولًا، ولا تكتب كلمة مرور نور أو أي بيانات دخول داخل هذه الصفحة.</span></div>
       <label className="teacher-noor-subject-select">المادة المطلوب إنشاء كشفها<select value={subject} onChange={event => setSubject(event.target.value)}><option value="">اختر المادة</option>{sheets.map(sheet => <option key={sheet.subject} value={sheet.subject}>{sheet.subject}</option>)}</select></label>
+      <div className="teacher-noor-upload-block">
+        <strong>صورة نموذج نور</strong>
+        <span>ارفع صورة واضحة لرأس الجدول الذي يحتوي على أسماء الأعمدة والدرجات القصوى.</span>
+        <label className="primary-button teacher-noor-upload-button">رفع الصورة<input type="file" accept="image/png,image/jpeg,image/webp" capture="environment" onChange={event => chooseImage(event.target.files?.[0])} /></label>
+        {imageError && <p className="teacher-notice error" role="alert">{imageError}</p>}
+        {imagePreview && <div className="teacher-noor-image-preview"><div><strong>تم اختيار الصورة</strong><span>{imageName}</span><small>راجع وضوح عناوين الأعمدة والدرجات قبل المتابعة.</small></div><img src={imagePreview} alt="معاينة صورة نموذج نور" /></div>}
+      </div>
       <ol className="teacher-noor-guide-steps">
         <li>افتح نظام نور من الجوال أو الكمبيوتر وسجّل دخولك بالطريقة المعتادة.</li>
         <li>افتح رصد درجات المادة والفترة المطلوبة.</li>
@@ -137,7 +157,7 @@ function TeacherNoorSheetGuide({ sheets, onBack }: { sheets: TeacherSheetSubject
       </ol>
       <div className="teacher-noor-next-step">
         <strong>{subject ? `المادة المختارة: ${subject}` : 'اختر المادة أولًا'}</strong>
-        <span>هذه الصفحة تعرض خطوات التجربة واختيار المادة. ستظهر هنا قراءة الصورة ومراجعة الأعمدة قبل اعتماد النموذج.</span>
+        <span>{imagePreview ? 'الصورة جاهزة للمراجعة ضمن التجربة. ستظهر قراءة الأعمدة وتعديلها هنا قبل اعتماد النموذج.' : 'ارفع صورة نموذج نور ثم راجع الأعمدة قبل اعتماد النموذج.'}</span>
       </div>
     </div>
   </section>
