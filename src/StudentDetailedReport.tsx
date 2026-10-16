@@ -17,7 +17,7 @@ type SubjectGroup = {
   grades: GradeRecord[]
 }
 
-const sheetTypeLabels: Record<GradeRecord['sheetType'], string> = { followup: 'المتابعة', homework: 'الواجبات', tests: 'الاختبارات' }
+const sheetTypeLabels: Record<GradeRecord['sheetType'], string> = { followup: 'المتابعة', homework: 'الواجبات', tests: 'الاختبارات', noor: 'كشف مطابق لنور' }
 
 const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Riyadh' }).format(new Date())
 const previousYear = () => {
