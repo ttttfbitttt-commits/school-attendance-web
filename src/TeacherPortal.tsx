@@ -35,7 +35,7 @@ const sheetTemplates: Array<{ label: string; columns: TeacherSheetColumn[] }> = 
   { label: 'كشف اختبارات 4', columns: [1, 2, 3, 4].map(number => ({ id: `test-${number}`, label: `اختبار ${number}`, type: 'score' as const, maxScore: 10, choices: [] })) },
 ]
 
-const sheetTypeLabels: Record<TeacherSheetOpenType, string> = { followup: 'المتابعة', homework: 'الواجبات', tests: 'الاختبارات', combined: 'الكشف المدمج' }
+const sheetTypeLabels: Record<TeacherSheetOpenType, string> = { followup: 'المتابعة', homework: 'الواجبات', tests: 'الاختبارات', noor: 'كشف مطابق لنور', combined: 'الكشف المدمج' }
 
 function TeacherSheetsSetup({ sheets, onSaved, onDeleted }: { sheets: TeacherSheetSubject[]; onSaved: (config: TeacherSheetConfig) => void; onDeleted: (subject: string, sheetType: TeacherSheetType) => void }) {
   const [subjectIndex, setSubjectIndex] = useState(0)
@@ -80,9 +80,9 @@ function TeacherSheetsSetup({ sheets, onSaved, onDeleted }: { sheets: TeacherShe
   }
   if (!subject) return <p className="teacher-empty">لا توجد مواد مسندة إلى حسابك.</p>
   return <div className="teacher-sheet-setup">
-    <div className="teacher-sheet-subjects">{sheets.map((item, index) => <button type="button" key={item.subject} className={index === subjectIndex ? 'active' : ''} onClick={() => setSubjectIndex(index)}>{item.subject}<small>{item.configs.length} من 3 كشوف جاهزة</small></button>)}</div>
+    <div className="teacher-sheet-subjects">{sheets.map((item, index) => <button type="button" key={item.subject} className={index === subjectIndex ? 'active' : ''} onClick={() => setSubjectIndex(index)}>{item.subject}<small>{item.configs.length} من 4 كشوف جاهزة</small></button>)}</div>
     <div className="teacher-sheet-setup-head"><div><span>إعداد كشوف المادة {subjectIndex + 1} من {sheets.length}</span><h3>{subject.subject}</h3></div><span className="teacher-sheet-count">{columns.length} من 30 خانة</span></div>
-    <div className="teacher-sheet-type-block"><strong className="teacher-sheet-step-title">1. اختر نوع الكشف الذي ستعده الآن</strong><div className="teacher-sheet-type-tabs">{(['followup', 'homework', 'tests'] as TeacherSheetType[]).map(type => <button type="button" key={type} className={sheetType === type ? 'active' : ''} onClick={() => setSheetType(type)}>{sheetTypeLabels[type]}<small>{subject.configs.some(item => item.sheetType === type) ? 'جاهز' : 'غير مُعد'}</small></button>)}</div>{config && <div className="teacher-sheet-delete-row"><span>الكشف الحالي: {sheetTypeLabels[sheetType]}</span><button type="button" className="outline-button danger-sheet-button" onClick={() => void remove()} disabled={busy}><Trash2 size={15} /> حذف هذا الكشف</button></div>}</div>
+    <div className="teacher-sheet-type-block"><strong className="teacher-sheet-step-title">1. اختر نوع الكشف الذي ستعده الآن</strong><div className="teacher-sheet-type-tabs">{(['followup', 'homework', 'tests', 'noor'] as TeacherSheetType[]).map(type => <button type="button" key={type} className={sheetType === type ? 'active' : ''} onClick={() => setSheetType(type)}>{sheetTypeLabels[type]}<small>{subject.configs.some(item => item.sheetType === type) ? 'جاهز' : 'غير مُعد'}</small></button>)}</div>{config && <div className="teacher-sheet-delete-row"><span>الكشف الحالي: {sheetTypeLabels[sheetType]}</span><button type="button" className="outline-button danger-sheet-button" onClick={() => void remove()} disabled={busy}><Trash2 size={15} /> حذف هذا الكشف</button></div>}</div>
     <div className="teacher-sheet-actions"><strong>2. اختر قالباً أو عدّل الأعمدة</strong>{sheetTemplates.map(template => <button type="button" className="outline-button" key={template.label} onClick={() => setColumns(template.columns.map(column => ({ ...column, id: `${column.id}-${Date.now()}-${Math.random()}` })))}>{template.label}</button>)}<label className="teacher-sheet-copy"><Copy size={15} /> نسخ تصميم من مادة<select value={copySubject} onChange={event => { const source = sheets.find(item => item.subject === event.target.value)?.configs.find(item => item.sheetType === sheetType); setCopySubject(event.target.value); if (source?.columns.length) setColumns(source.columns.map(column => ({ ...column, id: `${column.id}-${Date.now()}-${Math.random()}` }))) }}><option value="">اختر مادة</option>{sheets.filter(item => item.subject !== subject.subject && item.configs.some(config => config.sheetType === sheetType)).map(item => <option key={item.subject} value={item.subject}>{item.subject}</option>)}</select></label></div>
     <div className="teacher-sheet-columns-head"><strong>أعمدة كشف {subject.subject}</strong><button type="button" className="outline-button" onClick={() => columns.length < 30 && setColumns(current => [...current, ...blankColumns(1, 'خانة')])} disabled={columns.length >= 30}><Plus size={16} /> إضافة عمود</button></div>
     <div className="teacher-sheet-columns">{columns.map((column, index) => <div className="teacher-sheet-column-row" key={column.id}>
@@ -106,27 +106,61 @@ function TeacherSheetStart({ sheets, schedule, onOpen }: { sheets: TeacherSheetS
   useEffect(() => { setClassroomId(classrooms[0]?.classroomId || '') }, [subject, schedule.length])
   const selected = classrooms.find(item => item.classroomId === classroomId)
   return <div className="teacher-sheet-start">
-    <div className="teacher-sheet-selectors"><label>المادة<select value={subject} onChange={event => setSubject(event.target.value)}><option value="">اختر المادة</option>{sheets.map(sheet => <option key={sheet.subject} value={sheet.subject}>{sheet.subject}</option>)}</select></label><label>الفصل<select value={classroomId} onChange={event => setClassroomId(event.target.value)} disabled={!classrooms.length}><option value="">اختر الفصل</option>{classrooms.map(item => <option key={item.classroomId} value={item.classroomId}>{item.classroom}</option>)}</select></label><label>نوع العرض<select value={sheetType} onChange={event => setSheetType(event.target.value as TeacherSheetOpenType)}><option value="combined">الكشف المدمج</option><option value="followup">المتابعة فقط</option><option value="homework">الواجبات فقط</option><option value="tests">الاختبارات فقط</option></select></label></div>
+    <div className="teacher-sheet-selectors"><label>المادة<select value={subject} onChange={event => setSubject(event.target.value)}><option value="">اختر المادة</option>{sheets.map(sheet => <option key={sheet.subject} value={sheet.subject}>{sheet.subject}</option>)}</select></label><label>الفصل<select value={classroomId} onChange={event => setClassroomId(event.target.value)} disabled={!classrooms.length}><option value="">اختر الفصل</option>{classrooms.map(item => <option key={item.classroomId} value={item.classroomId}>{item.classroom}</option>)}</select></label><label>نوع العرض<select value={sheetType} onChange={event => setSheetType(event.target.value as TeacherSheetOpenType)}><option value="combined">الكشف المدمج</option><option value="followup">المتابعة فقط</option><option value="homework">الواجبات فقط</option><option value="tests">الاختبارات فقط</option><option value="noor">كشف مطابق لنور</option></select></label></div>
     {!classrooms.length && subject && <p className="teacher-empty">لا توجد فصول مرتبطة بهذه المادة في جدولك.</p>}
     {subject && !config?.version && <p className="teacher-empty">أعد إعداد قسم هذا العرض أولاً، أو اختر عرضاً يحتوي على قسم جاهز.</p>}
     {selected && config?.version ? <button type="button" className="primary-button" onClick={() => onOpen(selected, sheetType)}><BookOpenCheck size={17} /> فتح كشف {sheetTypeLabels[sheetType]} · {selected.classroom}</button> : null}
   </div>
 }
 
-function TeacherNoorSheetGuide({ sheets, onBack }: { sheets: TeacherSheetSubject[]; onBack: () => void }) {
+function TeacherNoorSheetGuide({ sheets, onBack, onSaved }: { sheets: TeacherSheetSubject[]; onBack: () => void; onSaved: (config: TeacherSheetConfig) => void }) {
   const [subject, setSubject] = useState(sheets[0]?.subject || '')
   const [imageName, setImageName] = useState('')
   const [imagePreview, setImagePreview] = useState('')
   const [imageError, setImageError] = useState('')
+  const [columns, setColumns] = useState<TeacherSheetColumn[]>([])
+  const [scanInfo, setScanInfo] = useState<{ subject: string; period: string } | null>(null)
+  const [busy, setBusy] = useState<'scan' | 'save' | ''>('')
+  const [saved, setSaved] = useState(false)
+  const newColumn = (): TeacherSheetColumn => ({ id: `noor-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`, label: '', type: 'score', maxScore: 10, choices: [] })
+  const resetScan = () => { setColumns([]); setScanInfo(null); setSaved(false) }
   const chooseImage = (file?: File) => {
     setImageError('')
     if (!file) return
     if (!file.type.startsWith('image/')) { setImageError('اختر صورة بصيغة PNG أو JPG أو WEBP.'); return }
     if (file.size > 8 * 1024 * 1024) { setImageError('حجم الصورة أكبر من 8 ميجابايت. اختر صورة أصغر وواضحة.'); return }
     const reader = new FileReader()
-    reader.onload = () => { setImageName(file.name); setImagePreview(String(reader.result || '')) }
+    reader.onload = () => { setImageName(file.name); setImagePreview(String(reader.result || '')); resetScan() }
     reader.onerror = () => setImageError('تعذر قراءة الصورة. اخترها مرة أخرى.')
     reader.readAsDataURL(file)
+  }
+  const scan = async () => {
+    if (!subject) { setImageError('اختر المادة أولًا.'); return }
+    if (!imagePreview) { setImageError('ارفع صورة من نظام نور أولًا.'); return }
+    setBusy('scan'); setImageError(''); setSaved(false)
+    try {
+      const result = await api.scanNoorSheet(subject, imagePreview)
+      setColumns(result.columns.map((column, index) => ({ id: `noor-${Date.now()}-${index + 1}`, label: column.label, type: 'score', maxScore: column.maxScore, choices: [] })))
+      setScanInfo(result.metadata)
+    } catch (error) {
+      const code = error instanceof Error ? error.message : ''
+      setColumns([]); setScanInfo(null)
+      setImageError(code.includes('noor_columns_not_detected') ? 'لم نتمكن من قراءة عناوين الدرجات. أعد رفع لقطة واضحة تشمل رأس الجدول وأرقام الدرجات القصوى، أو أضف الأعمدة يدويًا.' : 'تعذر قراءة الصورة. تحقق من وضوحها ثم حاول مرة أخرى.')
+    } finally { setBusy('') }
+  }
+  const updateColumn = (index: number, update: Partial<TeacherSheetColumn>) => setColumns(current => current.map((column, currentIndex) => currentIndex === index ? { ...column, ...update } : column))
+  const removeColumn = (index: number) => setColumns(current => current.filter((_, currentIndex) => currentIndex !== index))
+  const save = async () => {
+    const prepared = columns.map((column, index) => ({ ...column, id: column.id || `noor-${Date.now()}-${index + 1}`, label: column.label.trim(), maxScore: Number(column.maxScore) }))
+    if (!subject) { setImageError('اختر المادة أولًا.'); return }
+    if (!prepared.length || prepared.some(column => !column.label || !Number.isFinite(column.maxScore) || (column.maxScore || 0) < 1 || (column.maxScore || 0) > 1000)) {
+      setImageError('راجع اسم كل عمود ودرجته القصوى قبل الاعتماد.'); return
+    }
+    setBusy('save'); setImageError('')
+    try {
+      const result = await api.saveTeacherSheetConfig(subject, 'noor', prepared)
+      onSaved(result.config); setSaved(true)
+    } catch { setImageError('تعذر حفظ كشف نور. تحقق من الاتصال ثم أعد المحاولة.') } finally { setBusy('') }
   }
   return <section className="teacher-noor-guide" aria-labelledby="teacher-noor-guide-title">
     <div className="teacher-section-head">
@@ -134,31 +168,34 @@ function TeacherNoorSheetGuide({ sheets, onBack }: { sheets: TeacherSheetSubject
         <button type="button" className="outline-button" onClick={onBack}>العودة إلى الكشوف</button>
         <span className="teacher-experimental-badge">تجريبي</span>
         <h2 id="teacher-noor-guide-title">نسخ نموذج كشف من نور</h2>
-        <p>أداة جديدة تساعد على إعداد كشف المادة بالأعمدة الظاهرة في نظام نور.</p>
+        <p>ارفع لقطة كاملة من صفحة درجات نور لتُنشأ أعمدة الدرجات وحدودها، ثم راجعها قبل الاعتماد.</p>
       </div>
       <Copy size={30} />
     </div>
     <div className="teacher-noor-guide-body">
-      <div className="teacher-noor-warning"><strong>قبل البدء</strong><span>اختر المادة أولًا، ولا تكتب كلمة مرور نور أو أي بيانات دخول داخل هذه الصفحة.</span></div>
-      <label className="teacher-noor-subject-select">المادة المطلوب إنشاء كشفها<select value={subject} onChange={event => setSubject(event.target.value)}><option value="">اختر المادة</option>{sheets.map(sheet => <option key={sheet.subject} value={sheet.subject}>{sheet.subject}</option>)}</select></label>
+      <div className="teacher-noor-warning"><strong>قبل البدء</strong><span>اختر المادة أولًا، ثم ارفع لقطة واضحة من صفحة الرصد في نور. لا تكتب كلمة مرور نور أو أي بيانات دخول هنا.</span></div>
+      <label className="teacher-noor-subject-select">المادة المطلوب إنشاء كشفها<select value={subject} onChange={event => { setSubject(event.target.value); resetScan() }}><option value="">اختر المادة</option>{sheets.map(sheet => <option key={sheet.subject} value={sheet.subject}>{sheet.subject}</option>)}</select></label>
       <div className="teacher-noor-upload-block">
         <strong>صورة نموذج نور</strong>
-        <span>ارفع صورة واضحة لرأس الجدول الذي يحتوي على أسماء الأعمدة والدرجات القصوى.</span>
+        <span>ارفع لقطة كاملة مثل صفحة إدخال الدرجات؛ تتعرف الأداة على أسماء مجموعات الدرجات ودرجاتها القصوى حتى لو اختلفت بين المواد.</span>
         <label className="primary-button teacher-noor-upload-button">رفع الصورة<input type="file" accept="image/png,image/jpeg,image/webp" capture="environment" onChange={event => chooseImage(event.target.files?.[0])} /></label>
         {imageError && <p className="teacher-notice error" role="alert">{imageError}</p>}
-        {imagePreview && <div className="teacher-noor-image-preview"><div><strong>تم اختيار الصورة</strong><span>{imageName}</span><small>راجع وضوح عناوين الأعمدة والدرجات قبل المتابعة.</small></div><img src={imagePreview} alt="معاينة صورة نموذج نور" /></div>}
+        {imagePreview && <><div className="teacher-noor-image-preview"><div><strong>تم اختيار الصورة</strong><span>{imageName}</span><small>تُعالج الصورة مؤقتًا لاستخراج عناوين الأعمدة، ثم تُحذف من الخادم ولا تُحفظ ضمن بيانات المدرسة.</small></div><img src={imagePreview} alt="معاينة صورة نموذج نور" /></div><div className="teacher-noor-upload-actions"><button type="button" className="primary-button" onClick={() => void scan()} disabled={!subject || busy !== ''}>{busy === 'scan' ? 'جارٍ قراءة الأعمدة…' : 'قراءة الأعمدة من الصورة'}</button><button type="button" className="outline-button" onClick={() => { setImageName(''); setImagePreview(''); resetScan(); setImageError('') }} disabled={busy !== ''}>إزالة الصورة</button></div></>}
       </div>
+      {columns.length > 0 && <section className="teacher-noor-detected" aria-live="polite">
+        <div className="teacher-noor-detected-head"><div><strong>الأعمدة المقروءة من الصورة</strong><span>المجموع ورقم الهوية واسم الطالب والملاحظات لا تدخل في الكشف لأنها ليست حقول درجات.</span></div><span>{columns.length} أعمدة</span></div>
+        {scanInfo && (scanInfo.subject || scanInfo.period) && <p className="teacher-noor-scan-info">تمت قراءة: {scanInfo.subject ? `المادة الظاهرة «${scanInfo.subject}»` : ''}{scanInfo.subject && scanInfo.period ? ' · ' : ''}{scanInfo.period ? `الفترة «${scanInfo.period}»` : ''}. المادة المختارة أعلاه هي المعتمدة للحفظ.</p>}
+        <div className="teacher-noor-columns">{columns.map((column, index) => <div className="teacher-noor-column" key={column.id}><label>اسم العمود<input value={column.label} onChange={event => updateColumn(index, { label: event.target.value })} aria-label={`اسم العمود ${index + 1}`} /></label><label>الدرجة القصوى<input type="number" min="1" max="1000" value={column.maxScore ?? ''} onChange={event => updateColumn(index, { maxScore: event.target.value === '' ? null : Number(event.target.value) })} aria-label={`الدرجة القصوى للعمود ${column.label || index + 1}`} /></label><button type="button" className="icon-button danger" onClick={() => removeColumn(index)} aria-label={`حذف العمود ${column.label || index + 1}`} title="حذف العمود"><Trash2 size={16} /></button></div>)}</div>
+        <div className="teacher-noor-upload-actions"><button type="button" className="outline-button" onClick={() => setColumns(current => [...current, newColumn()])} disabled={columns.length >= 30 || busy !== ''}><Plus size={16} /> إضافة عمود</button><button type="button" className="primary-button" onClick={() => void save()} disabled={busy !== ''}>{busy === 'save' ? 'جارٍ إنشاء الكشف…' : 'اعتماد النموذج وإنشاء كشف نور'}</button></div>
+      </section>}
+      {saved && <div className="teacher-notice success" role="status"><strong>تم إنشاء كشف مطابق لنور لهذه المادة.</strong> من «بدء المتابعة» اختر المادة والفصل ثم «كشف مطابق لنور» لفتح أسماء الطلاب وإدخال الدرجات.</div>}
       <ol className="teacher-noor-guide-steps">
-        <li>افتح نظام نور من الجوال أو الكمبيوتر وسجّل دخولك بالطريقة المعتادة.</li>
-        <li>افتح رصد درجات المادة والفترة المطلوبة.</li>
-        <li>التقط صورة واضحة لرأس الجدول، تشمل أسماء الأعمدة والدرجات القصوى فقط.</li>
-        <li>ستعرض الأداة الأعمدة للتأكد من أسمائها وحدود درجاتها قبل إنشاء الكشف.</li>
-        <li>يمكن تعديل الاسم أو الدرجة القصوى أو ترتيب العمود قبل اعتماد النموذج.</li>
+        <li>افتح نظام نور بالطريقة المعتادة واختر المادة والفترة المطلوبتين.</li>
+        <li>التقط لقطة تشمل رأس جدول الدرجات وعناوينه والأرقام القصوى مثل 40 أو 60.</li>
+        <li>ارفع الصورة ثم اضغط «قراءة الأعمدة من الصورة».</li>
+        <li>صحح أي اسم أو درجة لم تُقرأ بدقة، وأضف أو احذف الأعمدة عند الحاجة.</li>
+        <li>اعتمد النموذج ليظهر ضمن «بدء المتابعة» في حسابك.</li>
       </ol>
-      <div className="teacher-noor-next-step">
-        <strong>{subject ? `المادة المختارة: ${subject}` : 'اختر المادة أولًا'}</strong>
-        <span>{imagePreview ? 'الصورة جاهزة للمراجعة ضمن التجربة. ستظهر قراءة الأعمدة وتعديلها هنا قبل اعتماد النموذج.' : 'ارفع صورة نموذج نور ثم راجع الأعمدة قبل اعتماد النموذج.'}</span>
-      </div>
     </div>
   </section>
 }
@@ -647,7 +684,7 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
     </>}
     {activeTab === 'cooperation' && cooperationStatus?.available && <TeacherCooperationPanel status={cooperationStatus} onRefresh={loadCooperationStatus} />}
     {activeTab === 'referrals' && <TeacherReferralCenter date={date} schedule={dashboard?.schedule || []} schoolName={dashboard?.schoolName || 'المدرسة'} teacherName={dashboard?.teacher.name || account.displayName} />}
-    {activeTab === 'sheets' && <section className="teacher-card"><div className="teacher-section-head"><div><span>إدارة الكشوف</span><h2>الكشوف</h2><p>جهز كشف كل مادة مرة واحدة، أو ابدأ المتابعة مباشرة.</p></div><FileSpreadsheet size={30} /></div>{sheetMode === 'menu' && <div className="teacher-sheet-menu"><button type="button" onClick={() => { setLesson(null); setSelected(null); setSheetOnlyView(false); setSheetMode('setup') }}><FileSpreadsheet size={30} /><strong>إعداد الكشوف</strong><small>أنشئ الأعمدة والدرجات لكل مادة</small></button><button type="button" onClick={() => setSheetMode('start')}><BookOpenCheck size={30} /><strong>بدء المتابعة</strong><small>اختر المادة والفصل والكشف ثم افتح الطلاب</small></button><button type="button" className="teacher-noor-sheet-menu-button" onClick={() => { setLesson(null); setSelected(null); setSheetOnlyView(false); setSheetMode('noorGuide') }}><span className="teacher-experimental-badge">تجريبي</span><Copy size={30} /><strong>نسخ نموذج من نور</strong><small>تعرف على طريقة إنشاء كشف مطابق لأعمدة نور</small></button></div>}{sheetMode === 'setup' && <><button type="button" className="outline-button teacher-sheet-back" onClick={() => setSheetMode('menu')}>العودة إلى الكشوف</button><TeacherSheetsSetup sheets={sheets} onSaved={config => setSheets(current => current.map(subject => subject.subject === config.subject ? { ...subject, configs: [...subject.configs.filter(item => item.sheetType !== config.sheetType), config] } : subject))} onDeleted={(subjectName, sheetType) => setSheets(current => current.map(subject => subject.subject === subjectName ? { ...subject, configs: subject.configs.filter(config => config.sheetType !== sheetType) } : subject))} /></>}{sheetMode === 'start' && <><button type="button" className="outline-button teacher-sheet-back" onClick={() => setSheetMode('menu')}>العودة إلى الكشوف</button><TeacherSheetStart sheets={sheets} schedule={dashboard?.weekSchedule || []} onOpen={(item, type) => void openLesson(item, type, true)} /></>}{sheetMode === 'noorGuide' && <TeacherNoorSheetGuide sheets={sheets} onBack={() => setSheetMode('menu')} />}{sheetMode !== 'setup' && sheetMode !== 'noorGuide' && sheetOnlyView && lesson && selected && <TeacherSheetRoster lesson={lesson} selected={selected} states={states} updateSheetValue={updateSheetValue} exportSheet={exportSheet} printSheet={printSheet} saveLesson={saveLesson} busy={busy} />}</section>}
+    {activeTab === 'sheets' && <section className="teacher-card"><div className="teacher-section-head"><div><span>إدارة الكشوف</span><h2>الكشوف</h2><p>جهز كشف كل مادة مرة واحدة، أو ابدأ المتابعة مباشرة.</p></div><FileSpreadsheet size={30} /></div>{sheetMode === 'menu' && <div className="teacher-sheet-menu"><button type="button" onClick={() => { setLesson(null); setSelected(null); setSheetOnlyView(false); setSheetMode('setup') }}><FileSpreadsheet size={30} /><strong>إعداد الكشوف</strong><small>أنشئ الأعمدة والدرجات لكل مادة</small></button><button type="button" onClick={() => setSheetMode('start')}><BookOpenCheck size={30} /><strong>بدء المتابعة</strong><small>اختر المادة والفصل والكشف ثم افتح الطلاب</small></button><button type="button" className="teacher-noor-sheet-menu-button" onClick={() => { setLesson(null); setSelected(null); setSheetOnlyView(false); setSheetMode('noorGuide') }}><span className="teacher-experimental-badge">تجريبي</span><Copy size={30} /><strong>نسخ نموذج من نور</strong><small>ارفع لقطة نور وأنشئ أعمدة الدرجات</small></button></div>}{sheetMode === 'setup' && <><button type="button" className="outline-button teacher-sheet-back" onClick={() => setSheetMode('menu')}>العودة إلى الكشوف</button><TeacherSheetsSetup sheets={sheets} onSaved={config => setSheets(current => current.map(subject => subject.subject === config.subject ? { ...subject, configs: [...subject.configs.filter(item => item.sheetType !== config.sheetType), config] } : subject))} onDeleted={(subjectName, sheetType) => setSheets(current => current.map(subject => subject.subject === subjectName ? { ...subject, configs: subject.configs.filter(config => config.sheetType !== sheetType) } : subject))} /></>}{sheetMode === 'start' && <><button type="button" className="outline-button teacher-sheet-back" onClick={() => setSheetMode('menu')}>العودة إلى الكشوف</button><TeacherSheetStart sheets={sheets} schedule={dashboard?.weekSchedule || []} onOpen={(item, type) => void openLesson(item, type, true)} /></>}{sheetMode === 'noorGuide' && <TeacherNoorSheetGuide sheets={sheets} onBack={() => setSheetMode('menu')} onSaved={config => setSheets(current => current.map(subject => subject.subject === config.subject ? { ...subject, configs: [...subject.configs.filter(item => item.sheetType !== config.sheetType), config] } : subject))} />}{sheetMode !== 'setup' && sheetMode !== 'noorGuide' && sheetOnlyView && lesson && selected && <TeacherSheetRoster lesson={lesson} selected={selected} states={states} updateSheetValue={updateSheetValue} exportSheet={exportSheet} printSheet={printSheet} saveLesson={saveLesson} busy={busy} />}</section>}
     {activeTab === 'reports' && <TeacherReportsTab key={reportsKey} schedule={dashboard?.weekSchedule || []} schoolName={dashboard?.schoolName || 'المدرسة'} teacherName={dashboard?.teacher.name || account.displayName} />}
     {printPreview && <div className="teacher-print-overlay" role="dialog" aria-modal="true" aria-label="معاينة الطباعة"><div className="teacher-print-actions"><button type="button" className="outline-button" onClick={() => setPrintPreview('')}>إغلاق والعودة</button><button type="button" className="primary-button" onClick={() => window.print()}><Printer size={16} /> طباعة / حفظ PDF</button></div><div className="teacher-print-preview" dangerouslySetInnerHTML={{ __html: printPreview }} /></div>}
     </div>

@@ -5267,6 +5267,13 @@ tbody td {
 .teacher-noor-image-preview small { color:#718a9d; }
 .teacher-noor-image-preview img { width:100%; max-height:220px; object-fit:contain; border:1px solid #cbddeb; border-radius:10px; background:#fff; }
 @media (max-width:640px) { .teacher-noor-upload-button { width:100%; }.teacher-noor-image-preview { grid-template-columns:1fr; }.teacher-noor-image-preview img { max-height:260px; } }
+.teacher-noor-upload-actions { display:flex; flex-wrap:wrap; gap:9px; align-items:center; }
+.teacher-noor-detected { display:grid; gap:13px; padding:15px; border:1px solid #b9d9ec; border-radius:14px; background:#f5fbff; }
+.teacher-noor-detected-head { display:flex; justify-content:space-between; gap:12px; align-items:flex-start; }
+.teacher-noor-detected-head > div { display:grid; gap:4px; }.teacher-noor-detected-head strong { color:var(--navy); }.teacher-noor-detected-head span { color:#607d91; font-size:12px; line-height:1.65; }.teacher-noor-detected-head > span { flex:none; padding:4px 9px; border-radius:999px; background:#dff2ff; color:#176b9e; font-weight:800; }
+.teacher-noor-scan-info { margin:0; padding:9px 11px; border-radius:9px; background:#fff; color:#58758b; font-size:12px; line-height:1.65; }
+.teacher-noor-columns { display:grid; gap:9px; }.teacher-noor-column { display:grid; grid-template-columns:minmax(0,1fr) 140px auto; gap:9px; align-items:end; padding:10px; border:1px solid #d6e5ee; border-radius:11px; background:#fff; }.teacher-noor-column label { display:grid; gap:5px; color:#597388; font-size:12px; font-weight:800; }.teacher-noor-column input { min-width:0; min-height:39px; border:1px solid #c7dbe9; border-radius:8px; padding:8px 10px; background:#fff; color:var(--ink); font:inherit; }.teacher-noor-column .icon-button { min-height:39px; }
+@media (max-width:640px) { .teacher-noor-upload-actions { display:grid; grid-template-columns:1fr; }.teacher-noor-upload-actions .primary-button,.teacher-noor-upload-actions .outline-button { width:100%; justify-content:center; }.teacher-noor-detected-head { display:grid; }.teacher-noor-detected-head > span { width:max-content; }.teacher-noor-column { grid-template-columns:1fr; }.teacher-noor-column .icon-button { width:100%; }.teacher-noor-column .icon-button svg { margin-inline:auto; } }
 
 /* Teacher portal: its records are intentionally independent of school attendance. */
 .teacher-portal { display:flex; align-items:flex-start; gap:20px; }

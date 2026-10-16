@@ -145,9 +145,10 @@ export type TeacherCooperationEntry = {
 }
 export type TeacherNote = 'هروب من الحصة' | 'نائم أثناء الدرس' | 'لم يحل الواجب' | 'عدم التفاعل والمشاركة' | 'مشارك فعال' | 'لم يحضر الكتاب أو أوراق العمل' | 'استخدام الجوال أثناء الحصة' | 'الحديث مع زملائه أثناء الدرس'
 export type TeacherSheetColumn = { id: string; label: string; type: 'score' | 'text' | 'choice' | 'boolean'; maxScore: number | null; choices: string[] }
-export type TeacherSheetType = 'followup' | 'homework' | 'tests'
+export type TeacherSheetType = 'followup' | 'homework' | 'tests' | 'noor'
 export type TeacherSheetOpenType = TeacherSheetType | 'combined'
 export type TeacherSheetConfig = { id?: string; subject: string; sheetType: TeacherSheetType; version: number; columns: TeacherSheetColumn[]; createdAt?: string }
+export type NoorSheetScan = { columns: Array<{ label: string; maxScore: number }>; metadata: { subject: string; period: string } }
 export type TeacherSheetSubject = { subject: string; configs: TeacherSheetConfig[] }
 export type TeacherSheetReport = { subject: string; sheetType: TeacherSheetOpenType; sections: Array<{ sheetType: TeacherSheetType; version: number; columns: TeacherSheetColumn[] }>; classroomId: string; classroom: string; grade: string; students: Array<{ id: string; name: string; phone: string; grade: string; classroom: string; values: Record<string, string | number | boolean> }> }
 export type TeacherLessonStudent = { id: string; name: string; phone: string; grade: string; classroom: string; status: 'present' | 'absent' | 'late'; note: TeacherNote | ''; sheetValues: Record<string, string | number | boolean> }
@@ -388,6 +389,7 @@ export const api = {
   teacherComprehensiveReport: (type: TeacherComprehensiveReportType, subject: string, classroomId: string) => request<TeacherComprehensiveReport>(`/teacher-portal/teacher/comprehensive-report?${new URLSearchParams({ type, subject, classroomId })}`),
   changeTeacherPassword: (password: string) => request<{ ok: boolean }>('/teacher-portal/teacher/password', { method: 'POST', body: JSON.stringify({ password }) }),
   teacherSheets: () => request<{ sheets: TeacherSheetSubject[] }>('/teacher-portal/teacher/sheets'),
+  scanNoorSheet: (subjectName: string, image: string) => request<NoorSheetScan>('/teacher-portal/teacher/noor-sheet/scan', { method: 'POST', body: JSON.stringify({ subjectName, image }) }),
   saveTeacherSheetConfig: (subjectName: string, sheetType: TeacherSheetType, columns: TeacherSheetColumn[]) => request<{ config: TeacherSheetConfig }>('/teacher-portal/teacher/sheets/config', { method: 'PUT', body: JSON.stringify({ subjectName, sheetType, columns }) }),
   deleteTeacherSheetConfig: (subjectName: string, sheetType: TeacherSheetType) => request<{ ok: boolean }>(`/teacher-portal/teacher/sheets/config?subjectName=${encodeURIComponent(subjectName)}&sheetType=${sheetType}`, { method: 'DELETE' }),
   teacherSheetReport: (subjectName: string, classroomId: string, sheetType: TeacherSheetOpenType) => request<TeacherSheetReport>(`/teacher-portal/teacher/sheet-report?subjectName=${encodeURIComponent(subjectName)}&classroomId=${encodeURIComponent(classroomId)}&sheetType=${sheetType}`),

@@ -1,13 +1,97 @@
 import crypto from 'node:crypto'
+import os from 'node:os'
+import path from 'node:path'
+import { spawn } from 'node:child_process'
+import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 
 const NOTE_OPTIONS = new Set(['هروب من الحصة', 'نائم أثناء الدرس', 'لم يحل الواجب', 'عدم التفاعل والمشاركة', 'مشارك فعال', 'لم يحضر الكتاب أو أوراق العمل', 'استخدام الجوال أثناء الحصة', 'الحديث مع زملائه أثناء الدرس'])
 const ATTENDANCE_OPTIONS = new Set(['present', 'absent', 'late'])
-const SHEET_TYPES = new Set(['followup', 'homework', 'tests'])
+const SHEET_TYPES = new Set(['followup', 'homework', 'tests', 'noor'])
+const COMBINED_SHEET_TYPES = ['followup', 'homework', 'tests']
 const SHEET_OPEN_TYPES = new Set([...SHEET_TYPES, 'combined'])
 const SHEET_FIELD_TYPES = new Set(['score', 'text', 'choice', 'boolean'])
 
 function clean(value, max = 240) {
   return String(value ?? '').replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max)
+}
+
+function decodeNoorImage(value) {
+  const match = /^data:(image\/(?:png|jpeg|webp));base64,([A-Za-z0-9+/=\s]+)$/.exec(String(value || ''))
+  if (!match) return null
+  const image = Buffer.from(match[2].replace(/\s/g, ''), 'base64')
+  if (!image.length || image.length > 8 * 1024 * 1024) return null
+  const mime = match[1]
+  const png = image.subarray(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))
+  const jpeg = image.length > 3 && image[0] === 0xff && image[1] === 0xd8 && image[2] === 0xff
+  const webp = image.length > 12 && image.subarray(0, 4).toString() === 'RIFF' && image.subarray(8, 12).toString() === 'WEBP'
+  if ((mime === 'image/png' && !png) || (mime === 'image/jpeg' && !jpeg) || (mime === 'image/webp' && !webp)) return null
+  return { image, extension: mime === 'image/png' ? 'png' : mime === 'image/jpeg' ? 'jpg' : 'webp' }
+}
+
+function readNoorImage(imagePath) {
+  return new Promise((resolve, reject) => {
+    const process = spawn('tesseract', [imagePath, 'stdout', '-l', 'ara+eng', '--psm', '6'], { stdio: ['ignore', 'pipe', 'pipe'] })
+    let output = ''
+    let errors = ''
+    const timeout = setTimeout(() => process.kill('SIGKILL'), 25_000)
+    process.stdout.on('data', chunk => { if (output.length < 180_000) output += chunk.toString('utf8') })
+    process.stderr.on('data', chunk => { if (errors.length < 4_000) errors += chunk.toString('utf8') })
+    process.on('error', error => { clearTimeout(timeout); reject(error) })
+    process.on('close', code => {
+      clearTimeout(timeout)
+      if (code === 0 && output.trim()) resolve(output)
+      else reject(new Error(errors || 'noor_ocr_failed'))
+    })
+  })
+}
+
+function noorText(value) {
+  return String(value || '').replace(/[\u064B-\u065F\u0670\u0640]/g, '').replace(/\s+/g, ' ').trim()
+}
+
+function noorColumnCandidates(text) {
+  const columns = []
+  const keyWords = /(مهام|مهار|ادائي|مشارك|تفاعل|تقويم|تحرير|تطبيق|اختبار|واجب|بحث|مشروع|تقرير|شفه|عملي|قراءة|كتابة|استماع|محادثة|تجويد|حفظ|نشاط|سلوك|مواظب|قران|تلاو|فقه|لغو|نحو|قرائ|فهم|استيعاب|كتابي|علمي|نظري|رياض|وحد|تجرب|انتاج|ملف|انجاز|درس)/
+  const ignoredLabels = /(مجموع|المجموع|رقم الهويه|رقم الهوية|الطالب|الطلاب|ملاحظات|السنه|السنة|الفصل الدراسي|الصف|القسم|الماده|المادة|الفتره|الفترة|الدور|عام|رمز|نموذج|تاريخ|ادخال|إدخال|الوزاره|الوزارة|استبيان|ارتباط)/
+  for (const line of String(text || '').split(/\r?\n/)) {
+    for (const match of line.matchAll(/([^/\n]{3,130}?)\s*\/\s*(\d{1,3})(?=\s|$)/g)) {
+      let label = noorText(match[1]).replace(/^[^\p{L}]*/u, '').replace(/[|،,:؛.\-]+$/g, '').trim()
+      const maxScore = Number(match[2])
+      let normalized = label.replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
+      const keyPosition = normalized.search(keyWords)
+      if (keyPosition > 0) label = label.slice(keyPosition).trim()
+      normalized = label.replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي')
+      const containsArabic = /[\u0621-\u064A]/.test(normalized)
+      const hasEducationKeyword = keyWords.test(normalized)
+      if (!label || !containsArabic || ignoredLabels.test(normalized) || !Number.isInteger(maxScore) || maxScore < 1 || maxScore > 1000 || (!hasEducationKeyword && maxScore < 2)) continue
+      const key = `${normalized}|${maxScore}`
+      if (!columns.some(column => column.key === key)) columns.push({ key, label: clean(label, 120), maxScore })
+    }
+  }
+  return columns.slice(0, 12).map(({ label, maxScore }) => ({ label, maxScore }))
+}
+
+function noorMetadata(text) {
+  const lines = String(text || '').split(/\r?\n/).map(line => noorText(line)).filter(Boolean)
+  const subjectLine = lines.find(line => /المادة|الماده/.test(line)) || ''
+  const subject = clean(subjectLine.replace(/^.*?(?:المادة|الماده)\s*[*:]*\s*/i, ''), 120)
+  const periodLine = lines.find(line => /فترة|فتره|نهاية فصل|نهايه فصل/.test(line)) || ''
+  const period = clean(periodLine.match(/(فترة\s*(?:أولى|اولى|ثانية|ثانيه)|نهاية\s*فصل|نهايه\s*فصل)/)?.[1] || '', 80)
+  return { subject, period }
+}
+
+async function scanNoorSheetImage(value) {
+  const decoded = decodeNoorImage(value)
+  if (!decoded) return null
+  const directory = await mkdtemp(path.join(os.tmpdir(), 'noor-sheet-'))
+  const imagePath = path.join(directory, `screen.${decoded.extension}`)
+  try {
+    await writeFile(imagePath, decoded.image, { mode: 0o600 })
+    const text = await readNoorImage(imagePath)
+    return { columns: noorColumnCandidates(text), metadata: noorMetadata(text) }
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
 }
 
 function validId(value) { return /^[0-9a-f-]{36}$/i.test(String(value || '')) }
@@ -370,6 +454,29 @@ export async function handleTeacherPortalRequest(context) {
     return true
   }
 
+  if (req.method === 'POST' && url.pathname === '/api/teacher-portal/teacher/noor-sheet/scan') {
+    if (!teacherOnly()) { json(res, 403, { error: 'forbidden' }); return true }
+    const input = await body(req, 12 * 1024 * 1024)
+    const subject = clean(input.subjectName, 200)
+    if (!subject || typeof input.image !== 'string') { json(res, 400, { error: 'invalid_noor_sheet_image' }); return true }
+    const assigned = await scoped(user.school_id, async client => {
+      const active = await activeImport(client, user.school_id)
+      if (!active) return false
+      return Boolean((await client.query(`SELECT 1 FROM lesson_schedule_assignments
+        WHERE school_id=$1 AND import_id=$2 AND teacher_id=$3 AND subject_name=$4 LIMIT 1`, [user.school_id, active.id, user.teacher_id, subject])).rowCount)
+    })
+    if (!assigned) { json(res, 403, { error: 'subject_not_assigned' }); return true }
+    try {
+      const scan = await scanNoorSheetImage(input.image)
+      if (!scan) { json(res, 400, { error: 'invalid_noor_sheet_image' }); return true }
+      if (!scan.columns.length) { json(res, 422, { error: 'noor_columns_not_detected' }); return true }
+      json(res, 200, scan)
+    } catch {
+      json(res, 422, { error: 'noor_image_unreadable' })
+    }
+    return true
+  }
+
   if (req.method === 'GET' && url.pathname === '/api/teacher-portal/teacher/sheets') {
     if (!teacherOnly()) { json(res, 403, { error: 'forbidden' }); return true }
     const sheets = await scoped(user.school_id, async client => {
@@ -449,7 +556,7 @@ export async function handleTeacherPortalRequest(context) {
       const assignments = (await client.query(`SELECT a.id FROM lesson_schedule_assignments a
         WHERE a.school_id=$1 AND a.import_id=$2 AND a.teacher_id=$3 AND a.subject_name=$4 AND a.classroom_id=$5`, [user.school_id, active.id, user.teacher_id, subject, classroomId])).rows
       if (!assignments.length) return { error: 'lesson_not_assigned' }
-      const requestedTypes = sheetType === 'combined' ? [...SHEET_TYPES] : [sheetType]
+      const requestedTypes = sheetType === 'combined' ? COMBINED_SHEET_TYPES : [sheetType]
       const configs = (await client.query(`SELECT DISTINCT ON (sheet_type) id,sheet_type AS "sheetType",version,columns
         FROM teacher_sheet_configs WHERE school_id=$1 AND teacher_id=$2 AND subject_name=$3 AND sheet_type=ANY($4::text[]) AND active=true
         ORDER BY sheet_type,version DESC`, [user.school_id, user.teacher_id, subject, requestedTypes])).rows
@@ -527,7 +634,7 @@ export async function handleTeacherPortalRequest(context) {
         const groups = (await client.query(`SELECT grade,classroom,COUNT(*)::int AS count FROM students WHERE school_id=$1 AND active=true GROUP BY grade,classroom ORDER BY grade,classroom`, [user.school_id])).rows
         return { error: 'classroom_student_mapping_needed', classroom: assignment.rows[0].classroom, candidateGroups: groups }
       }
-      const requestedTypes = sheetType === 'combined' ? [...SHEET_TYPES] : [sheetType]
+      const requestedTypes = sheetType === 'combined' ? COMBINED_SHEET_TYPES : [sheetType]
       const configResult = await client.query(`SELECT DISTINCT ON (sheet_type) id,subject_name AS subject,sheet_type AS "sheetType",version,columns,created_at AS "createdAt"
         FROM teacher_sheet_configs WHERE school_id=$1 AND teacher_id=$2 AND subject_name=$3 AND sheet_type=ANY($4::text[]) AND active=true ORDER BY sheet_type,version DESC`, [user.school_id, user.teacher_id, assignment.rows[0].subject || '', requestedTypes])
       const sheetConfigs = configResult.rows.map(config => ({ ...config, version: Number(config.version) })).sort((left, right) => requestedTypes.indexOf(left.sheetType) - requestedTypes.indexOf(right.sheetType))
@@ -588,7 +695,7 @@ export async function handleTeacherPortalRequest(context) {
       if (!teacher.rowCount || !assignment.rowCount) return { error: 'lesson_not_assigned' }
       const roster = await rosterForClassroom(client, user.school_id, classroomId)
       if (!roster.mapping) return { error: 'classroom_student_mapping_needed' }
-      const requestedTypes = sheetType === 'combined' ? [...SHEET_TYPES] : [sheetType]
+      const requestedTypes = sheetType === 'combined' ? COMBINED_SHEET_TYPES : [sheetType]
       const configResult = await client.query(`SELECT id,sheet_type AS "sheetType",columns FROM teacher_sheet_configs
         WHERE school_id=$1 AND teacher_id=$2 AND subject_name=$3 AND sheet_type=ANY($4::text[]) AND active=true ORDER BY version DESC`, [user.school_id, user.teacher_id, assignment.rows[0].subject || '', requestedTypes])
       const sheetConfigs = []
