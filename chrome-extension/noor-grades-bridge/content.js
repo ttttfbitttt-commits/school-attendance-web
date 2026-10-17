@@ -1,4 +1,6 @@
 ﻿(() => {
+  if (globalThis.__h2030NoorBridgeInstalled) return
+  globalThis.__h2030NoorBridgeInstalled = true
   const digits = value => String(value ?? '').replace(/[٠-٩]/g, digit => String(digit.charCodeAt(0) - 0x0660)).replace(/[۰-۹]/g, digit => String(digit.charCodeAt(0) - 0x06f0))
   const normal = value => digits(value).toLowerCase().replace(/[\u064b-\u065f\u0670]/g, '').replace(/[إأآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي').replace(/[^\p{L}\p{N}]+/gu, ' ').replace(/\s+/g, ' ').trim()
   const numeric = value => {
