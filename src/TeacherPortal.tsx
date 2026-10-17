@@ -229,7 +229,7 @@ function TeacherNoorSheetMapping({ sheets, onBack, onSaved }: { sheets: TeacherS
     const selectedSources = mapping.sources.map(link => ({ link, source: sourceColumns.find(column => sourceKey(column) === sourceKey(link)) })).filter((item): item is { link: NoorSheetMappingSource; source: typeof sourceColumns[number] } => Boolean(item.source))
     const maximums = selectedSources.map(item => sourceMaximum(item.source, item.link))
     if (maximums.some(value => value === null || !Number.isFinite(value))) return { count: selectedSources.length, total: null }
-    return { count: selectedSources.length, total: maximums.reduce((total, value) => total + Number(value!), 0) }
+    return { count: selectedSources.length, total: maximums.reduce<number>((total, value) => total + Number(value ?? 0), 0) }
   }
   const updateSources = (targetColumnId: string, update: (sources: NoorSheetMappingSource[]) => NoorSheetMappingSource[]) => setMappings(current => {
     const exists = current.some(mapping => mapping.targetColumnId === targetColumnId)
