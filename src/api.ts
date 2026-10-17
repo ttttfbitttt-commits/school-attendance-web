@@ -147,12 +147,14 @@ export type TeacherNote = 'هروب من الحصة' | 'نائم أثناء ال
 export type TeacherSheetColumn = { id: string; label: string; type: 'score' | 'text' | 'choice' | 'boolean'; maxScore: number | null; choices: string[] }
 export type TeacherSheetType = 'followup' | 'homework' | 'tests' | 'noor'
 export type TeacherSheetOpenType = TeacherSheetType | 'combined'
-export type TeacherSheetConfig = { id?: string; subject: string; sheetType: TeacherSheetType; version: number; columns: TeacherSheetColumn[]; createdAt?: string }
+export type NoorSheetMappingSource = { sheetType: Exclude<TeacherSheetType, 'noor'>; columnId: string; scores?: Record<string, number> }
+export type NoorSheetMapping = { targetColumnId: string; sources: NoorSheetMappingSource[] }
+export type TeacherSheetConfig = { id?: string; subject: string; sheetType: TeacherSheetType; version: number; columns: TeacherSheetColumn[]; noorMappings?: NoorSheetMapping[]; createdAt?: string }
 export type NoorSheetScan = { columns: Array<{ label: string; maxScore: number }>; metadata: { subject: string; period: string } }
 export type TeacherSheetSubject = { subject: string; configs: TeacherSheetConfig[] }
 export type TeacherSheetReport = { subject: string; sheetType: TeacherSheetOpenType; sections: Array<{ sheetType: TeacherSheetType; version: number; columns: TeacherSheetColumn[] }>; classroomId: string; classroom: string; grade: string; students: Array<{ id: string; name: string; phone: string; grade: string; classroom: string; values: Record<string, string | number | boolean> }> }
 export type TeacherLessonStudent = { id: string; name: string; phone: string; grade: string; classroom: string; status: 'present' | 'absent' | 'late'; note: TeacherNote | ''; sheetValues: Record<string, string | number | boolean> }
-export type TeacherLesson = { assignment: { assignmentId: string; classroomId: string; classroom: string; subject: string }; date: string; periodNumber: number; mapping: { grade: string; classroom: string; mappingSource: 'automatic' | 'manual' }; sheetConfig: TeacherSheetConfig | null; sheetConfigs: TeacherSheetConfig[]; students: TeacherLessonStudent[] }
+export type TeacherLesson = { assignment: { assignmentId: string; classroomId: string; classroom: string; subject: string }; date: string; periodNumber: number; mapping: { grade: string; classroom: string; mappingSource: 'automatic' | 'manual' }; sheetConfig: TeacherSheetConfig | null; sheetConfigs: TeacherSheetConfig[]; noorCalculated?: boolean; students: TeacherLessonStudent[] }
 export type TeacherLessonReport = {
   id: string; date: string; weekday: number; periodNumber: number; teacherId: string; teacherName: string; classroom: string; subject: string; grade: string; classroomValue: string; savedAt: string
   studentsCount: number; presentCount: number; absentCount: number; lateCount: number
@@ -390,6 +392,7 @@ export const api = {
   changeTeacherPassword: (password: string) => request<{ ok: boolean }>('/teacher-portal/teacher/password', { method: 'POST', body: JSON.stringify({ password }) }),
   teacherSheets: () => request<{ sheets: TeacherSheetSubject[] }>('/teacher-portal/teacher/sheets'),
   scanNoorSheet: (subjectName: string, image: string) => request<NoorSheetScan>('/teacher-portal/teacher/noor-sheet/scan', { method: 'POST', body: JSON.stringify({ subjectName, image }) }),
+  saveNoorSheetMappings: (subjectName: string, mappings: NoorSheetMapping[]) => request<{ config: TeacherSheetConfig }>('/teacher-portal/teacher/noor-sheet/mappings', { method: 'PUT', body: JSON.stringify({ subjectName, mappings }) }),
   saveTeacherSheetConfig: (subjectName: string, sheetType: TeacherSheetType, columns: TeacherSheetColumn[]) => request<{ config: TeacherSheetConfig }>('/teacher-portal/teacher/sheets/config', { method: 'PUT', body: JSON.stringify({ subjectName, sheetType, columns }) }),
   deleteTeacherSheetConfig: (subjectName: string, sheetType: TeacherSheetType) => request<{ ok: boolean }>(`/teacher-portal/teacher/sheets/config?subjectName=${encodeURIComponent(subjectName)}&sheetType=${sheetType}`, { method: 'DELETE' }),
   teacherSheetReport: (subjectName: string, classroomId: string, sheetType: TeacherSheetOpenType) => request<TeacherSheetReport>(`/teacher-portal/teacher/sheet-report?subjectName=${encodeURIComponent(subjectName)}&classroomId=${encodeURIComponent(classroomId)}&sheetType=${sheetType}`),

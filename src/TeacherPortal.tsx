@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { BarChart3, BookOpenCheck, CalendarDays, Check, Copy, FileSpreadsheet, Handshake, KeyRound, LayoutDashboard, LogOut, Menu, Plus, Printer, Save, Send, Trash2, UserRound, X } from 'lucide-react'
-import { api, type Account, type TeacherCooperationStatus, type TeacherComprehensiveReport, type TeacherComprehensiveReportOption, type TeacherComprehensiveReportType, type TeacherLesson, type TeacherLessonReport, type TeacherNote, type TeacherPortalDashboard, type TeacherPortalScheduleItem, type TeacherSheetColumn, type TeacherSheetConfig, type TeacherSheetOpenType, type TeacherSheetSubject, type TeacherSheetType } from './api'
+import { api, type Account, type NoorSheetMapping, type NoorSheetMappingSource, type TeacherCooperationStatus, type TeacherComprehensiveReport, type TeacherComprehensiveReportOption, type TeacherComprehensiveReportType, type TeacherLesson, type TeacherLessonReport, type TeacherNote, type TeacherPortalDashboard, type TeacherPortalScheduleItem, type TeacherSheetColumn, type TeacherSheetConfig, type TeacherSheetOpenType, type TeacherSheetSubject, type TeacherSheetType } from './api'
 import { HijriDatePicker } from './HijriDatePicker'
 import { formatHijriDate } from './dateUtils'
 import * as XLSX from 'xlsx'
@@ -18,7 +18,8 @@ const teacherSchedulePeriods = (schedule: TeacherPortalScheduleItem[], configure
   const lastScheduledPeriod = Math.max(0, ...schedule.map(item => item.periodNumber))
   return configured.length ? configured : Array.from({ length: lastScheduledPeriod }, (_, index) => index + 1)
 }
-const displaySheetValue = (value: string | number | boolean | undefined, type?: TeacherSheetColumn['type']) => type === 'boolean' && value === undefined ? '✓' : value === true ? '✓' : value === false ? '✗' : value ?? ''
+const westernDigits = (value: unknown) => String(value ?? '').replace(/[٠-٩]/g, digit => String(digit.charCodeAt(0) - 0x0660)).replace(/[۰-۹]/g, digit => String(digit.charCodeAt(0) - 0x06f0))
+const displaySheetValue = (value: string | number | boolean | undefined, type?: TeacherSheetColumn['type']) => type === 'boolean' && value === undefined ? '✓' : value === true ? '✓' : value === false ? '✗' : westernDigits(value)
 
 type TeacherAttendanceStatus = 'present' | 'absent' | 'late'
 type StudentState = { status: TeacherAttendanceStatus; note: TeacherNote | ''; sheetValues: Record<string, string | number | boolean> }
@@ -200,21 +201,108 @@ function TeacherNoorSheetGuide({ sheets, onBack, onSaved }: { sheets: TeacherShe
   </section>
 }
 
-function TeacherSheetRoster({ lesson, selected, states, updateSheetValue, exportSheet, printSheet, saveLesson, busy }: { lesson: TeacherLesson; selected: TeacherPortalScheduleItem; states: Record<string, StudentState>; updateSheetValue: (studentId: string, columnId: string, value: string | number | boolean) => void; exportSheet: () => void; printSheet: () => void; saveLesson: () => void; busy: string }) {
+function TeacherNoorSheetMapping({ sheets, onBack, onSaved }: { sheets: TeacherSheetSubject[]; onBack: () => void; onSaved: (config: TeacherSheetConfig) => void }) {
+  const subjects = sheets.filter(sheet => sheet.configs.some(config => config.sheetType === 'noor'))
+  const [subject, setSubject] = useState(subjects[0]?.subject || '')
+  const [mappings, setMappings] = useState<NoorSheetMapping[]>([])
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const [saved, setSaved] = useState('')
+  const selected = subjects.find(sheet => sheet.subject === subject)
+  const noorConfig = selected?.configs.find(config => config.sheetType === 'noor')
+  const noorColumns = (noorConfig?.columns || []).filter(column => column.type === 'score' && (column.maxScore || 0) > 0)
+  const sourceConfigs = (selected?.configs || []).filter(config => config.sheetType !== 'noor')
+  const sourceColumns = sourceConfigs.flatMap(config => config.columns.filter(column => ['score', 'choice', 'boolean'].includes(column.type)).map(column => ({ ...column, sheetType: config.sheetType as Exclude<TeacherSheetType, 'noor'> })))
+  useEffect(() => { setMappings(noorConfig?.noorMappings || noorColumns.map(column => ({ targetColumnId: column.id, sources: [] }))); setError(''); setSaved('') }, [subject, noorConfig?.id])
+  const sourceKey = (source: { sheetType: string; columnId?: string; id?: string }) => `${source.sheetType}:${source.columnId || source.id || ''}`
+  const mappingFor = (targetColumnId: string) => mappings.find(mapping => mapping.targetColumnId === targetColumnId) || { targetColumnId, sources: [] }
+  const isUsedElsewhere = (targetColumnId: string, source: NoorSheetMappingSource) => mappings.some(mapping => mapping.targetColumnId !== targetColumnId && mapping.sources.some(item => sourceKey(item) === sourceKey(source)))
+  const sourceOptions = (source: typeof sourceColumns[number]) => source.type === 'choice' ? source.choices.filter(Boolean) : source.type === 'boolean' ? ['true', 'false'] : []
+  const sourceMaximum = (source: typeof sourceColumns[number], link: NoorSheetMappingSource) => {
+    if (source.type === 'score') return Number(source.maxScore)
+    const options = sourceOptions(source)
+    if (!options.length || options.some(option => !Object.prototype.hasOwnProperty.call(link.scores || {}, option) || !Number.isFinite(Number(link.scores?.[option])))) return null
+    return Math.max(...options.map(option => Number(link.scores?.[option])))
+  }
+  const summary = (targetColumnId: string) => {
+    const mapping = mappingFor(targetColumnId)
+    const selectedSources = mapping.sources.map(link => ({ link, source: sourceColumns.find(column => sourceKey(column) === sourceKey(link)) })).filter((item): item is { link: NoorSheetMappingSource; source: typeof sourceColumns[number] } => Boolean(item.source))
+    const maximums = selectedSources.map(item => sourceMaximum(item.source, item.link))
+    return { count: selectedSources.length, total: maximums.some(value => value === null || !Number.isFinite(value)) ? null : maximums.reduce((total, value) => total + Number(value), 0) }
+  }
+  const updateSources = (targetColumnId: string, update: (sources: NoorSheetMappingSource[]) => NoorSheetMappingSource[]) => setMappings(current => {
+    const exists = current.some(mapping => mapping.targetColumnId === targetColumnId)
+    return exists ? current.map(mapping => mapping.targetColumnId === targetColumnId ? { ...mapping, sources: update(mapping.sources) } : mapping) : [...current, { targetColumnId, sources: update([]) }]
+  })
+  const toggleSource = (targetColumnId: string, source: typeof sourceColumns[number]) => {
+    const sourceLink: NoorSheetMappingSource = { sheetType: source.sheetType, columnId: source.id }
+    updateSources(targetColumnId, current => current.some(item => sourceKey(item) === sourceKey(sourceLink)) ? current.filter(item => sourceKey(item) !== sourceKey(sourceLink)) : [...current, sourceLink])
+    setSaved('')
+  }
+  const updateChoiceScore = (targetColumnId: string, source: typeof sourceColumns[number], option: string, value: string) => {
+    updateSources(targetColumnId, current => current.map(item => {
+      if (sourceKey(item) !== sourceKey(source)) return item
+      const scores = { ...(item.scores || {}) }
+      if (value === '') delete scores[option]
+      else scores[option] = Number(value)
+      return { ...item, scores }
+    }))
+    setSaved('')
+  }
+  const ready = noorColumns.length > 0 && noorColumns.every(target => {
+    const result = summary(target.id)
+    return result.count > 0 && result.total !== null && Math.abs(result.total - Number(target.maxScore)) < 0.000001
+  })
+  const save = async () => {
+    if (!subject || !ready) { setError('لا يمكن الحفظ قبل مطابقة مجموع كل عمود مع درجة نور المطلوبة تمامًا.'); return }
+    setBusy(true); setError(''); setSaved('')
+    try { const result = await api.saveNoorSheetMappings(subject, mappings); onSaved(result.config); setMappings(result.config.noorMappings || []); setSaved('تم حفظ الربط. كشف نور يجمع الدرجات تلقائيًا من الآن فصاعدًا.') } catch { setError('تعذر حفظ الربط. راجع الدرجات المختارة واتصالك ثم أعد المحاولة.') } finally { setBusy(false) }
+  }
+  if (!subjects.length) return <section className="teacher-noor-mapping"><button type="button" className="outline-button" onClick={onBack}>العودة إلى الكشوف</button><p className="teacher-empty">أنشئ كشفًا مطابقًا لنور للمادة أولًا، ثم ارجع لربط أعمدته بالكشوف الأخرى.</p></section>
+  return <section className="teacher-noor-mapping" aria-labelledby="teacher-noor-mapping-title">
+    <div className="teacher-section-head"><div><button type="button" className="outline-button" onClick={onBack}>العودة إلى الكشوف</button><h2 id="teacher-noor-mapping-title">ربط كشوف المتابعة بكشف نور</h2><p>اختر أعمدة المصدر لكل عمود في نور. لا يمكن الحفظ إلا إذا تطابق المجموع تمامًا.</p></div><Copy size={30} /></div>
+    <label className="teacher-noor-subject-select">المادة<select value={subject} onChange={event => setSubject(event.target.value)}>{subjects.map(sheet => <option key={sheet.subject} value={sheet.subject}>{sheet.subject}</option>)}</select></label>
+    {!sourceColumns.length && <p className="teacher-notice error">أعد كشف المتابعة أو الواجبات أو الاختبارات لهذه المادة أولًا، ثم اختر أعمدته هنا.</p>}
+    <div className="teacher-noor-mapping-list">{noorColumns.map(target => {
+      const current = mappingFor(target.id)
+      const result = summary(target.id)
+      const matches = result.total !== null && Math.abs(result.total - Number(target.maxScore)) < 0.000001
+      return <article key={target.id} className={matches && result.count ? 'ready' : ''}>
+        <header><div><strong>{target.label}</strong><span>درجة نور المطلوبة: <b className="teacher-sheet-number" lang="en" dir="ltr">{westernDigits(target.maxScore)}</b></span></div><span className={matches && result.count ? 'teacher-noor-match ok' : 'teacher-noor-match'}>مجموع المختار: <b className="teacher-sheet-number" lang="en" dir="ltr">{result.total === null ? '—' : westernDigits(result.total)}</b></span></header>
+        <div className="teacher-noor-source-groups">{(['followup', 'homework', 'tests'] as Exclude<TeacherSheetType, 'noor'>[]).map(type => {
+          const group = sourceColumns.filter(column => column.sheetType === type)
+          if (!group.length) return null
+          return <section key={type}><h3>{sheetTypeLabels[type]}</h3>{group.map(source => {
+            const link = current.sources.find(item => sourceKey(item) === sourceKey(source))
+            const checked = Boolean(link)
+            const used = isUsedElsewhere(target.id, { sheetType: source.sheetType, columnId: source.id })
+            const options = sourceOptions(source)
+            return <div className={`teacher-noor-source ${checked ? 'selected' : ''}`} key={sourceKey(source)}><label><input type="checkbox" checked={checked} disabled={used || busy} onChange={() => toggleSource(target.id, source)} /><span>{westernDigits(source.label)}</span>{source.type === 'score' ? <b className="teacher-sheet-number" lang="en" dir="ltr">/ {westernDigits(source.maxScore)}</b> : <small>{source.type === 'choice' ? 'اختيار' : 'صح أو خطأ'}</small>}</label>{used && !checked && <em>مرتبط بعمود نور آخر</em>}{checked && options.length > 0 && <div className="teacher-noor-choice-scores"><span>ضع درجة كل اختيار:</span>{options.map(option => <label key={option}>{option === 'true' ? 'صح' : option === 'false' ? 'خطأ' : westernDigits(option)}<input className="teacher-sheet-number" lang="en" dir="ltr" type="number" min="0" max="1000" value={link?.scores?.[option] ?? ''} onChange={event => updateChoiceScore(target.id, source, option, event.target.value)} placeholder="—" disabled={busy} /></label>)}</div>}</div>
+          })}</section>
+        })}</div>
+        <footer>{!result.count ? 'اختر أعمدة لهذا العمود.' : result.total === null ? 'أدخل درجات جميع خيارات الأعمدة المختارة.' : matches ? 'المجموع مطابق ويمكن اعتماده.' : `المجموع يجب أن يساوي ${westernDigits(target.maxScore)} تمامًا.`}</footer>
+      </article>
+    })}</div>
+    {error && <p className="teacher-notice error" role="alert">{error}</p>}{saved && <p className="teacher-notice success" role="status">{saved}</p>}
+    <button type="button" className="primary-button" onClick={() => void save()} disabled={!ready || busy}>{busy ? 'جارٍ حفظ الربط…' : 'موافق وحفظ الربط'}</button>
+  </section>
+}
+
+function TeacherSheetRoster({ lesson, selected, states, updateSheetValue, exportSheet, printSheet, saveLesson, busy, noorCalculated = false }: { lesson: TeacherLesson; selected: TeacherPortalScheduleItem; states: Record<string, StudentState>; updateSheetValue: (studentId: string, columnId: string, value: string | number | boolean) => void; exportSheet: () => void; printSheet: () => void; saveLesson: () => void; busy: string; noorCalculated?: boolean }) {
   const columns = getSheetColumns(lesson)
   const applyColumnValue = (column: RenderSheetColumn, value: string | number | boolean) => lesson.students.forEach(student => updateSheetValue(student.id, column.key, value))
   useEffect(() => { if (window.matchMedia('(max-width: 950px)').matches) document.querySelector<HTMLDivElement>('.teacher-sheet-roster .teacher-roster-table-wrap')?.scrollTo({ left: 0 }) }, [lesson])
   return <section className="teacher-card teacher-roster-card teacher-sheet-roster">
-    <div className="teacher-section-head"><div><span>{lesson.assignment.subject} · {lesson.mapping.grade} · الفصل {lesson.mapping.classroom}</span><h2>كشف {lesson.assignment.subject} — {selected.classroom}</h2></div><div className="teacher-report-actions"><button className="outline-button" onClick={exportSheet}><FileSpreadsheet size={16} /> Excel</button><button className="outline-button" onClick={printSheet}><Printer size={16} /> PDF</button><button className="primary-button" onClick={saveLesson} disabled={busy === 'save'}><Save size={17} /> {busy === 'save' ? 'جارٍ الحفظ…' : 'حفظ الكشف'}</button></div></div>
+    <div className="teacher-section-head"><div><span>{lesson.assignment.subject} · {lesson.mapping.grade} · الفصل {lesson.mapping.classroom}</span><h2>كشف {lesson.assignment.subject} — {selected.classroom}</h2>{noorCalculated && <p className="teacher-noor-calculated-note">درجات هذا الكشف تُحسب تلقائيًا من الأعمدة المرتبطة.</p>}</div><div className="teacher-report-actions"><button className="outline-button" onClick={exportSheet}><FileSpreadsheet size={16} /> Excel</button><button className="outline-button" onClick={printSheet}><Printer size={16} /> PDF</button>{!noorCalculated && <button className="primary-button" onClick={saveLesson} disabled={busy === 'save'}><Save size={17} /> {busy === 'save' ? 'جارٍ الحفظ…' : 'حفظ الكشف'}</button>}</div></div>
     <div className="teacher-roster-table-wrap"><table className="teacher-roster-table"><thead>
-      <tr><th>الطالب</th>{columns.map(column => <th key={column.key}>{column.label}{column.type === 'score' && column.maxScore !== null ? ` / ${column.maxScore}` : ''}</th>)}</tr>
+      <tr><th>الطالب</th>{columns.map(column => <th key={column.key}>{westernDigits(column.label)}{column.type === 'score' && column.maxScore !== null ? <> / <b className="teacher-sheet-number" lang="en" dir="ltr">{westernDigits(column.maxScore)}</b></> : ''}</th>)}</tr>
       <tr className="teacher-sheet-bulk-row"><th>تطبيق على الجميع</th>{columns.map(column => <th key={column.key}>
-        {column.type === 'boolean' && <select defaultValue="" onChange={event => { if (event.target.value) applyColumnValue(column, event.target.value === 'true') }} aria-label={`تطبيق ${column.label} على الجميع`}><option value="">اختر</option><option value="true">✓ الكل</option><option value="false">✗ الكل</option></select>}
-        {column.type === 'score' && <input type="number" min="0" max={column.maxScore ?? undefined} placeholder="الكل" onChange={event => { if (event.target.value !== '') applyColumnValue(column, event.target.value) }} aria-label={`درجة ${column.label} للجميع`} />}
-        {column.type === 'choice' && <select defaultValue="" onChange={event => { if (event.target.value) applyColumnValue(column, event.target.value) }} aria-label={`تطبيق اختيار ${column.label} على الجميع`}><option value="">اختر الكل</option>{column.choices.filter(Boolean).map((choice, choiceIndex) => <option key={`${choice}-${choiceIndex}`} value={choice}>{choice}</option>)}</select>}
+        {noorCalculated && column.sheetType === 'noor' ? <span className="teacher-noor-auto-cell">محسوب</span> : <>{column.type === 'boolean' && <select defaultValue="" onChange={event => { if (event.target.value) applyColumnValue(column, event.target.value === 'true') }} aria-label={`تطبيق ${column.label} على الجميع`}><option value="">اختر</option><option value="true">✓ الكل</option><option value="false">✗ الكل</option></select>}
+        {column.type === 'score' && <input className="teacher-sheet-number" lang="en" dir="ltr" type="number" min="0" max={column.maxScore ?? undefined} placeholder="الكل" onChange={event => { if (event.target.value !== '') applyColumnValue(column, event.target.value) }} aria-label={`درجة ${column.label} للجميع`} />}
+        {column.type === 'choice' && <select defaultValue="" onChange={event => { if (event.target.value) applyColumnValue(column, event.target.value) }} aria-label={`تطبيق اختيار ${column.label} على الجميع`}><option value="">اختر الكل</option>{column.choices.filter(Boolean).map((choice, choiceIndex) => <option key={`${choice}-${choiceIndex}`} value={choice}>{choice}</option>)}</select>}</>}
       </th>)}</tr>
-    </thead><tbody>{lesson.students.map(student => { const state = states[student.id] || { status: 'present' as const, note: '' as const, sheetValues: {} }; return <tr key={student.id}><td><strong>{student.name}</strong><small>{student.grade} · {student.classroom}</small></td>{columns.map(column => { const marked = state.sheetValues[column.key] !== false; return <td key={column.key} className="teacher-sheet-cell">{column.type === 'score' && <input type="number" min="0" max={column.maxScore ?? undefined} value={String(state.sheetValues[column.key] ?? '')} onChange={event => updateSheetValue(student.id, column.key, event.target.value)} aria-label={`${column.label} لـ ${student.name}`} />}{column.type === 'text' && <input value={String(state.sheetValues[column.key] ?? '')} onChange={event => updateSheetValue(student.id, column.key, event.target.value)} aria-label={`${column.label} لـ ${student.name}`} />}{column.type === 'choice' && <select value={String(state.sheetValues[column.key] ?? '')} onChange={event => updateSheetValue(student.id, column.key, event.target.value)} aria-label={`${column.label} لـ ${student.name}`}><option value="">اختر</option>{column.choices.filter(Boolean).map((choice, choiceIndex) => <option key={`${choice}-${choiceIndex}`} value={choice}>{choice}</option>)}</select>}{column.type === 'boolean' && <button type="button" className={`teacher-sheet-boolean-button ${marked ? 'is-checked' : 'is-crossed'}`} onClick={() => updateSheetValue(student.id, column.key, !marked)} aria-label={`${marked ? 'إلغاء' : 'وضع'} علامة ${column.label} لـ ${student.name}`} aria-pressed={marked}>{marked ? <Check size={18} /> : <X size={19} />}</button>}</td> })}</tr> })}</tbody></table></div>
-    <div className="teacher-roster-save-bottom"><button className="outline-button" onClick={exportSheet}><FileSpreadsheet size={16} /> Excel</button><button className="outline-button" onClick={printSheet}><Printer size={16} /> PDF</button><button className="primary-button" onClick={saveLesson} disabled={busy === 'save'}><Save size={17} /> {busy === 'save' ? 'جارٍ الحفظ…' : 'حفظ الكشف'}</button></div>
+    </thead><tbody>{lesson.students.map(student => { const state = states[student.id] || { status: 'present' as const, note: '' as const, sheetValues: {} }; return <tr key={student.id}><td><strong>{student.name}</strong><small>{student.grade} · {student.classroom}</small></td>{columns.map(column => { const marked = state.sheetValues[column.key] !== false; const calculated = noorCalculated && column.sheetType === 'noor'; return <td key={column.key} className="teacher-sheet-cell">{column.type === 'score' && <input className={`teacher-sheet-number ${calculated ? 'teacher-noor-calculated-input' : ''}`} lang="en" dir="ltr" type="number" min="0" max={column.maxScore ?? undefined} value={westernDigits(state.sheetValues[column.key] ?? '')} readOnly={calculated} onChange={event => !calculated && updateSheetValue(student.id, column.key, event.target.value)} aria-label={`${column.label} لـ ${student.name}`} />}{column.type === 'text' && <input value={String(state.sheetValues[column.key] ?? '')} onChange={event => updateSheetValue(student.id, column.key, event.target.value)} aria-label={`${column.label} لـ ${student.name}`} />}{column.type === 'choice' && <select value={String(state.sheetValues[column.key] ?? '')} onChange={event => updateSheetValue(student.id, column.key, event.target.value)} aria-label={`${column.label} لـ ${student.name}`}><option value="">اختر</option>{column.choices.filter(Boolean).map((choice, choiceIndex) => <option key={`${choice}-${choiceIndex}`} value={choice}>{choice}</option>)}</select>}{column.type === 'boolean' && <button type="button" className={`teacher-sheet-boolean-button ${marked ? 'is-checked' : 'is-crossed'}`} onClick={() => updateSheetValue(student.id, column.key, !marked)} aria-label={`${marked ? 'إلغاء' : 'وضع'} علامة ${column.label} لـ ${student.name}`} aria-pressed={marked}>{marked ? <Check size={18} /> : <X size={19} />}</button>}</td> })}</tr> })}</tbody></table></div>
+    <div className="teacher-roster-save-bottom"><button className="outline-button" onClick={exportSheet}><FileSpreadsheet size={16} /> Excel</button><button className="outline-button" onClick={printSheet}><Printer size={16} /> PDF</button>{!noorCalculated && <button className="primary-button" onClick={saveLesson} disabled={busy === 'save'}><Save size={17} /> {busy === 'save' ? 'جارٍ الحفظ…' : 'حفظ الكشف'}</button>}</div>
   </section>
 }
 
@@ -273,7 +361,7 @@ function TeacherSheetReportView({ title, schedule, sheetType, onBack }: { title:
   const cellText = (student: import('./api').TeacherSheetReport['students'][number], column: (typeof columns)[number]) => String(displaySheetValue(student.values[column.key], column.type))
   const exportReport = () => {
     if (!report) return
-    const head = ['الطالب', ...columns.map(column => column.label)]
+    const head = ['الطالب', ...columns.map(column => westernDigits(column.label))]
     const rows: Array<Array<string | number>> = grouped ? [['', ...report.sections.flatMap(section => section.columns.map((_, index) => index === 0 ? sheetTypeLabels[section.sheetType] : ''))], head] : [head]
     for (const student of report.students) rows.push([student.name, ...columns.map(column => cellText(student, column))])
     const sheet = XLSX.utils.aoa_to_sheet(rows)
@@ -461,7 +549,7 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
   const [activeTab, setActiveTab] = useState<TeacherTab>('home')
   const [mobileNavOpen, setMobileNavOpen] = useState(false)
   const [sheets, setSheets] = useState<TeacherSheetSubject[]>([])
-  const [sheetMode, setSheetMode] = useState<'menu' | 'setup' | 'start' | 'noorGuide'>('menu')
+  const [sheetMode, setSheetMode] = useState<'menu' | 'setup' | 'start' | 'noorGuide' | 'noorMapping'>('menu')
   const [activeLessonDate, setActiveLessonDate] = useState(date)
   const [sheetOnlyView, setSheetOnlyView] = useState(false)
   const [selectedSheetType, setSelectedSheetType] = useState<TeacherSheetOpenType>('followup')
@@ -535,7 +623,7 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
   const exportSheet = () => {
     if (!lesson || !selected) return
     const columns = sheetOnlyView ? getSheetColumns(lesson) : []
-    const rows = [['الطالب', 'الحالة', 'الملاحظة', ...columns.map(column => column.label)], ...lesson.students.map(student => {
+    const rows = [['الطالب', 'الحالة', 'الملاحظة', ...columns.map(column => westernDigits(column.label))], ...lesson.students.map(student => {
       const state = states[student.id] || { status: 'present' as const, note: '', sheetValues: {} }
       return sheetOnlyView ? [student.name, ...columns.map(column => displaySheetValue(state.sheetValues[column.key]))] : [student.name, attendanceStatusLabel(state.status), state.note || '', ...columns.map(column => displaySheetValue(state.sheetValues[column.key]))]
     })]
@@ -597,7 +685,7 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
       const state = states[student.id] || { status: 'present' as const, note: '', sheetValues: {} }
       return sheetOnlyView ? `<tr><td>${escape(student.name)}</td>${columns.map(column => `<td>${escape(displaySheetValue(state.sheetValues[column.key]))}</td>`).join('')}</tr>` : `<tr><td>${escape(student.name)}</td><td>${attendanceStatusLabel(state.status)}</td><td>${escape(state.note || '')}</td>${columns.map(column => `<td>${escape(displaySheetValue(state.sheetValues[column.key]))}</td>`).join('')}</tr>`
     }).join('')
-    setPrintPreview(`<h2>كشف ${escape(lesson.assignment.subject)} - ${escape(selected.classroom)}</h2><p>${escape(formatHijriDate(activeLessonDate))}</p><table><thead><tr><th>الطالب</th>${sheetOnlyView ? '' : '<th>الحالة</th><th>الملاحظة</th>'}${columns.map(column => `<th>${escape(column.label)}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table>`)
+    setPrintPreview(`<h2>كشف ${escape(lesson.assignment.subject)} - ${escape(selected.classroom)}</h2><p>${escape(formatHijriDate(activeLessonDate))}</p><table><thead><tr><th>الطالب</th>${sheetOnlyView ? '' : '<th>الحالة</th><th>الملاحظة</th>'}${columns.map(column => `<th>${escape(westernDigits(column.label))}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table>`)
   }
 
   const saveLesson = async () => {
@@ -684,7 +772,14 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
     </>}
     {activeTab === 'cooperation' && cooperationStatus?.available && <TeacherCooperationPanel status={cooperationStatus} onRefresh={loadCooperationStatus} />}
     {activeTab === 'referrals' && <TeacherReferralCenter date={date} schedule={dashboard?.schedule || []} schoolName={dashboard?.schoolName || 'المدرسة'} teacherName={dashboard?.teacher.name || account.displayName} />}
-    {activeTab === 'sheets' && <section className="teacher-card"><div className="teacher-section-head"><div><span>إدارة الكشوف</span><h2>الكشوف</h2><p>جهز كشف كل مادة مرة واحدة، أو ابدأ المتابعة مباشرة.</p></div><FileSpreadsheet size={30} /></div>{sheetMode === 'menu' && <div className="teacher-sheet-menu"><button type="button" onClick={() => { setLesson(null); setSelected(null); setSheetOnlyView(false); setSheetMode('setup') }}><FileSpreadsheet size={30} /><strong>إعداد الكشوف</strong><small>أنشئ الأعمدة والدرجات لكل مادة</small></button><button type="button" onClick={() => setSheetMode('start')}><BookOpenCheck size={30} /><strong>بدء المتابعة</strong><small>اختر المادة والفصل والكشف ثم افتح الطلاب</small></button><button type="button" className="teacher-noor-sheet-menu-button" onClick={() => { setLesson(null); setSelected(null); setSheetOnlyView(false); setSheetMode('noorGuide') }}><span className="teacher-experimental-badge">تجريبي</span><Copy size={30} /><strong>نسخ نموذج من نور</strong><small>ارفع لقطة نور وأنشئ أعمدة الدرجات</small></button></div>}{sheetMode === 'setup' && <><button type="button" className="outline-button teacher-sheet-back" onClick={() => setSheetMode('menu')}>العودة إلى الكشوف</button><TeacherSheetsSetup sheets={sheets} onSaved={config => setSheets(current => current.map(subject => subject.subject === config.subject ? { ...subject, configs: [...subject.configs.filter(item => item.sheetType !== config.sheetType), config] } : subject))} onDeleted={(subjectName, sheetType) => setSheets(current => current.map(subject => subject.subject === subjectName ? { ...subject, configs: subject.configs.filter(config => config.sheetType !== sheetType) } : subject))} /></>}{sheetMode === 'start' && <><button type="button" className="outline-button teacher-sheet-back" onClick={() => setSheetMode('menu')}>العودة إلى الكشوف</button><TeacherSheetStart sheets={sheets} schedule={dashboard?.weekSchedule || []} onOpen={(item, type) => void openLesson(item, type, true)} /></>}{sheetMode === 'noorGuide' && <TeacherNoorSheetGuide sheets={sheets} onBack={() => setSheetMode('menu')} onSaved={config => setSheets(current => current.map(subject => subject.subject === config.subject ? { ...subject, configs: [...subject.configs.filter(item => item.sheetType !== config.sheetType), config] } : subject))} />}{sheetMode !== 'setup' && sheetMode !== 'noorGuide' && sheetOnlyView && lesson && selected && <TeacherSheetRoster lesson={lesson} selected={selected} states={states} updateSheetValue={updateSheetValue} exportSheet={exportSheet} printSheet={printSheet} saveLesson={saveLesson} busy={busy} />}</section>}
+    {activeTab === 'sheets' && <section className="teacher-card"><div className="teacher-section-head"><div><span>إدارة الكشوف</span><h2>الكشوف</h2><p>جهز كشف كل مادة مرة واحدة، أو ابدأ المتابعة مباشرة.</p></div><FileSpreadsheet size={30} /></div>
+      {sheetMode === 'menu' && <div className="teacher-sheet-menu"><button type="button" onClick={() => { setLesson(null); setSelected(null); setSheetOnlyView(false); setSheetMode('setup') }}><FileSpreadsheet size={30} /><strong>إعداد الكشوف</strong><small>أنشئ الأعمدة والدرجات لكل مادة</small></button><button type="button" onClick={() => setSheetMode('start')}><BookOpenCheck size={30} /><strong>بدء المتابعة</strong><small>اختر المادة والفصل والكشف ثم افتح الطلاب</small></button><button type="button" className="teacher-noor-sheet-menu-button" onClick={() => { setLesson(null); setSelected(null); setSheetOnlyView(false); setSheetMode('noorGuide') }}><span className="teacher-experimental-badge">تجريبي</span><Copy size={30} /><strong>نسخ نموذج من نور</strong><small>ارفع لقطة نور وأنشئ أعمدة الدرجات</small></button><button type="button" onClick={() => { setLesson(null); setSelected(null); setSheetOnlyView(false); setSheetMode('noorMapping') }}><Copy size={30} /><strong>ربط كشف نور</strong><small>اجمع درجات الكشوف في أعمدة نور</small></button></div>}
+      {sheetMode === 'setup' && <><button type="button" className="outline-button teacher-sheet-back" onClick={() => setSheetMode('menu')}>العودة إلى الكشوف</button><TeacherSheetsSetup sheets={sheets} onSaved={config => setSheets(current => current.map(subject => subject.subject === config.subject ? { ...subject, configs: [...subject.configs.filter(item => item.sheetType !== config.sheetType), config] } : subject))} onDeleted={(subjectName, sheetType) => setSheets(current => current.map(subject => subject.subject === subjectName ? { ...subject, configs: subject.configs.filter(config => config.sheetType !== sheetType) } : subject))} /></>}
+      {sheetMode === 'start' && <><button type="button" className="outline-button teacher-sheet-back" onClick={() => setSheetMode('menu')}>العودة إلى الكشوف</button><TeacherSheetStart sheets={sheets} schedule={dashboard?.weekSchedule || []} onOpen={(item, type) => void openLesson(item, type, true)} /></>}
+      {sheetMode === 'noorGuide' && <TeacherNoorSheetGuide sheets={sheets} onBack={() => setSheetMode('menu')} onSaved={config => setSheets(current => current.map(subject => subject.subject === config.subject ? { ...subject, configs: [...subject.configs.filter(item => item.sheetType !== config.sheetType), config] } : subject))} />}
+      {sheetMode === 'noorMapping' && <TeacherNoorSheetMapping sheets={sheets} onBack={() => setSheetMode('menu')} onSaved={config => setSheets(current => current.map(subject => subject.subject === config.subject ? { ...subject, configs: [...subject.configs.filter(item => item.sheetType !== config.sheetType), config] } : subject))} />}
+      {sheetMode !== 'setup' && sheetMode !== 'noorGuide' && sheetMode !== 'noorMapping' && sheetOnlyView && lesson && selected && <TeacherSheetRoster lesson={lesson} selected={selected} states={states} updateSheetValue={updateSheetValue} exportSheet={exportSheet} printSheet={printSheet} saveLesson={saveLesson} busy={busy} noorCalculated={Boolean(lesson.noorCalculated)} />}
+    </section>}
     {activeTab === 'reports' && <TeacherReportsTab key={reportsKey} schedule={dashboard?.weekSchedule || []} schoolName={dashboard?.schoolName || 'المدرسة'} teacherName={dashboard?.teacher.name || account.displayName} />}
     {printPreview && <div className="teacher-print-overlay" role="dialog" aria-modal="true" aria-label="معاينة الطباعة"><div className="teacher-print-actions"><button type="button" className="outline-button" onClick={() => setPrintPreview('')}>إغلاق والعودة</button><button type="button" className="primary-button" onClick={() => window.print()}><Printer size={16} /> طباعة / حفظ PDF</button></div><div className="teacher-print-preview" dangerouslySetInnerHTML={{ __html: printPreview }} /></div>}
     </div>
