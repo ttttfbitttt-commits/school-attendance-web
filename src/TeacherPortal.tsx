@@ -33,18 +33,6 @@ type TeacherAttendanceStatus = 'present' | 'absent' | 'late'
 type StudentState = { status: TeacherAttendanceStatus; note: TeacherNote | ''; sheetValues: Record<string, string | number | boolean> }
 type TeacherTab = 'home' | 'schedule' | 'cooperation' | 'referrals' | 'sheets' | 'reports' | 'password'
 type RenderSheetColumn = TeacherSheetColumn & { key: string; sheetType: TeacherSheetType }
-type NoorTransferFile = {
-  format: '7asr2030-noor-transfer'
-  version: 1
-  generatedAt: string
-  schoolName: string
-  teacherName: string
-  subject: string
-  grade: string
-  classroom: string
-  columns: Array<{ id: string; label: string; maxScore: number }>
-  students: Array<{ identityNumber: string; name: string; scores: Record<string, number> }>
-}
 const getSheetColumns = (lesson: TeacherLesson): RenderSheetColumn[] => lesson.sheetConfigs.flatMap(config => config.columns.map(column => ({ ...column, key: `${config.sheetType}:${column.id}`, sheetType: config.sheetType })))
 const attendanceStatusLabel = (status: TeacherAttendanceStatus) => status === 'present' ? 'حاضر' : status === 'late' ? 'تأخر عن الحصة' : 'غائب'
 const formatHijriDayAndDate = (value: string) => new Intl.DateTimeFormat('ar-SA-u-ca-islamic-umalqura', { weekday: 'long', day: 'numeric', month: 'numeric', timeZone: 'Asia/Riyadh' }).format(new Date(`${value}T12:00:00+03:00`))
@@ -640,46 +628,6 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
     const state = current[studentId] || { status: 'present' as const, note: '' as const, sheetValues: {} }
     return { ...current, [studentId]: { ...state, sheetValues: { ...state.sheetValues, [columnId]: value } } }
   })
-
-  const exportNoorTransfer = () => {
-    if (!lesson || !selected || selectedSheetType !== 'noor') return
-    const columns = getSheetColumns(lesson).filter(column => column.sheetType === 'noor' && column.type === 'score' && Number.isFinite(Number(column.maxScore)) && Number(column.maxScore) > 0)
-    if (!columns.length) {
-      setError('لا توجد أعمدة درجات صالحة في كشف نور لتصديرها إلى الإضافة.')
-      return
-    }
-    const transfer: NoorTransferFile = {
-      format: '7asr2030-noor-transfer',
-      version: 1,
-      generatedAt: new Date().toISOString(),
-      schoolName: dashboard?.schoolName || '',
-      teacherName: dashboard?.teacher.name || account.displayName,
-      subject: lesson.assignment.subject,
-      grade: lesson.mapping.grade,
-      classroom: lesson.mapping.classroom,
-      columns: columns.map(column => ({ id: column.id, label: westernDigits(column.label), maxScore: Number(column.maxScore) })),
-      students: lesson.students.map(student => {
-        const state = states[student.id] || { status: 'present' as const, note: '', sheetValues: {} }
-        const scores: Record<string, number> = {}
-        for (const column of columns) {
-          const text = scoreText(state.sheetValues[column.key] ?? '')
-          const value = Number(text)
-          if (text !== '' && Number.isFinite(value)) scores[column.id] = value
-        }
-        return { identityNumber: westernDigits(student.id), name: student.name, scores }
-      }),
-    }
-    const blob = new Blob([JSON.stringify(transfer, null, 2)], { type: 'application/json;charset=utf-8' })
-    const url = URL.createObjectURL(blob)
-    const anchor = document.createElement('a')
-    anchor.href = url
-    anchor.download = `رصد-نور-${lesson.assignment.subject}-${lesson.mapping.grade}-${lesson.mapping.classroom}.noor.json`.replace(/[\\/:*?"<>|]/g, '-')
-    document.body.appendChild(anchor)
-    anchor.click()
-    anchor.remove()
-    window.setTimeout(() => URL.revokeObjectURL(url), 0)
-    setNotice(`تم تنزيل ملف إضافة نور لـ ${transfer.students.length} طالبًا. استورده من الإضافة داخل صفحة نور.`)
-  }
 
   const exportSheet = () => {
     if (!lesson || !selected) return
