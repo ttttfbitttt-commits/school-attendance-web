@@ -1,0 +1,57 @@
+﻿<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>حصر 2030 لرصد نور</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <main class="popup-shell">
+    <header class="popup-header">
+      <div class="brand-mark">ن</div>
+      <div><h1>حصر 2030 لرصد نور</h1><p>نقل الدرجات بعد مراجعتها</p></div>
+    </header>
+
+    <section class="notice neutral"><strong>الخطوة 1:</strong> نزّل «ملف إضافة نور» من كشف نور في نظام الحصر، ثم افتح صفحة رصد الدرجات للمادة نفسها في نور.</section>
+
+    <section class="card">
+      <label class="file-label" for="transfer-file">رفع ملف إضافة نور</label>
+      <input id="transfer-file" type="file" accept=".json,.noor.json,application/json">
+      <p class="field-hint">الملف يبقى داخل متصفحك ولا يحتوي على كلمة مرور نور.</p>
+      <div id="transfer-summary" class="summary empty">لم يتم اختيار ملف بعد.</div>
+      <button id="clear-transfer" class="text-button" type="button" disabled>مسح الملف من الإضافة</button>
+    </section>
+
+    <section class="card page-actions">
+      <div class="section-title"><span>الخطوة 2: فحص صفحة نور</span><small id="progress">—</small></div>
+      <button id="scan-page" class="secondary-button" type="button" disabled>فحص الصفحة الحالية</button>
+      <div id="scan-summary" class="summary empty">افتح صفحة إدخال الدرجات في نور ثم افحصها.</div>
+    </section>
+
+    <section id="mapping-card" class="card hidden">
+      <div class="section-title"><span>الخطوة 3: مطابقة الأعمدة</span><small>راجعها قبل التعبئة</small></div>
+      <p class="field-hint">اختر لكل عمود من الكشف العمود المناظر له في صفحة نور. لا تُملأ الخانات غير المطابقة.</p>
+      <div id="mapping-list" class="mapping-list"></div>
+      <label class="status-option"><input id="set-present" type="checkbox"> عيّن «حاضر» فقط للطلاب الذين تُكتب لهم درجة</label>
+    </section>
+
+    <section class="card fill-card">
+      <button id="fill-page" class="primary-button" type="button" disabled>تعبئة درجات هذه الصفحة</button>
+      <p class="field-hint">لا تضغط الإضافة حفظ أو انتقال. راجع الدرجات ثم استخدم أزرار نور المعتادة للحفظ أو الانتقال للصفحة التالية.</p>
+      <div id="result" class="result hidden"></div>
+    </section>
+
+    <details class="help-card">
+      <summary>طريقة الاستخدام السريعة</summary>
+      <ol>
+        <li>اختر المادة والفصل الصحيحين داخل نور.</li>
+        <li>ارفع ملف الإضافة الذي نزلته من كشف نور في نظام الحصر.</li>
+        <li>افحص الصفحة، وطابق الأعمدة، ثم اضغط تعبئة.</li>
+        <li>عند وجود صفحات أخرى انتقل إليها من نور، ثم افحصها وعبئها بالطريقة نفسها.</li>
+      </ol>
+    </details>
+  </main>
+  <script src="popup.js"></script>
+</body>
+</html>

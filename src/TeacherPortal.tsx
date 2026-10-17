@@ -33,6 +33,18 @@ type TeacherAttendanceStatus = 'present' | 'absent' | 'late'
 type StudentState = { status: TeacherAttendanceStatus; note: TeacherNote | ''; sheetValues: Record<string, string | number | boolean> }
 type TeacherTab = 'home' | 'schedule' | 'cooperation' | 'referrals' | 'sheets' | 'reports' | 'password'
 type RenderSheetColumn = TeacherSheetColumn & { key: string; sheetType: TeacherSheetType }
+type NoorTransferFile = {
+  format: '7asr2030-noor-transfer'
+  version: 1
+  generatedAt: string
+  schoolName: string
+  teacherName: string
+  subject: string
+  grade: string
+  classroom: string
+  columns: Array<{ id: string; label: string; maxScore: number }>
+  students: Array<{ identityNumber: string; name: string; scores: Record<string, number> }>
+}
 const getSheetColumns = (lesson: TeacherLesson): RenderSheetColumn[] => lesson.sheetConfigs.flatMap(config => config.columns.map(column => ({ ...column, key: `${config.sheetType}:${column.id}`, sheetType: config.sheetType })))
 const attendanceStatusLabel = (status: TeacherAttendanceStatus) => status === 'present' ? 'حاضر' : status === 'late' ? 'تأخر عن الحصة' : 'غائب'
 const formatHijriDayAndDate = (value: string) => new Intl.DateTimeFormat('ar-SA-u-ca-islamic-umalqura', { weekday: 'long', day: 'numeric', month: 'numeric', timeZone: 'Asia/Riyadh' }).format(new Date(`${value}T12:00:00+03:00`))
@@ -297,12 +309,12 @@ function TeacherNoorSheetMapping({ sheets, onBack, onSaved }: { sheets: TeacherS
   </section>
 }
 
-function TeacherSheetRoster({ lesson, selected, states, updateSheetValue, exportSheet, printSheet, saveLesson, busy, noorCalculated = false }: { lesson: TeacherLesson; selected: TeacherPortalScheduleItem; states: Record<string, StudentState>; updateSheetValue: (studentId: string, columnId: string, value: string | number | boolean) => void; exportSheet: () => void; printSheet: () => void; saveLesson: () => void; busy: string; noorCalculated?: boolean }) {
+function TeacherSheetRoster({ lesson, selected, states, updateSheetValue, exportSheet, exportNoorTransfer, printSheet, saveLesson, busy, noorCalculated = false, isNoorSheet = false }: { lesson: TeacherLesson; selected: TeacherPortalScheduleItem; states: Record<string, StudentState>; updateSheetValue: (studentId: string, columnId: string, value: string | number | boolean) => void; exportSheet: () => void; exportNoorTransfer: () => void; printSheet: () => void; saveLesson: () => void; busy: string; noorCalculated?: boolean; isNoorSheet?: boolean }) {
   const columns = getSheetColumns(lesson)
   const applyColumnValue = (column: RenderSheetColumn, value: string | number | boolean) => lesson.students.forEach(student => updateSheetValue(student.id, column.key, value))
   useEffect(() => { if (window.matchMedia('(max-width: 950px)').matches) document.querySelector<HTMLDivElement>('.teacher-sheet-roster .teacher-roster-table-wrap')?.scrollTo({ left: 0 }) }, [lesson])
   return <section className="teacher-card teacher-roster-card teacher-sheet-roster">
-    <div className="teacher-section-head"><div><span>{lesson.assignment.subject} · {lesson.mapping.grade} · الفصل {lesson.mapping.classroom}</span><h2>كشف {lesson.assignment.subject} — {selected.classroom}</h2>{noorCalculated && <p className="teacher-noor-calculated-note">درجات هذا الكشف تُحسب تلقائيًا من الأعمدة المرتبطة.</p>}</div><div className="teacher-report-actions"><button className="outline-button" onClick={exportSheet}><FileSpreadsheet size={16} /> Excel</button><button className="outline-button" onClick={printSheet}><Printer size={16} /> PDF</button>{!noorCalculated && <button className="primary-button" onClick={saveLesson} disabled={busy === 'save'}><Save size={17} /> {busy === 'save' ? 'جارٍ الحفظ…' : 'حفظ الكشف'}</button>}</div></div>
+    <div className="teacher-section-head"><div><span>{lesson.assignment.subject} · {lesson.mapping.grade} · الفصل {lesson.mapping.classroom}</span><h2>كشف {lesson.assignment.subject} — {selected.classroom}</h2>{noorCalculated && <p className="teacher-noor-calculated-note">درجات هذا الكشف تُحسب تلقائيًا من الأعمدة المرتبطة.</p>}{isNoorSheet && <p className="teacher-noor-transfer-note">نزّل ملف الإضافة ثم افتح صفحة رصد المادة في نور واستورده من إضافة «حصر 2030 لرصد نور».</p>}</div><div className="teacher-report-actions">{isNoorSheet && <button className="primary-button" onClick={exportNoorTransfer}><Send size={16} /> ملف إضافة نور</button>}<button className="outline-button" onClick={exportSheet}><FileSpreadsheet size={16} /> Excel</button><button className="outline-button" onClick={printSheet}><Printer size={16} /> PDF</button>{!noorCalculated && <button className="primary-button" onClick={saveLesson} disabled={busy === 'save'}><Save size={17} /> {busy === 'save' ? 'جارٍ الحفظ…' : 'حفظ الكشف'}</button>}</div></div>
     <div className="teacher-roster-table-wrap"><table className="teacher-roster-table"><thead>
       <tr><th>الطالب</th>{columns.map(column => <th key={column.key} className="teacher-sheet-heading"><EnglishDigits value={column.label} />{column.type === 'score' && column.maxScore !== null ? <> / <b className="teacher-sheet-number" lang="en" dir="ltr">{westernDigits(column.maxScore)}</b></> : ''}</th>)}</tr>
       <tr className="teacher-sheet-bulk-row"><th>تطبيق على الجميع</th>{columns.map(column => <th key={column.key}>
@@ -629,6 +641,46 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
     return { ...current, [studentId]: { ...state, sheetValues: { ...state.sheetValues, [columnId]: value } } }
   })
 
+  const exportNoorTransfer = () => {
+    if (!lesson || !selected || selectedSheetType !== 'noor') return
+    const columns = getSheetColumns(lesson).filter(column => column.sheetType === 'noor' && column.type === 'score' && Number.isFinite(Number(column.maxScore)) && Number(column.maxScore) > 0)
+    if (!columns.length) {
+      setError('لا توجد أعمدة درجات صالحة في كشف نور لتصديرها إلى الإضافة.')
+      return
+    }
+    const transfer: NoorTransferFile = {
+      format: '7asr2030-noor-transfer',
+      version: 1,
+      generatedAt: new Date().toISOString(),
+      schoolName: dashboard?.schoolName || '',
+      teacherName: dashboard?.teacher.name || account.displayName,
+      subject: lesson.assignment.subject,
+      grade: lesson.mapping.grade,
+      classroom: lesson.mapping.classroom,
+      columns: columns.map(column => ({ id: column.id, label: westernDigits(column.label), maxScore: Number(column.maxScore) })),
+      students: lesson.students.map(student => {
+        const state = states[student.id] || { status: 'present' as const, note: '', sheetValues: {} }
+        const scores: Record<string, number> = {}
+        for (const column of columns) {
+          const text = scoreText(state.sheetValues[column.key] ?? '')
+          const value = Number(text)
+          if (text !== '' && Number.isFinite(value)) scores[column.id] = value
+        }
+        return { identityNumber: westernDigits(student.id), name: student.name, scores }
+      }),
+    }
+    const blob = new Blob([JSON.stringify(transfer, null, 2)], { type: 'application/json;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const anchor = document.createElement('a')
+    anchor.href = url
+    anchor.download = `رصد-نور-${lesson.assignment.subject}-${lesson.mapping.grade}-${lesson.mapping.classroom}.noor.json`.replace(/[\\/:*?"<>|]/g, '-')
+    document.body.appendChild(anchor)
+    anchor.click()
+    anchor.remove()
+    window.setTimeout(() => URL.revokeObjectURL(url), 0)
+    setNotice(`تم تنزيل ملف إضافة نور لـ ${transfer.students.length} طالبًا. استورده من الإضافة داخل صفحة نور.`)
+  }
+
   const exportSheet = () => {
     if (!lesson || !selected) return
     const columns = sheetOnlyView ? getSheetColumns(lesson) : []
@@ -791,7 +843,7 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
       {sheetMode === 'start' && <><button type="button" className="outline-button teacher-sheet-back" onClick={() => setSheetMode('menu')}>العودة إلى الكشوف</button><TeacherSheetStart sheets={sheets} schedule={dashboard?.weekSchedule || []} onOpen={(item, type) => void openLesson(item, type, true)} /></>}
       {sheetMode === 'noorGuide' && <TeacherNoorSheetGuide sheets={sheets} onBack={() => setSheetMode('menu')} onSaved={config => setSheets(current => current.map(subject => subject.subject === config.subject ? { ...subject, configs: [...subject.configs.filter(item => item.sheetType !== config.sheetType), config] } : subject))} />}
       {sheetMode === 'noorMapping' && <TeacherNoorSheetMapping sheets={sheets} onBack={() => setSheetMode('menu')} onSaved={config => setSheets(current => current.map(subject => subject.subject === config.subject ? { ...subject, configs: [...subject.configs.filter(item => item.sheetType !== config.sheetType), config] } : subject))} />}
-      {sheetMode !== 'setup' && sheetMode !== 'noorGuide' && sheetMode !== 'noorMapping' && sheetOnlyView && lesson && selected && <TeacherSheetRoster lesson={lesson} selected={selected} states={states} updateSheetValue={updateSheetValue} exportSheet={exportSheet} printSheet={printSheet} saveLesson={saveLesson} busy={busy} noorCalculated={Boolean(lesson.noorCalculated)} />}
+      {sheetMode !== 'setup' && sheetMode !== 'noorGuide' && sheetMode !== 'noorMapping' && sheetOnlyView && lesson && selected && <TeacherSheetRoster lesson={lesson} selected={selected} states={states} updateSheetValue={updateSheetValue} exportSheet={exportSheet} exportNoorTransfer={exportNoorTransfer} printSheet={printSheet} saveLesson={saveLesson} busy={busy} noorCalculated={Boolean(lesson.noorCalculated)} isNoorSheet={selectedSheetType === 'noor'} />}
     </section>}
     {activeTab === 'reports' && <TeacherReportsTab key={reportsKey} schedule={dashboard?.weekSchedule || []} schoolName={dashboard?.schoolName || 'المدرسة'} teacherName={dashboard?.teacher.name || account.displayName} />}
     {printPreview && <div className="teacher-print-overlay" role="dialog" aria-modal="true" aria-label="معاينة الطباعة"><div className="teacher-print-actions"><button type="button" className="outline-button" onClick={() => setPrintPreview('')}>إغلاق والعودة</button><button type="button" className="primary-button" onClick={() => window.print()}><Printer size={16} /> طباعة / حفظ PDF</button></div><div className="teacher-print-preview" dangerouslySetInnerHTML={{ __html: printPreview }} /></div>}
