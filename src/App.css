@@ -5268,6 +5268,9 @@ tbody td {
 .teacher-noor-image-preview img { width:100%; max-height:220px; object-fit:contain; border:1px solid #cbddeb; border-radius:10px; background:#fff; }
 @media (max-width:640px) { .teacher-noor-upload-button { width:100%; }.teacher-noor-image-preview { grid-template-columns:1fr; }.teacher-noor-image-preview img { max-height:260px; } }
 .teacher-noor-upload-actions { display:flex; flex-wrap:wrap; gap:9px; align-items:center; }
+.teacher-roster-card .teacher-roster-table-wrap { height:clamp(360px,62dvh,620px); overflow:auto; overscroll-behavior:contain; -webkit-overflow-scrolling:touch; scrollbar-gutter:stable both-edges; }
+.teacher-roster-card .teacher-roster-table thead th { position:sticky; top:0; z-index:2; box-shadow:0 1px 0 #ccddea; }
+.teacher-roster-card .teacher-roster-table thead .teacher-sheet-bulk-row th { top:43px; z-index:1; }
 .teacher-noor-detected { display:grid; gap:13px; padding:15px; border:1px solid #b9d9ec; border-radius:14px; background:#f5fbff; }
 .teacher-noor-detected-head { display:flex; justify-content:space-between; gap:12px; align-items:flex-start; }
 .teacher-noor-detected-head > div { display:grid; gap:4px; }.teacher-noor-detected-head strong { color:var(--navy); }.teacher-noor-detected-head span { color:#607d91; font-size:12px; line-height:1.65; }.teacher-noor-detected-head > span { flex:none; padding:4px 9px; border-radius:999px; background:#dff2ff; color:#176b9e; font-weight:800; }
@@ -5457,6 +5460,9 @@ tbody td {
   .teacher-sheet-roster .teacher-roster-table select,.teacher-sheet-roster .teacher-roster-table input[type="number"] { box-sizing:border-box; width:100%; min-width:0; max-width:100%; padding:4px 2px; font-size:10px; }
   .teacher-sheet-roster .teacher-roster-table input[type="checkbox"] { width:17px; height:17px; }
 }
+
+/* جميع كشوف المعلم تبقى داخل إطار تمرير مستقل على الهاتف والكمبيوتر. */
+.teacher-roster-card:not(.teacher-sheet-roster) .teacher-roster-table-wrap { overflow-y:auto; }
 
 /* سجل السلوك */
 .behavior-center { --behavior-blue:#197fc6; --behavior-navy:#0b4778; --behavior-border:#d9e6ef; color:#0c2c48; }
