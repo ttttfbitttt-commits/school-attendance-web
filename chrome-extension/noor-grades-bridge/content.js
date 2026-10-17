@@ -37,10 +37,19 @@
     return candidate || ''
   }
   const inputSelector = 'input:not([type=hidden]):not([type=checkbox]):not([type=radio]):not([type=button]):not([type=submit]):not([type=reset])'
-  const scoreInputs = row => Array.from(row.querySelectorAll(inputSelector)).filter(input => visible(input) && !input.disabled && (input.type === 'text' || input.type === 'number' || input.type === 'tel' || !input.type))
+  const scoreInputs = row => Array.from(row.querySelectorAll(inputSelector)).filter(input => input.type === 'text' || input.type === 'number' || input.type === 'tel' || !input.type)
   const tableRows = table => Array.from(table.querySelectorAll('tr')).filter(row => row.closest('table') === table)
-  const studentRows = table => tableRows(table).filter(row => getIdentity(row) && scoreInputs(row).length)
+  const isStudentRow = row => Boolean(getIdentity(row) && scoreInputs(row).length)
+  const studentRows = table => tableRows(table).filter(isStudentRow)
   const pageTables = () => Array.from(document.querySelectorAll('table')).map(table => ({ table, rows: studentRows(table) })).filter(item => item.rows.length)
+  const looseStudentRows = () => Array.from(document.querySelectorAll('tr')).filter(isStudentRow)
+  const diagnostics = () => {
+    const rows = Array.from(document.querySelectorAll('tr'))
+    const inputs = Array.from(document.querySelectorAll(inputSelector))
+    const identities = rows.filter(row => Boolean(getIdentity(row))).length
+    const gradeRows = rows.filter(row => scoreInputs(row).length).length
+    return `الجداول: ${document.querySelectorAll('table').length}، الصفوف: ${rows.length}، صفوف الهوية: ${identities}، صفوف الحقول: ${gradeRows}، الحقول: ${inputs.length}`
+  }
   const ignoreColumn = label => /ملاحظ|مجموع|رقم الهويه|رقم الهوية|الطالب|اسم الطالب|تقدير|حاله|حالة/.test(normal(label))
   const maxFromText = text => {
     const values = [...digits(text).matchAll(/\d+(?:\.\d+)?/g)].map(match => Number(match[0])).filter(Number.isFinite)
@@ -70,7 +79,15 @@
   const inputOrdinal = (input, cell) => scoreInputs(cell).indexOf(input)
   const buildStructure = () => {
     const candidates = pageTables().sort((left, right) => right.rows.length - left.rows.length)
-    if (!candidates.length) return { error: 'لم يتم العثور على جدول طلاب يحتوي أرقام هوية وخانات درجات.' }
+    if (!candidates.length) {
+      const rows = looseStudentRows()
+      if (rows.length) {
+        const table = rows[0].closest('table')
+        const relatedRows = table ? rows.filter(row => row.closest('table') === table) : rows
+        candidates.push({ table: table || document, rows: relatedRows })
+      }
+    }
+    if (!candidates.length) return { error: `لم يتم العثور على جدول طلاب يحتوي أرقام هوية وخانات درجات. ${diagnostics()}` }
     const { table, rows } = candidates[0]
     const firstRow = rows[0]
     const headers = headersFor(table, firstRow)

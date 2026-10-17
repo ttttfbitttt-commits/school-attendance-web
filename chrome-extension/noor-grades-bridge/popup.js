@@ -20,6 +20,7 @@
   const storageSet = data => new Promise(resolve => chrome.storage.local.set(data, resolve))
   const storageClear = keys => new Promise(resolve => chrome.storage.local.remove(keys, resolve))
   const activeTab = () => new Promise(resolve => chrome.tabs.query({ active: true, currentWindow: true }, tabs => resolve(tabs[0])))
+  const tabFrames = tabId => new Promise(resolve => chrome.webNavigation.getAllFrames({ tabId }, frames => resolve(Array.isArray(frames) ? frames.map(frame => frame.frameId) : [])))
   const installPageBridge = tabId => new Promise((resolve, reject) => chrome.scripting.executeScript({ target: { tabId, allFrames: true }, files: ['content.js'] }, frames => {
     const error = chrome.runtime.lastError
     if (error) { reject(new Error(error.message)); return }
@@ -34,7 +35,8 @@
     if (!tab?.id) throw new Error('تعذر الوصول إلى تبويب نور الحالي.')
     if (!/^https:\/\/noor\.moe\.gov\.sa\//i.test(tab.url || '')) throw new Error('افتح صفحة رصد الدرجات في نظام نور أولًا.')
     const installedFrames = await installPageBridge(tab.id)
-    const frameIds = [...new Set([preferredFrameId, 0, ...installedFrames].filter(frameId => Number.isInteger(frameId)))]
+    const knownFrames = await tabFrames(tab.id)
+    const frameIds = [...new Set([preferredFrameId, 0, ...installedFrames, ...knownFrames].filter(frameId => Number.isInteger(frameId)))]
     let lastError = null
     for (const frameId of frameIds) {
       const response = await new Promise(resolve => chrome.tabs.sendMessage(tab.id, { type, ...payload }, { frameId }, result => {
