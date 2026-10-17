@@ -11,6 +11,7 @@
   }
   const getIdentity = row => {
     const texts = Array.from(row.querySelectorAll(':scope > td, :scope > th')).map(cell => digits(cell.innerText || cell.textContent || ''))
+    texts.push(digits(row.innerText || row.textContent || ''))
     for (const text of texts) {
       const match = text.match(/(?:^|\D)(\d{7,20})(?:\D|$)/)
       if (match) return match[1]
@@ -34,7 +35,7 @@
     return candidate || ''
   }
   const inputSelector = 'input:not([type=hidden]):not([type=checkbox]):not([type=radio]):not([type=button]):not([type=submit]):not([type=reset])'
-  const scoreInputs = row => Array.from(row.querySelectorAll(inputSelector)).filter(input => visible(input) && !input.disabled && (input.type === 'text' || input.type === 'number' || !input.type))
+  const scoreInputs = row => Array.from(row.querySelectorAll(inputSelector)).filter(input => visible(input) && !input.disabled && (input.type === 'text' || input.type === 'number' || input.type === 'tel' || !input.type))
   const tableRows = table => Array.from(table.querySelectorAll('tr')).filter(row => row.closest('table') === table)
   const studentRows = table => tableRows(table).filter(row => getIdentity(row) && scoreInputs(row).length)
   const pageTables = () => Array.from(document.querySelectorAll('table')).map(table => ({ table, rows: studentRows(table) })).filter(item => item.rows.length)

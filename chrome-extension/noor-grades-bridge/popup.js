@@ -20,15 +20,21 @@
   const storageSet = data => new Promise(resolve => chrome.storage.local.set(data, resolve))
   const storageClear = keys => new Promise(resolve => chrome.storage.local.remove(keys, resolve))
   const activeTab = () => new Promise(resolve => chrome.tabs.query({ active: true, currentWindow: true }, tabs => resolve(tabs[0])))
-  const messagePage = async (type, payload = {}) => {
+  const tabFrames = tabId => new Promise(resolve => chrome.webNavigation.getAllFrames({ tabId }, frames => resolve(Array.isArray(frames) ? frames.map(frame => frame.frameId).sort((left, right) => left - right) : [0])))
+  const messagePage = async (type, payload = {}, preferredFrameId = null) => {
     const tab = await activeTab()
     if (!tab?.id) throw new Error('تعذر الوصول إلى تبويب نور الحالي.')
-    return await new Promise((resolve, reject) => chrome.tabs.sendMessage(tab.id, { type, ...payload }, response => {
-      const error = chrome.runtime.lastError
-      if (error) reject(new Error('افتح صفحة رصد الدرجات داخل نظام نور ثم أعد المحاولة.'))
-      else if (!response?.ok) reject(new Error(response?.error || 'تعذر قراءة صفحة نور.'))
-      else resolve(response)
-    }))
+    const frameIds = [...new Set([preferredFrameId, 0, ...(await tabFrames(tab.id))].filter(frameId => Number.isInteger(frameId)))]
+    let lastError = null
+    for (const frameId of frameIds) {
+      const response = await new Promise(resolve => chrome.tabs.sendMessage(tab.id, { type, ...payload }, { frameId }, result => {
+        const error = chrome.runtime.lastError
+        resolve(error ? { ok: false, error: error.message } : result)
+      }))
+      if (response?.ok && (type !== 'NOOR_SCAN' || response.students?.length)) return { ...response, frameId }
+      lastError = response?.error || lastError
+    }
+    throw new Error(lastError || 'افتح صفحة رصد الدرجات داخل نظام نور ثم أعد المحاولة.')
   }
   const setSummary = (element, text, empty = false) => { element.textContent = text; element.classList.toggle('empty', empty) }
   const setResult = (text, type = 'success') => { result.textContent = text; result.className = `result ${type}` }
@@ -156,7 +162,7 @@
     fillButton.disabled = true
     fillButton.textContent = 'جارٍ تعبئة الصفحة…'
     try {
-      const response = await messagePage('NOOR_FILL', { transfer, mappings, statusMode: setPresent.checked ? 'present-if-score' : 'preserve' })
+      const response = await messagePage('NOOR_FILL', { transfer, mappings, statusMode: setPresent.checked ? 'present-if-score' : 'preserve' }, scan?.frameId)
       const previous = await storageGet(['noorCompletedIds'])
       const done = new Set(Array.isArray(previous.noorCompletedIds) ? previous.noorCompletedIds : [])
       ;(response.filledIdentityNumbers || []).forEach(identity => done.add(identity))

@@ -2,20 +2,21 @@
   "manifest_version": 3,
   "name": "حصر 2030 لرصد نور",
   "short_name": "رصد نور",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "استيراد درجات كشف نور من نظام الحصر وتعبئتها بعد مراجعة المعلم داخل صفحة نور.",
   "action": {
     "default_title": "حصر 2030 لرصد نور",
     "default_popup": "popup.html"
   },
-  "permissions": ["storage", "activeTab"],
+  "permissions": ["storage", "activeTab", "webNavigation"],
   "host_permissions": ["https://noor.moe.gov.sa/*"],
   "content_scripts": [
     {
       "matches": ["https://noor.moe.gov.sa/*"],
       "js": ["content.js"],
       "css": ["content.css"],
-      "run_at": "document_idle"
+      "run_at": "document_idle",
+      "all_frames": true
     }
   ],
   "icons": {
