@@ -5672,3 +5672,12 @@ body.referral-print-mode .referral-official-sheet{width:210mm!important;height:2
 .manual-selection-actions button{display:inline-flex;align-items:center;justify-content:center}
 .administrator-student-list button:disabled,.cooperation-manual-results button:disabled{opacity:.58;cursor:default}
 @media(max-width:600px){.manual-selection-actions{display:grid!important;grid-template-columns:1fr 1fr}.manual-selected-list{max-height:190px}.manual-selected-list article{align-items:flex-start}.manual-selected-remove{width:auto!important}}
+
+/* Assessment periods keep each teacher sheet independent. */
+.teacher-sheet-period-select { display:grid; gap:7px; max-width:280px; color:var(--navy); font-size:13px; font-weight:800; }
+.teacher-sheet-period-select select { min-height:44px; border:1px solid #cdddeb; border-radius:10px; padding:10px; background:#fff; color:var(--ink); font:inherit; }
+.teacher-sheet-period-note { margin:0; color:#83530e; font-size:12px; font-weight:700; line-height:1.75; }
+.teacher-noor-period-selectors { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; max-width:860px; }
+.teacher-sheet-start .teacher-sheet-selectors { grid-template-columns:repeat(4,minmax(0,1fr)); }
+@media (max-width:900px) { .teacher-sheet-start .teacher-sheet-selectors,.teacher-noor-period-selectors { grid-template-columns:repeat(2,minmax(0,1fr)); } }
+@media (max-width:720px) { .teacher-noor-period-selectors,.teacher-sheet-start .teacher-sheet-selectors { grid-template-columns:1fr; }.teacher-sheet-period-select { max-width:none; } }

@@ -10,6 +10,7 @@ const SHEET_TYPES = new Set(['followup', 'homework', 'tests', 'noor'])
 const COMBINED_SHEET_TYPES = ['followup', 'homework', 'tests']
 const SHEET_OPEN_TYPES = new Set([...SHEET_TYPES, 'combined'])
 const SHEET_FIELD_TYPES = new Set(['score', 'text', 'choice', 'boolean'])
+const ASSESSMENT_PERIODS = new Set(['period1', 'period2', 'period3', 'period4', 'final'])
 
 function clean(value, max = 240) {
   return String(value ?? '').replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max)
@@ -219,6 +220,35 @@ function cleanSheetValues(columns, value) {
 }
 function validSheetType(value) { return SHEET_TYPES.has(String(value || '')) ? String(value) : null }
 function validOpenSheetType(value) { return SHEET_OPEN_TYPES.has(String(value || '')) ? String(value) : null }
+function validAssessmentPeriod(value) { return ASSESSMENT_PERIODS.has(String(value || '')) ? String(value) : null }
+
+async function ensureAssessmentConfigs(client, { schoolId, teacherId, subject, assessmentPeriod, sheetTypes }) {
+  if (assessmentPeriod === 'period1' || assessmentPeriod === 'final') return
+  const requested = [...new Set((sheetTypes || []).filter(type => SHEET_TYPES.has(type)))]
+  if (!requested.length) return
+  const existing = await client.query(`SELECT DISTINCT ON (sheet_type) sheet_type
+    FROM teacher_sheet_configs
+    WHERE school_id=$1 AND teacher_id=$2 AND subject_name=$3 AND assessment_period=$4 AND active=true
+      AND sheet_type=ANY($5::text[])
+    ORDER BY sheet_type,version DESC`, [schoolId, teacherId, subject, assessmentPeriod, requested])
+  const existingTypes = new Set(existing.rows.map(row => row.sheet_type))
+  const missing = requested.filter(type => !existingTypes.has(type))
+  if (!missing.length) return
+  const sources = await client.query(`SELECT DISTINCT ON (sheet_type) sheet_type,columns,noor_mappings
+    FROM teacher_sheet_configs
+    WHERE school_id=$1 AND teacher_id=$2 AND subject_name=$3 AND assessment_period='period1' AND active=true
+      AND sheet_type=ANY($4::text[])
+    ORDER BY sheet_type,version DESC`, [schoolId, teacherId, subject, missing])
+  for (const source of sources.rows) {
+    await client.query(`INSERT INTO teacher_sheet_configs(
+        school_id,teacher_id,subject_name,sheet_type,assessment_period,version,columns,noor_mappings)
+      SELECT $1,$2,$3,$4,$5,COALESCE(MAX(version),0)::int + 1,$6::jsonb,$7::jsonb
+      FROM teacher_sheet_configs
+      WHERE school_id=$1 AND teacher_id=$2 AND subject_name=$3 AND sheet_type=$4 AND assessment_period=$5
+      ON CONFLICT DO NOTHING`, [schoolId, teacherId, subject, source.sheet_type, assessmentPeriod,
+      JSON.stringify(source.columns || []), JSON.stringify(source.noor_mappings || [])])
+  }
+}
 function classKey(value) {
   return clean(value, 200)
     .normalize('NFKC')
@@ -437,12 +467,17 @@ export async function migrateTeacherPortal(adminPool) {
       UNIQUE (school_id, teacher_id, subject_name, version)
     );
     ALTER TABLE teacher_sheet_configs ADD COLUMN IF NOT EXISTS sheet_type text NOT NULL DEFAULT 'followup';
+    ALTER TABLE teacher_sheet_configs ADD COLUMN IF NOT EXISTS assessment_period text NOT NULL DEFAULT 'period1';
     ALTER TABLE teacher_sheet_configs ADD COLUMN IF NOT EXISTS active boolean NOT NULL DEFAULT true;
     ALTER TABLE teacher_sheet_configs ADD COLUMN IF NOT EXISTS noor_mappings jsonb NOT NULL DEFAULT '[]'::jsonb;
     UPDATE teacher_sheet_configs SET sheet_type='followup' WHERE sheet_type IS NULL OR sheet_type='custom';
+    UPDATE teacher_sheet_configs SET assessment_period='period1'
+      WHERE assessment_period IS NULL OR assessment_period NOT IN ('period1','period2','period3','period4','final');
     ALTER TABLE teacher_sheet_configs DROP CONSTRAINT IF EXISTS teacher_sheet_configs_school_id_teacher_id_subject_name_version_key;
     ALTER TABLE teacher_sheet_configs DROP CONSTRAINT IF EXISTS teacher_sheet_configs_school_id_teacher_id_subject_name_ver_key;
-    CREATE UNIQUE INDEX IF NOT EXISTS teacher_sheet_configs_subject_type_version ON teacher_sheet_configs(school_id,teacher_id,subject_name,sheet_type,version);
+    DROP INDEX IF EXISTS teacher_sheet_configs_subject_type_version;
+    CREATE UNIQUE INDEX IF NOT EXISTS teacher_sheet_configs_subject_type_period_version
+      ON teacher_sheet_configs(school_id,teacher_id,subject_name,sheet_type,assessment_period,version);
     CREATE INDEX IF NOT EXISTS teacher_sheet_configs_current ON teacher_sheet_configs(school_id,teacher_id,subject_name,version DESC);
 
     CREATE TABLE IF NOT EXISTS teacher_sheet_entries (
@@ -476,17 +511,17 @@ export async function migrateTeacherPortal(adminPool) {
   // Every new sheet version keeps the accumulated values of previous versions.
   // This also repairs historical versions created before this preservation rule existed.
   await adminPool.query(`WITH latest AS (
-      SELECT DISTINCT ON (school_id,teacher_id,subject_name,sheet_type)
-        id,school_id,teacher_id,subject_name,sheet_type
+      SELECT DISTINCT ON (school_id,teacher_id,subject_name,sheet_type,assessment_period)
+        id,school_id,teacher_id,subject_name,sheet_type,assessment_period
       FROM teacher_sheet_configs WHERE active=true
-      ORDER BY school_id,teacher_id,subject_name,sheet_type,version DESC
+      ORDER BY school_id,teacher_id,subject_name,sheet_type,assessment_period,version DESC
     ), preserved AS (
       SELECT DISTINCT ON (l.id,e.assignment_id,e.entry_date,e.student_id)
         l.id AS target_config_id,e.school_id,e.teacher_id,e.assignment_id,e.classroom_id,e.entry_date,e.student_id,
         e.student_name,e.grade_value,e.classroom_value,e.values,e.updated_at
       FROM latest l
       JOIN teacher_sheet_configs source ON source.school_id=l.school_id AND source.teacher_id=l.teacher_id
-        AND source.subject_name=l.subject_name AND source.sheet_type=l.sheet_type
+        AND source.subject_name=l.subject_name AND source.sheet_type=l.sheet_type AND source.assessment_period=l.assessment_period
       JOIN teacher_sheet_entries e ON e.config_id=source.id AND e.school_id=source.school_id
       ORDER BY l.id,e.assignment_id,e.entry_date,e.student_id,source.version DESC,e.updated_at DESC
     )
@@ -570,8 +605,8 @@ export async function handleTeacherPortalRequest(context) {
       const subjects = (await client.query(`SELECT DISTINCT subject_name AS subject
         FROM lesson_schedule_assignments WHERE school_id=$1 AND import_id=$2 AND teacher_id=$3
         AND subject_name IS NOT NULL AND btrim(subject_name) <> '' ORDER BY subject_name`, [user.school_id, active.id, user.teacher_id])).rows
-      const configs = (await client.query(`SELECT DISTINCT ON (subject_name,sheet_type) id,subject_name AS subject,sheet_type AS "sheetType",version,columns,noor_mappings AS "noorMappings",created_at AS "createdAt"
-        FROM teacher_sheet_configs WHERE school_id=$1 AND teacher_id=$2 AND active=true ORDER BY subject_name,sheet_type,version DESC`, [user.school_id, user.teacher_id])).rows
+      const configs = (await client.query(`SELECT DISTINCT ON (subject_name,sheet_type,assessment_period) id,subject_name AS subject,sheet_type AS "sheetType",assessment_period AS "assessmentPeriod",version,columns,noor_mappings AS "noorMappings",created_at AS "createdAt"
+        FROM teacher_sheet_configs WHERE school_id=$1 AND teacher_id=$2 AND active=true ORDER BY subject_name,sheet_type,assessment_period,version DESC`, [user.school_id, user.teacher_id])).rows
       const bySubject = new Map()
       for (const config of configs) bySubject.set(config.subject, [...(bySubject.get(config.subject) || []), { ...config, version: Number(config.version) }])
       return subjects.map(subject => ({ subject: subject.subject, configs: bySubject.get(subject.subject) || [] }))
@@ -584,15 +619,17 @@ export async function handleTeacherPortalRequest(context) {
     if (!teacherOnly()) { json(res, 403, { error: 'forbidden' }); return true }
     const input = await body(req)
     const subject = clean(input.subjectName, 200)
+    const assessmentPeriod = validAssessmentPeriod(input.assessmentPeriod) || 'period1'
     const result = await scoped(user.school_id, async client => {
       const active = await activeImport(client, user.school_id)
       if (!active) return { error: 'schedule_not_imported' }
       const assigned = await client.query(`SELECT 1 FROM lesson_schedule_assignments
         WHERE school_id=$1 AND import_id=$2 AND teacher_id=$3 AND subject_name=$4 LIMIT 1`, [user.school_id, active.id, user.teacher_id, subject])
       if (!subject || !assigned.rowCount) return { error: 'subject_not_assigned' }
-      const configs = (await client.query(`SELECT DISTINCT ON (sheet_type) id,subject_name AS subject,sheet_type AS "sheetType",version,columns,noor_mappings AS "noorMappings",created_at AS "createdAt"
-        FROM teacher_sheet_configs WHERE school_id=$1 AND teacher_id=$2 AND subject_name=$3 AND sheet_type=ANY($4::text[]) AND active=true
-        ORDER BY sheet_type,version DESC`, [user.school_id, user.teacher_id, subject, [...COMBINED_SHEET_TYPES, 'noor']])).rows
+      await ensureAssessmentConfigs(client, { schoolId: user.school_id, teacherId: user.teacher_id, subject, assessmentPeriod, sheetTypes: [...COMBINED_SHEET_TYPES, 'noor'] })
+      const configs = (await client.query(`SELECT DISTINCT ON (sheet_type) id,subject_name AS subject,sheet_type AS "sheetType",assessment_period AS "assessmentPeriod",version,columns,noor_mappings AS "noorMappings",created_at AS "createdAt"
+        FROM teacher_sheet_configs WHERE school_id=$1 AND teacher_id=$2 AND subject_name=$3 AND assessment_period=$4 AND sheet_type=ANY($5::text[]) AND active=true
+        ORDER BY sheet_type,version DESC`, [user.school_id, user.teacher_id, subject, assessmentPeriod, [...COMBINED_SHEET_TYPES, 'noor']])).rows
       const noorConfig = configs.find(config => config.sheetType === 'noor')
       const sourceConfigs = configs.filter(config => COMBINED_SHEET_TYPES.includes(config.sheetType))
       if (!noorConfig) return { error: 'noor_sheet_not_configured' }
@@ -600,7 +637,7 @@ export async function handleTeacherPortalRequest(context) {
       if (!mappings) return { error: 'invalid_noor_mapping' }
       const config = (await client.query(`UPDATE teacher_sheet_configs SET noor_mappings=$1::jsonb
         WHERE school_id=$2 AND teacher_id=$3 AND id=$4
-        RETURNING id,subject_name AS subject,sheet_type AS "sheetType",version,columns,noor_mappings AS "noorMappings",created_at AS "createdAt"`,
+        RETURNING id,subject_name AS subject,sheet_type AS "sheetType",assessment_period AS "assessmentPeriod",version,columns,noor_mappings AS "noorMappings",created_at AS "createdAt"`,
       [JSON.stringify(mappings), user.school_id, user.teacher_id, noorConfig.id])).rows[0]
       return { config: { ...config, version: Number(config.version) } }
     })
@@ -614,6 +651,7 @@ export async function handleTeacherPortalRequest(context) {
     const input = await body(req)
     const subject = clean(input.subjectName, 200)
     const sheetType = validSheetType(input.sheetType)
+    const assessmentPeriod = validAssessmentPeriod(input.assessmentPeriod) || 'period1'
     const columns = cleanSheetColumns(input.columns)
     if (!subject || !sheetType || !columns) { json(res, 400, { error: 'invalid_sheet_config' }); return true }
     const result = await scoped(user.school_id, async client => {
@@ -623,12 +661,12 @@ export async function handleTeacherPortalRequest(context) {
         WHERE school_id=$1 AND import_id=$2 AND teacher_id=$3 AND subject_name=$4 LIMIT 1`, [user.school_id, active.id, user.teacher_id, subject])
       if (!assigned.rowCount) return { error: 'subject_not_assigned' }
       const previous = await client.query(`SELECT id FROM teacher_sheet_configs
-        WHERE school_id=$1 AND teacher_id=$2 AND subject_name=$3 AND sheet_type=$4
-        ORDER BY version DESC LIMIT 1`, [user.school_id, user.teacher_id, subject, sheetType])
+        WHERE school_id=$1 AND teacher_id=$2 AND subject_name=$3 AND sheet_type=$4 AND assessment_period=$5
+        ORDER BY version DESC LIMIT 1`, [user.school_id, user.teacher_id, subject, sheetType, assessmentPeriod])
       const version = Number((await client.query(`SELECT COALESCE(MAX(version),0)::int AS version FROM teacher_sheet_configs
-        WHERE school_id=$1 AND teacher_id=$2 AND subject_name=$3 AND sheet_type=$4`, [user.school_id, user.teacher_id, subject, sheetType])).rows[0].version) + 1
-      const config = (await client.query(`INSERT INTO teacher_sheet_configs(school_id,teacher_id,subject_name,sheet_type,version,columns)
-        VALUES($1,$2,$3,$4,$5,$6::jsonb) RETURNING id,subject_name AS subject,sheet_type AS "sheetType",version,columns,noor_mappings AS "noorMappings",created_at AS "createdAt"`, [user.school_id, user.teacher_id, subject, sheetType, version, JSON.stringify(columns)])).rows[0]
+        WHERE school_id=$1 AND teacher_id=$2 AND subject_name=$3 AND sheet_type=$4 AND assessment_period=$5`, [user.school_id, user.teacher_id, subject, sheetType, assessmentPeriod])).rows[0].version) + 1
+      const config = (await client.query(`INSERT INTO teacher_sheet_configs(school_id,teacher_id,subject_name,sheet_type,assessment_period,version,columns)
+        VALUES($1,$2,$3,$4,$5,$6,$7::jsonb) RETURNING id,subject_name AS subject,sheet_type AS "sheetType",assessment_period AS "assessmentPeriod",version,columns,noor_mappings AS "noorMappings",created_at AS "createdAt"`, [user.school_id, user.teacher_id, subject, sheetType, assessmentPeriod, version, JSON.stringify(columns)])).rows[0]
       if (previous.rowCount) {
         await client.query(`INSERT INTO teacher_sheet_entries(
             school_id,config_id,teacher_id,assignment_id,classroom_id,entry_date,student_id,student_name,grade_value,classroom_value,values,updated_at)
@@ -649,9 +687,10 @@ export async function handleTeacherPortalRequest(context) {
     if (!teacherOnly()) { json(res, 403, { error: 'forbidden' }); return true }
     const subject = clean(url.searchParams.get('subjectName'), 200)
     const sheetType = validSheetType(url.searchParams.get('sheetType'))
+    const assessmentPeriod = validAssessmentPeriod(url.searchParams.get('assessmentPeriod')) || 'period1'
     if (!subject || !sheetType) { json(res, 400, { error: 'invalid_sheet_config' }); return true }
     await scoped(user.school_id, client => client.query(`UPDATE teacher_sheet_configs SET active=false
-      WHERE school_id=$1 AND teacher_id=$2 AND subject_name=$3 AND sheet_type=$4 AND active=true`, [user.school_id, user.teacher_id, subject, sheetType]))
+      WHERE school_id=$1 AND teacher_id=$2 AND subject_name=$3 AND sheet_type=$4 AND assessment_period=$5 AND active=true`, [user.school_id, user.teacher_id, subject, sheetType, assessmentPeriod]))
     json(res, 200, { ok: true })
     return true
   }
@@ -661,6 +700,7 @@ export async function handleTeacherPortalRequest(context) {
     const subject = clean(url.searchParams.get('subjectName'), 200)
     const classroomId = String(url.searchParams.get('classroomId') || '')
     const sheetType = validOpenSheetType(url.searchParams.get('sheetType'))
+    const assessmentPeriod = validAssessmentPeriod(url.searchParams.get('assessmentPeriod')) || 'period1'
     const from = validDate(url.searchParams.get('from'))
     const to = validDate(url.searchParams.get('to'))
     if (!subject || !validId(classroomId) || !sheetType || (from && to && from > to)) { json(res, 400, { error: 'invalid_sheet_report' }); return true }
@@ -671,9 +711,11 @@ export async function handleTeacherPortalRequest(context) {
         WHERE a.school_id=$1 AND a.import_id=$2 AND a.teacher_id=$3 AND a.subject_name=$4 AND a.classroom_id=$5`, [user.school_id, active.id, user.teacher_id, subject, classroomId])).rows
       if (!assignments.length) return { error: 'lesson_not_assigned' }
       const requestedTypes = sheetType === 'combined' ? COMBINED_SHEET_TYPES : [sheetType]
-      const configs = (await client.query(`SELECT DISTINCT ON (sheet_type) id,sheet_type AS "sheetType",version,columns
-        FROM teacher_sheet_configs WHERE school_id=$1 AND teacher_id=$2 AND subject_name=$3 AND sheet_type=ANY($4::text[]) AND active=true
-        ORDER BY sheet_type,version DESC`, [user.school_id, user.teacher_id, subject, requestedTypes])).rows
+      const configTypes = sheetType === 'noor' ? [...COMBINED_SHEET_TYPES, 'noor'] : requestedTypes
+      await ensureAssessmentConfigs(client, { schoolId: user.school_id, teacherId: user.teacher_id, subject, assessmentPeriod, sheetTypes: configTypes })
+      const configs = (await client.query(`SELECT DISTINCT ON (sheet_type) id,sheet_type AS "sheetType",assessment_period AS "assessmentPeriod",version,columns
+        FROM teacher_sheet_configs WHERE school_id=$1 AND teacher_id=$2 AND subject_name=$3 AND assessment_period=$4 AND sheet_type=ANY($5::text[]) AND active=true
+        ORDER BY sheet_type,version DESC`, [user.school_id, user.teacher_id, subject, assessmentPeriod, requestedTypes])).rows
         .sort((left, right) => requestedTypes.indexOf(left.sheetType) - requestedTypes.indexOf(right.sheetType))
       if (!configs.length) return { error: 'sheet_not_configured' }
       const roster = await rosterForClassroom(client, user.school_id, classroomId)
@@ -694,7 +736,7 @@ export async function handleTeacherPortalRequest(context) {
         values.set(entry.studentId, current)
       }
       const reportStudents = rosterWithHistoricalStudents(roster.students, entries)
-      return { subject, sheetType, sections: configs.map(config => ({ sheetType: config.sheetType, version: Number(config.version), columns: config.columns })), classroomId, classroom: roster.mapping?.classroom || '', grade: roster.mapping?.grade || '', students: reportStudents.map(student => ({ ...student, values: values.get(student.id) || {} })) }
+      return { subject, sheetType, assessmentPeriod, sections: configs.map(config => ({ sheetType: config.sheetType, version: Number(config.version), columns: config.columns })), classroomId, classroom: roster.mapping?.classroom || '', grade: roster.mapping?.grade || '', students: reportStudents.map(student => ({ ...student, values: values.get(student.id) || {} })) }
     })
     if (result.error) { json(res, result.error === 'sheet_not_configured' ? 404 : 409, result); return true }
     json(res, 200, result)
@@ -734,6 +776,7 @@ export async function handleTeacherPortalRequest(context) {
     const date = validDate(url.searchParams.get('date'))
     const periodNumber = validPeriod(url.searchParams.get('periodNumber'))
     const sheetType = validOpenSheetType(url.searchParams.get('sheetType')) || 'followup'
+    const assessmentPeriod = validAssessmentPeriod(url.searchParams.get('assessmentPeriod')) || 'period1'
     if (!validId(classroomId) || !date || !periodNumber) { json(res, 400, { error: 'invalid_lesson_request' }); return true }
     const weekday = weekdayForDate(date)
     const result = await scoped(user.school_id, async client => {
@@ -749,15 +792,17 @@ export async function handleTeacherPortalRequest(context) {
         return { error: 'classroom_student_mapping_needed', classroom: assignment.rows[0].classroom, candidateGroups: groups }
       }
       const requestedTypes = sheetType === 'combined' ? COMBINED_SHEET_TYPES : [sheetType]
-      const configResult = await client.query(`SELECT DISTINCT ON (sheet_type) id,subject_name AS subject,sheet_type AS "sheetType",version,columns,noor_mappings AS "noorMappings",created_at AS "createdAt"
-        FROM teacher_sheet_configs WHERE school_id=$1 AND teacher_id=$2 AND subject_name=$3 AND sheet_type=ANY($4::text[]) AND active=true ORDER BY sheet_type,version DESC`, [user.school_id, user.teacher_id, assignment.rows[0].subject || '', requestedTypes])
+      const configTypes = sheetType === 'noor' ? [...COMBINED_SHEET_TYPES, 'noor'] : requestedTypes
+      await ensureAssessmentConfigs(client, { schoolId: user.school_id, teacherId: user.teacher_id, subject: assignment.rows[0].subject || '', assessmentPeriod, sheetTypes: configTypes })
+      const configResult = await client.query(`SELECT DISTINCT ON (sheet_type) id,subject_name AS subject,sheet_type AS "sheetType",assessment_period AS "assessmentPeriod",version,columns,noor_mappings AS "noorMappings",created_at AS "createdAt"
+        FROM teacher_sheet_configs WHERE school_id=$1 AND teacher_id=$2 AND subject_name=$3 AND assessment_period=$4 AND sheet_type=ANY($5::text[]) AND active=true ORDER BY sheet_type,version DESC`, [user.school_id, user.teacher_id, assignment.rows[0].subject || '', assessmentPeriod, requestedTypes])
       const sheetConfigs = configResult.rows.map(config => ({ ...config, version: Number(config.version) })).sort((left, right) => requestedTypes.indexOf(left.sheetType) - requestedTypes.indexOf(right.sheetType))
       const sheetConfig = sheetConfigs[0] || null
       let sourceConfigs = []
       let noorMappings = []
       if (sheetType === 'noor' && sheetConfig) {
-        const sourceConfigResult = await client.query(`SELECT DISTINCT ON (sheet_type) id,subject_name AS subject,sheet_type AS "sheetType",version,columns
-          FROM teacher_sheet_configs WHERE school_id=$1 AND teacher_id=$2 AND subject_name=$3 AND sheet_type=ANY($4::text[]) AND active=true ORDER BY sheet_type,version DESC`, [user.school_id, user.teacher_id, assignment.rows[0].subject || '', COMBINED_SHEET_TYPES])
+        const sourceConfigResult = await client.query(`SELECT DISTINCT ON (sheet_type) id,subject_name AS subject,sheet_type AS "sheetType",assessment_period AS "assessmentPeriod",version,columns
+          FROM teacher_sheet_configs WHERE school_id=$1 AND teacher_id=$2 AND subject_name=$3 AND assessment_period=$4 AND sheet_type=ANY($5::text[]) AND active=true ORDER BY sheet_type,version DESC`, [user.school_id, user.teacher_id, assignment.rows[0].subject || '', assessmentPeriod, COMBINED_SHEET_TYPES])
         sourceConfigs = sourceConfigResult.rows.map(config => ({ ...config, version: Number(config.version) }))
         noorMappings = cleanNoorMappings(sheetConfig.noorMappings, sheetConfig, sourceConfigs) || []
       }
@@ -790,7 +835,7 @@ export async function handleTeacherPortalRequest(context) {
       }
       const lessonStudents = rosterWithHistoricalStudents(roster.students, [...saved.rows, ...entries])
       const noorCalculated = sheetType === 'noor' && noorMappings.length > 0
-      return { assignment: assignment.rows[0], date, periodNumber, mapping: roster.mapping, sheetConfig, sheetConfigs, noorCalculated, students: lessonStudents.map(student => ({ ...student, status: states.get(student.id)?.status || 'present', note: states.get(student.id)?.note || '', sheetValues: noorCalculated ? calculatedNoorValues(noorMappings, sourceConfigs, valuesByStudent.get(student.id) || {}) : valuesByStudent.get(student.id) || {} })) }
+      return { assignment: assignment.rows[0], date, periodNumber, assessmentPeriod, mapping: roster.mapping, sheetConfig, sheetConfigs, noorCalculated, students: lessonStudents.map(student => ({ ...student, status: states.get(student.id)?.status || 'present', note: states.get(student.id)?.note || '', sheetValues: noorCalculated ? calculatedNoorValues(noorMappings, sourceConfigs, valuesByStudent.get(student.id) || {}) : valuesByStudent.get(student.id) || {} })) }
     })
     if (result.error) { json(res, result.error === 'classroom_student_mapping_needed' ? 409 : 404, result); return true }
     json(res, 200, result)
@@ -804,6 +849,7 @@ export async function handleTeacherPortalRequest(context) {
     const date = validDate(input.date)
     const periodNumber = validPeriod(input.periodNumber)
     const sheetType = validOpenSheetType(input.sheetType) || 'followup'
+    const assessmentPeriod = validAssessmentPeriod(input.assessmentPeriod) || 'period1'
     const submitted = Array.isArray(input.students) ? input.students : []
     if (!validId(classroomId) || !date || !periodNumber || submitted.length > 1500) { json(res, 400, { error: 'invalid_lesson_save' }); return true }
     const weekday = weekdayForDate(date)
@@ -820,8 +866,10 @@ export async function handleTeacherPortalRequest(context) {
       const roster = await rosterForClassroom(client, user.school_id, classroomId)
       if (!roster.mapping) return { error: 'classroom_student_mapping_needed' }
       const requestedTypes = sheetType === 'combined' ? COMBINED_SHEET_TYPES : [sheetType]
+      const configTypes = sheetType === 'noor' ? [...COMBINED_SHEET_TYPES, 'noor'] : requestedTypes
+      await ensureAssessmentConfigs(client, { schoolId: user.school_id, teacherId: user.teacher_id, subject: assignment.rows[0].subject || '', assessmentPeriod, sheetTypes: configTypes })
       const configResult = await client.query(`SELECT id,sheet_type AS "sheetType",columns,noor_mappings AS "noorMappings" FROM teacher_sheet_configs
-        WHERE school_id=$1 AND teacher_id=$2 AND subject_name=$3 AND sheet_type=ANY($4::text[]) AND active=true ORDER BY version DESC`, [user.school_id, user.teacher_id, assignment.rows[0].subject || '', requestedTypes])
+        WHERE school_id=$1 AND teacher_id=$2 AND subject_name=$3 AND assessment_period=$4 AND sheet_type=ANY($5::text[]) AND active=true ORDER BY version DESC`, [user.school_id, user.teacher_id, assignment.rows[0].subject || '', assessmentPeriod, requestedTypes])
       const sheetConfigs = []
       for (const config of configResult.rows) if (!sheetConfigs.some(item => item.sheetType === config.sheetType)) sheetConfigs.push(config)
       const sheetConfig = sheetConfigs[0] || null
