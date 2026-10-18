@@ -5,6 +5,7 @@ const clean = (value, max = 200) => String(value ?? '').replace(/[\r\n\t]+/g, ' 
 const portfolioGenerationJobs = new Map()
 const portfolioFileTypes = new Set(['image/png', 'image/jpeg', 'image/webp', 'application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'])
 const classroomKey = value => clean(value, 260).normalize('NFKC').replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه').replace(/[\u064B-\u065F\u0670ـ]/g, '').replace(/[^\p{L}\p{N}]+/gu, ' ').replace(/\s+/g, ' ').trim()
+const portfolioFileUrl = (assignmentId, studentId, slotNumber) => `/api/student-portal/portfolio/file?assignmentId=${encodeURIComponent(assignmentId)}&studentId=${encodeURIComponent(studentId)}&slotNumber=${encodeURIComponent(slotNumber)}`
 
 async function ensureAutomaticMappings(client, schoolId) {
   const unmapped = (await client.query(`SELECT c.id,c.name FROM lesson_classrooms c LEFT JOIN teacher_classroom_student_maps m
@@ -37,6 +38,28 @@ function portfolioFile(value, fileName) {
   if (!bytes || bytes > 4_000_000) return null
   const name = clean(fileName, 160).replace(/[^\p{L}\p{N}._() -]/gu, '') || 'ملف مرفوع'
   return { data, name, type: match[1] }
+}
+
+function storedPortfolioFile(file, studentId = '') {
+  return { ...file, fileUrl: portfolioFileUrl(file.assignmentId, studentId || file.studentId, file.slotNumber) }
+}
+
+function sendPortfolioFile(res, file) {
+  const match = /^data:([^;]+);base64,([A-Za-z0-9+/=]+)$/.exec(String(file.fileData || ''))
+  if (!match || !portfolioFileTypes.has(match[1])) return false
+  const data = Buffer.from(match[2], 'base64')
+  const type = portfolioFileTypes.has(file.fileType) ? file.fileType : match[1]
+  const name = clean(file.fileName, 160).replace(/["\\\r\n]/g, '') || 'ملف-إنجاز'
+  const inline = type === 'application/pdf' || type.startsWith('image/')
+  res.writeHead(200, {
+    'content-type': type,
+    'content-length': data.length,
+    'content-disposition': `${inline ? 'inline' : 'attachment'}; filename*=UTF-8''${encodeURIComponent(name)}`,
+    'cache-control': 'private, no-store',
+    'x-content-type-options': 'nosniff',
+  })
+  res.end(data)
+  return true
 }
 
 function localEmail(schoolId, studentId) {
@@ -84,9 +107,9 @@ async function assignmentRoster(client, schoolId, assignmentId, teacherId = '') 
   if (!assignment) return null
   const students = (await client.query(`SELECT id,name,grade,classroom FROM students
     WHERE school_id=$1 AND active=true AND grade=$2 AND classroom=$3 ORDER BY name`, [schoolId, assignment.grade, assignment.classroom])).rows
-  const files = (await client.query(`SELECT student_id AS "studentId",slot_number AS "slotNumber",file_data AS "fileUrl",file_name AS "fileName",file_type AS "fileType",
+  const files = (await client.query(`SELECT student_id AS "studentId",assignment_id::text AS "assignmentId",slot_number AS "slotNumber",file_name AS "fileName",file_type AS "fileType",
       to_char(uploaded_at AT TIME ZONE 'Asia/Riyadh','YYYY-MM-DD HH24:MI') AS "uploadedAt"
-    FROM student_portfolio_files WHERE school_id=$1 AND assignment_id=$2::uuid`, [schoolId, assignmentId])).rows
+    FROM student_portfolio_files WHERE school_id=$1 AND assignment_id=$2::uuid`, [schoolId, assignmentId])).rows.map(file => storedPortfolioFile(file))
   const fileMap = new Map()
   for (const file of files) {
     const current = fileMap.get(file.studentId) || []
@@ -111,9 +134,9 @@ async function studentSubjects(client, schoolId, studentId) {
     GROUP BY a.subject_name,t.full_name,m.grade_value,m.classroom_value
     ORDER BY a.subject_name,t.full_name`, [schoolId, student.grade, student.classroom])).rows
   if (!subjects.length) return { student, subjects: [] }
-  const files = (await client.query(`SELECT assignment_id::text AS "assignmentId",slot_number AS "slotNumber",file_data AS "fileUrl",file_name AS "fileName",file_type AS "fileType",
+  const files = (await client.query(`SELECT assignment_id::text AS "assignmentId",slot_number AS "slotNumber",file_name AS "fileName",file_type AS "fileType",
       to_char(uploaded_at AT TIME ZONE 'Asia/Riyadh','YYYY-MM-DD HH24:MI') AS "uploadedAt"
-    FROM student_portfolio_files WHERE school_id=$1 AND student_id=$2 AND assignment_id=ANY($3::uuid[])`, [schoolId, studentId, subjects.map(row => row.assignmentId)])).rows
+    FROM student_portfolio_files WHERE school_id=$1 AND student_id=$2 AND assignment_id=ANY($3::uuid[])`, [schoolId, studentId, subjects.map(row => row.assignmentId)])).rows.map(file => storedPortfolioFile(file, studentId))
   const byAssignment = new Map()
   for (const file of files) {
     const current = byAssignment.get(file.assignmentId) || []
@@ -315,6 +338,25 @@ export async function handleStudentPortalRequest(context) {
     return true
   }
 
+  if (req.method === 'GET' && url.pathname === '/api/student-portal/portfolio/file') {
+    if (!['admin', 'teacher', 'student'].includes(user.role)) { json(res, 403, { error: 'forbidden' }); return true }
+    const assignmentId = String(url.searchParams.get('assignmentId') || '')
+    const studentId = clean(url.searchParams.get('studentId'), 100)
+    const slotNumber = Number(url.searchParams.get('slotNumber'))
+    if (!validUuid(assignmentId) || !studentId || !Number.isInteger(slotNumber) || slotNumber < 1 || slotNumber > 10) { json(res, 400, { error: 'invalid_portfolio_file' }); return true }
+    const file = await scoped(user.school_id, async client => {
+      if (user.role === 'student' && studentId !== user.student_id) return null
+      if (user.role === 'teacher') {
+        const allowed = await client.query(`SELECT 1 FROM lesson_schedule_assignments WHERE school_id=$1 AND id=$2::uuid AND teacher_id=$3::uuid LIMIT 1`, [user.school_id, assignmentId, user.teacher_id])
+        if (!allowed.rowCount) return null
+      }
+      return (await client.query(`SELECT file_data AS "fileData",file_name AS "fileName",file_type AS "fileType"
+        FROM student_portfolio_files WHERE school_id=$1 AND student_id=$2 AND assignment_id=$3::uuid AND slot_number=$4`, [user.school_id, studentId, assignmentId, slotNumber])).rows[0] || null
+    })
+    if (!file || !sendPortfolioFile(res, file)) { json(res, 404, { error: 'portfolio_file_not_found' }); return true }
+    return true
+  }
+
   if (req.method === 'GET' && url.pathname === '/api/student-portal/student/dashboard') {
     if (!studentOnly()) { json(res, 403, { error: 'forbidden' }); return true }
     const result = await scoped(user.school_id, async client => {
@@ -366,8 +408,8 @@ export async function handleStudentPortalRequest(context) {
       const result = await client.query(`INSERT INTO student_portfolio_files(school_id,student_id,assignment_id,slot_number,file_data,file_name,file_type,uploaded_at)
         VALUES($1,$2,$3::uuid,$4,$5,$6,$7,now())
         ON CONFLICT(school_id,student_id,assignment_id,slot_number) DO UPDATE SET file_data=EXCLUDED.file_data,file_name=EXCLUDED.file_name,file_type=EXCLUDED.file_type,uploaded_at=now()
-        RETURNING slot_number AS "slotNumber",file_data AS "fileUrl",file_name AS "fileName",file_type AS "fileType",to_char(uploaded_at AT TIME ZONE 'Asia/Riyadh','YYYY-MM-DD HH24:MI') AS "uploadedAt"`, [user.school_id, user.student_id, assignmentId, slotNumber, file.data, file.name, file.type])
-      return result.rows[0]
+        RETURNING assignment_id::text AS "assignmentId",slot_number AS "slotNumber",file_name AS "fileName",file_type AS "fileType",to_char(uploaded_at AT TIME ZONE 'Asia/Riyadh','YYYY-MM-DD HH24:MI') AS "uploadedAt"`, [user.school_id, user.student_id, assignmentId, slotNumber, file.data, file.name, file.type])
+      return storedPortfolioFile(result.rows[0], user.student_id)
     })
     if (!saved) { json(res, 403, { error: 'portfolio_assignment_forbidden' }); return true }
     json(res, 200, { ok: true, file: saved })
