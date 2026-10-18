@@ -57,7 +57,7 @@ async function assignmentGroups(client, schoolId, mode, teacherId = '') {
       ${mode === 'teacher' ? 'AND a.teacher_id=$2' : ''}
   `
   const values = mode === 'teacher' ? [schoolId, teacherId] : [schoolId]
-  const groups = (await client.query(`SELECT MIN(a.id)::text AS "assignmentId",a.subject_name AS subject,
+  const groups = (await client.query(`SELECT MIN(a.id::text) AS "assignmentId",a.subject_name AS subject,
       COALESCE(t.full_name,'غير محدد') AS "teacherName",m.grade_value AS grade,m.classroom_value AS classroom,
       COUNT(DISTINCT s.id)::int AS "studentCount"
       ${common}
@@ -100,7 +100,7 @@ async function studentSubjects(client, schoolId, studentId) {
   await ensureAutomaticMappings(client, schoolId)
   const student = (await client.query('SELECT id,name,phone,grade,classroom FROM students WHERE school_id=$1 AND id=$2 AND active=true', [schoolId, studentId])).rows[0]
   if (!student) return null
-  const subjects = (await client.query(`SELECT MIN(a.id)::text AS "assignmentId",a.subject_name AS subject,
+  const subjects = (await client.query(`SELECT MIN(a.id::text) AS "assignmentId",a.subject_name AS subject,
       COALESCE(t.full_name,'غير محدد') AS "teacherName",m.grade_value AS grade,m.classroom_value AS classroom
     FROM teacher_classroom_student_maps m
       JOIN lesson_schedule_assignments a ON a.school_id=m.school_id AND a.classroom_id=m.classroom_id
