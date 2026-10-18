@@ -1,10 +1,22 @@
 import { useEffect, useMemo, useState } from 'react'
 import * as QRCode from 'qrcode'
-import { BookOpenCheck, CalendarDays, Camera, Home, KeyRound, LogOut, Menu, QrCode, UserRound, X } from 'lucide-react'
+import { BookOpenCheck, CalendarDays, Camera, FileText, Home, KeyRound, LogOut, Menu, QrCode, UserRound, X } from 'lucide-react'
 import { api, type Account, type StudentPortfolioSubject, type StudentPortalDashboard } from './api'
 
 type StudentTab = 'home' | 'portfolio' | 'schedule' | 'password'
 const days = ['', 'الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت']
+const portfolioFileTypes = new Set(['image/png', 'image/jpeg', 'image/webp', 'application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'])
+const portfolioTypeFromName = (file: File) => {
+  if (portfolioFileTypes.has(file.type)) return file.type
+  const extension = file.name.split('.').pop()?.toLowerCase()
+  if (extension === 'pdf') return 'application/pdf'
+  if (extension === 'doc') return 'application/msword'
+  if (extension === 'docx') return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
+  if (extension === 'png') return 'image/png'
+  if (extension === 'jpg' || extension === 'jpeg') return 'image/jpeg'
+  if (extension === 'webp') return 'image/webp'
+  return ''
+}
 
 export function StudentPortal({ account, onLogout }: { account: Account; onLogout: () => void }) {
   const [dashboard, setDashboard] = useState<StudentPortalDashboard | null>(null)
@@ -49,26 +61,28 @@ export function StudentPortal({ account, onLogout }: { account: Account; onLogou
   }
   const upload = async (subject: StudentPortfolioSubject, slotNumber: number, file?: File) => {
     if (!file) return
-    if (!/^image\/(png|jpeg|webp)$/i.test(file.type) || file.size > 4_000_000) { setError('اختر صورة PNG أو JPG أو WEBP بحجم لا يتجاوز 4 ميجابايت.'); return }
+    const fileType = portfolioTypeFromName(file)
+    if (!fileType || file.size > 4_000_000) { setError('اختر صورة PNG أو JPG أو WEBP، أو ملف PDF أو Word، بحجم لا يتجاوز 4 ميجابايت.'); return }
     setUploading(`${subject.assignmentId}:${slotNumber}`); setError(''); setNotice('')
     const reader = new FileReader()
     reader.onload = async () => {
       try {
-        const result = await api.uploadStudentPortfolioImage(subject.assignmentId, slotNumber, String(reader.result || ''))
+        const fileData = String(reader.result || '').replace(/^data:[^;]+;/, `data:${fileType};`)
+        const result = await api.uploadStudentPortfolioFile(subject.assignmentId, slotNumber, fileData, file.name)
         setDashboard(current => current ? { ...current, subjects: current.subjects.map(item => item.assignmentId !== subject.assignmentId ? item : { ...item, slots: item.slots.map(slot => slot.slotNumber === slotNumber ? result.file : slot) }) } : current)
-        setNotice(`تم حفظ صورة المربع ${slotNumber} في مادة ${subject.subject}.`)
-      } catch { setError('تعذر رفع الصورة. تأكد من اتصالك ثم حاول مرة أخرى.') } finally { setUploading('') }
+        setNotice(`تم حفظ ملف المربع ${slotNumber} في مادة ${subject.subject}.`)
+      } catch { setError('تعذر رفع الملف. تأكد من اتصالك ثم حاول مرة أخرى.') } finally { setUploading('') }
     }
-    reader.onerror = () => { setError('تعذر قراءة الصورة.'); setUploading('') }
+    reader.onerror = () => { setError('تعذر قراءة الملف.'); setUploading('') }
     reader.readAsDataURL(file)
   }
   const remove = async (subject: StudentPortfolioSubject, slotNumber: number) => {
     setUploading(`${subject.assignmentId}:${slotNumber}`); setError('')
     try {
       await api.deleteStudentPortfolioImage(subject.assignmentId, slotNumber)
-      setDashboard(current => current ? { ...current, subjects: current.subjects.map(item => item.assignmentId !== subject.assignmentId ? item : { ...item, slots: item.slots.map(slot => slot.slotNumber === slotNumber ? { ...slot, imageUrl: '', uploadedAt: null } : slot) }) } : current)
-      setNotice('تمت إزالة الصورة من مربع الإنجاز.')
-    } catch { setError('تعذر إزالة الصورة.') } finally { setUploading('') }
+      setDashboard(current => current ? { ...current, subjects: current.subjects.map(item => item.assignmentId !== subject.assignmentId ? item : { ...item, slots: item.slots.map(slot => slot.slotNumber === slotNumber ? { ...slot, fileUrl: '', fileName: '', fileType: '', uploadedAt: null } : slot) }) } : current)
+      setNotice('تمت إزالة الملف من مربع الإنجاز.')
+    } catch { setError('تعذر إزالة الملف.') } finally { setUploading('') }
   }
   const schedule = useMemo(() => {
     const groups = new Map<number, StudentPortalDashboard['schedule']>()
@@ -90,7 +104,7 @@ export function StudentPortal({ account, onLogout }: { account: Account; onLogou
         {activeTab === 'password' && <section className="student-password-card"><div><KeyRound size={23} /><div><span>حماية الحساب</span><h2>تغيير كلمة المرور</h2><p>استخدم كلمة مرور لا تقل عن 8 أحرف ولا تشاركها مع أي شخص.</p></div></div><label>كلمة المرور الجديدة<input type="password" autoComplete="new-password" value={password} onChange={event => setPassword(event.target.value)} /></label><label>تأكيد كلمة المرور<input type="password" autoComplete="new-password" value={confirmPassword} onChange={event => setConfirmPassword(event.target.value)} /></label><button type="button" className="primary-button" onClick={() => void changePassword()} disabled={busy === 'password'}>{busy === 'password' ? 'جارٍ الحفظ…' : 'حفظ كلمة المرور'}</button></section>}
         {activeTab === 'portfolio' && dashboard && (
           <section className="student-portfolio-page">
-            <header><BookOpenCheck size={28} /><div><span>ملف إنجازي</span><h2>موادي الدراسية</h2><p>لكل مادة ستة مربعات، يرفع الطالب صورة واحدة في كل مربع.</p></div></header>
+            <header><BookOpenCheck size={28} /><div><span>ملف إنجازي</span><h2>موادي الدراسية</h2><p>لكل مادة 10 مربعات؛ يرفع الطالب في كل مربع صورة أو ملف PDF أو Word.</p></div></header>
             {!dashboard.subjects.length ? <p className="teacher-empty">لا توجد مواد مرتبطة بفصلك حتى الآن.</p> : (
               <div className="student-subject-grid">
                 {dashboard.subjects.map(subject => (
@@ -98,12 +112,12 @@ export function StudentPortal({ account, onLogout }: { account: Account; onLogou
                     <header><div><strong>{subject.subject}</strong><span>المعلم: {subject.teacherName}</span></div><small>{subject.grade} · {subject.classroom}</small></header>
                     <div className="student-upload-slots">
                       {subject.slots.map(slot => (
-                        <div className={`student-upload-slot ${slot.imageUrl ? 'filled' : ''}`} key={slot.slotNumber}>
-                          {slot.imageUrl ? <>
-                            <img src={slot.imageUrl} alt={`${subject.subject} المهمة ${slot.slotNumber}`} />
+                        <div className={`student-upload-slot ${slot.fileUrl ? 'filled' : ''}`} key={slot.slotNumber}>
+                          {slot.fileUrl ? <>
+                            {slot.fileType.startsWith('image/') ? <img src={slot.fileUrl} alt={`${subject.subject} المهمة ${slot.slotNumber}`} /> : <a className="student-upload-file-link" href={slot.fileUrl} target="_blank" rel="noreferrer"><FileText size={26} /><span>{slot.fileName || 'فتح الملف'}</span></a>}
                             <button type="button" onClick={() => void remove(subject, slot.slotNumber)} disabled={uploading !== ''}>حذف</button>
                           </> : (
-                            <label><Camera size={22} /><strong>المربع {slot.slotNumber}</strong><span>{uploading === `${subject.assignmentId}:${slot.slotNumber}` ? 'جارٍ الرفع…' : 'رفع صورة'}</span><input type="file" accept="image/png,image/jpeg,image/webp" capture="environment" onChange={event => void upload(subject, slot.slotNumber, event.target.files?.[0])} disabled={uploading !== ''} /></label>
+                            <label><Camera size={22} /><strong>المربع {slot.slotNumber}</strong><span>{uploading === `${subject.assignmentId}:${slot.slotNumber}` ? 'جارٍ الرفع…' : 'رفع ملف'}</span><input type="file" accept="image/png,image/jpeg,image/webp,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.doc,.docx" onChange={event => void upload(subject, slot.slotNumber, event.target.files?.[0])} disabled={uploading !== ''} /></label>
                           )}
                         </div>
                       ))}

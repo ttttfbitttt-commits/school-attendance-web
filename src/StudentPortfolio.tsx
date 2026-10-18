@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { BookOpenCheck, FolderOpen, Image, RefreshCw, Users } from 'lucide-react'
+import { BookOpenCheck, FileText, FolderOpen, Image, RefreshCw, Users } from 'lucide-react'
 import { api, type StudentPortfolioEntries, type StudentPortfolioGroup } from './api'
 
 export function StudentPortfolioBoard({ scope = 'school' }: { scope?: 'school' | 'teacher' }) {
@@ -46,7 +46,7 @@ export function StudentPortfolioBoard({ scope = 'school' }: { scope?: 'school' |
     {busy ? <p className="teacher-empty">جارٍ تحميل ملف الإنجاز…</p> : !groups.length ? <div className="student-portfolio-empty"><BookOpenCheck size={34} /><strong>لا توجد مواد مرتبطة بطلاب بعد</strong><p>أكمل استيراد الجدول وربط الفصل بالطلاب لتظهر المواد هنا.</p></div> : <>
       <div className="student-portfolio-group-grid">
         {groups.map(group => <button type="button" key={group.assignmentId} className={selectedId === group.assignmentId ? 'active' : ''} onClick={() => setSelectedId(group.assignmentId)}>
-          <FolderOpen size={23} /><strong>{group.subject}</strong><span>{group.teacherName}</span><small>{group.grade} · الفصل {group.classroom}</small><em><Users size={13} /> {group.studentCount} طالب · <Image size={13} /> {group.submittedFiles} صورة</em>
+          <FolderOpen size={23} /><strong>{group.subject}</strong><span>{group.teacherName}</span><small>{group.grade} · الفصل {group.classroom}</small><em><Users size={13} /> {group.studentCount} طالب · <Image size={13} /> {group.submittedFiles} ملف</em>
         </button>)}
       </div>
       {selectedId && !entries && <p className="teacher-empty">جارٍ تحميل طلاب المادة…</p>}
@@ -55,8 +55,8 @@ export function StudentPortfolioBoard({ scope = 'school' }: { scope?: 'school' |
         <div className="student-portfolio-students">
           {entries.students.map(student => <article key={student.id}>
             <div className="student-portfolio-student-name"><b>{student.name}</b><span dir="ltr">{student.identityNumber}</span></div>
-            <div className="student-portfolio-slot-list">{student.slots.map(slot => <div className={`student-portfolio-slot ${slot.imageUrl ? 'filled' : ''}`} key={slot.slotNumber}>
-              {slot.imageUrl ? <a href={slot.imageUrl} target="_blank" rel="noreferrer"><img src={slot.imageUrl} alt={`إنجاز ${student.name} ${slot.slotNumber}`} /></a> : <span>المربع {slot.slotNumber}<small>لم تُرفع صورة</small></span>}
+            <div className="student-portfolio-slot-list">{student.slots.map(slot => <div className={`student-portfolio-slot ${slot.fileUrl ? 'filled' : ''}`} key={slot.slotNumber}>
+              {slot.fileUrl ? slot.fileType.startsWith('image/') ? <a href={slot.fileUrl} target="_blank" rel="noreferrer"><img src={slot.fileUrl} alt={`إنجاز ${student.name} ${slot.slotNumber}`} /></a> : <a className="student-portfolio-file-link" href={slot.fileUrl} target="_blank" rel="noreferrer"><FileText size={20} /><span>{slot.fileName || 'فتح الملف'}</span></a> : <span>المربع {slot.slotNumber}<small>لم يُرفع ملف</small></span>}
             </div>)}</div>
           </article>)}
         </div>

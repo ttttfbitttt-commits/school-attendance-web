@@ -2,6 +2,8 @@ const DEFAULT_STUDENT_PASSWORD = '12345678'
 const validUuid = value => /^[0-9a-f-]{36}$/i.test(String(value || ''))
 const identityNumber = value => String(value ?? '').trim().replace(/\s/g, '').replace(/[^0-9]/g, '')
 const clean = (value, max = 200) => String(value ?? '').replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max)
+const portfolioGenerationJobs = new Map()
+const portfolioFileTypes = new Set(['image/png', 'image/jpeg', 'image/webp', 'application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'])
 const classroomKey = value => clean(value, 260).normalize('NFKC').replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه').replace(/[\u064B-\u065F\u0670ـ]/g, '').replace(/[^\p{L}\p{N}]+/gu, ' ').replace(/\s+/g, ' ').trim()
 
 async function ensureAutomaticMappings(client, schoolId) {
@@ -21,19 +23,20 @@ async function ensureAutomaticMappings(client, schoolId) {
 
 function portfolioSlots(files = []) {
   const bySlot = new Map(files.map(file => [Number(file.slotNumber), file]))
-  return Array.from({ length: 6 }, (_, index) => {
+  return Array.from({ length: 10 }, (_, index) => {
     const file = bySlot.get(index + 1)
-    return { slotNumber: index + 1, imageUrl: file?.imageUrl || '', uploadedAt: file?.uploadedAt || null }
+    return { slotNumber: index + 1, fileUrl: file?.fileUrl || '', fileName: file?.fileName || '', fileType: file?.fileType || '', uploadedAt: file?.uploadedAt || null }
   })
 }
 
-function imageData(value) {
+function portfolioFile(value, fileName) {
   const data = String(value || '')
-  const match = /^data:image\/(png|jpeg|webp);base64,([A-Za-z0-9+/=]+)$/.exec(data)
-  if (!match) return null
+  const match = /^data:([^;]+);base64,([A-Za-z0-9+/=]+)$/.exec(data)
+  if (!match || !portfolioFileTypes.has(match[1])) return null
   const bytes = Buffer.byteLength(match[2], 'base64')
   if (!bytes || bytes > 4_000_000) return null
-  return data
+  const name = clean(fileName, 160).replace(/[^\p{L}\p{N}._() -]/gu, '') || 'ملف مرفوع'
+  return { data, name, type: match[1] }
 }
 
 function localEmail(schoolId, studentId) {
@@ -81,7 +84,7 @@ async function assignmentRoster(client, schoolId, assignmentId, teacherId = '') 
   if (!assignment) return null
   const students = (await client.query(`SELECT id,name,grade,classroom FROM students
     WHERE school_id=$1 AND active=true AND grade=$2 AND classroom=$3 ORDER BY name`, [schoolId, assignment.grade, assignment.classroom])).rows
-  const files = (await client.query(`SELECT student_id AS "studentId",slot_number AS "slotNumber",image_data AS "imageUrl",
+  const files = (await client.query(`SELECT student_id AS "studentId",slot_number AS "slotNumber",file_data AS "fileUrl",file_name AS "fileName",file_type AS "fileType",
       to_char(uploaded_at AT TIME ZONE 'Asia/Riyadh','YYYY-MM-DD HH24:MI') AS "uploadedAt"
     FROM student_portfolio_files WHERE school_id=$1 AND assignment_id=$2::uuid`, [schoolId, assignmentId])).rows
   const fileMap = new Map()
@@ -108,7 +111,7 @@ async function studentSubjects(client, schoolId, studentId) {
     GROUP BY a.subject_name,t.full_name,m.grade_value,m.classroom_value
     ORDER BY a.subject_name,t.full_name`, [schoolId, student.grade, student.classroom])).rows
   if (!subjects.length) return { student, subjects: [] }
-  const files = (await client.query(`SELECT assignment_id::text AS "assignmentId",slot_number AS "slotNumber",image_data AS "imageUrl",
+  const files = (await client.query(`SELECT assignment_id::text AS "assignmentId",slot_number AS "slotNumber",file_data AS "fileUrl",file_name AS "fileName",file_type AS "fileType",
       to_char(uploaded_at AT TIME ZONE 'Asia/Riyadh','YYYY-MM-DD HH24:MI') AS "uploadedAt"
     FROM student_portfolio_files WHERE school_id=$1 AND student_id=$2 AND assignment_id=ANY($3::uuid[])`, [schoolId, studentId, subjects.map(row => row.assignmentId)])).rows
   const byAssignment = new Map()
@@ -131,6 +134,29 @@ async function upsertStudentAccount({ authPool, schoolId, student, passwordHash 
   await authPool.query(`INSERT INTO student_login_accounts(school_id,student_id,user_id,identity_number,password_hash,active,must_change_password)
     VALUES($1,$2,$3,$4,$5,true,true)`, [schoolId, student.id, savedUser.rows[0].id, identityNumber(student.id), hash])
   return { studentId: student.id, name: student.name, identityNumber: identityNumber(student.id), temporaryPassword: DEFAULT_STUDENT_PASSWORD }
+}
+
+async function runStudentAccountGeneration(job, students, authPool, passwordHash) {
+  try {
+    for (let index = 0; index < students.length; index += 8) {
+      await Promise.all(students.slice(index, index + 8).map(async student => {
+        try {
+          const created = await upsertStudentAccount({ authPool, schoolId: job.schoolId, student, passwordHash })
+          if (created) job.created += 1
+          else job.skipped += 1
+        } catch {
+          job.failed += 1
+        } finally {
+          job.processed += 1
+        }
+      }))
+    }
+    job.status = 'completed'
+  } catch {
+    job.status = 'failed'
+  } finally {
+    job.completedAt = Date.now()
+  }
 }
 
 export async function migrateStudentPortal(adminPool) {
@@ -157,13 +183,31 @@ export async function migrateStudentPortal(adminPool) {
       school_id uuid NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
       student_id text NOT NULL,
       assignment_id uuid NOT NULL REFERENCES lesson_schedule_assignments(id) ON DELETE CASCADE,
-      slot_number smallint NOT NULL CHECK (slot_number BETWEEN 1 AND 6),
-      image_data text NOT NULL,
+      slot_number smallint NOT NULL CHECK (slot_number BETWEEN 1 AND 10),
+      file_data text NOT NULL,
+      file_name text NOT NULL DEFAULT '',
+      file_type text NOT NULL DEFAULT '',
       uploaded_at timestamptz NOT NULL DEFAULT now(),
       PRIMARY KEY (school_id,student_id,assignment_id,slot_number),
       FOREIGN KEY (school_id,student_id) REFERENCES students(school_id,id) ON DELETE CASCADE
     );
     CREATE INDEX IF NOT EXISTS student_portfolio_files_assignment ON student_portfolio_files(school_id,assignment_id,student_id);
+  `)
+  await adminPool.query(`
+    DO $$ BEGIN
+      IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='student_portfolio_files' AND column_name='image_data')
+        AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='student_portfolio_files' AND column_name='file_data') THEN
+        ALTER TABLE student_portfolio_files RENAME COLUMN image_data TO file_data;
+      END IF;
+    END $$;
+    ALTER TABLE student_portfolio_files ADD COLUMN IF NOT EXISTS file_name text NOT NULL DEFAULT '';
+    ALTER TABLE student_portfolio_files ADD COLUMN IF NOT EXISTS file_type text NOT NULL DEFAULT '';
+    ALTER TABLE student_portfolio_files DROP CONSTRAINT IF EXISTS student_portfolio_files_slot_number_check;
+    ALTER TABLE student_portfolio_files ADD CONSTRAINT student_portfolio_files_slot_number_check CHECK (slot_number BETWEEN 1 AND 10);
+    UPDATE student_portfolio_files
+      SET file_type=COALESCE(NULLIF(file_type,''),substring(file_data from '^data:([^;]+)')),
+          file_name=CASE WHEN COALESCE(file_name,'')='' THEN 'ملف مرفوع' ELSE file_name END
+      WHERE COALESCE(file_type,'')='' OR COALESCE(file_name,'')='';
   `)
 }
 
@@ -189,18 +233,29 @@ export async function handleStudentPortalRequest(context) {
     return true
   }
 
+  if (req.method === 'GET' && url.pathname === '/api/student-portal/admin/accounts/generate/progress') {
+    if (!adminOnly()) { json(res, 403, { error: 'forbidden' }); return true }
+    const job = portfolioGenerationJobs.get(String(url.searchParams.get('jobId') || ''))
+    if (!job || job.schoolId !== user.school_id) { json(res, 404, { error: 'generation_job_not_found' }); return true }
+    json(res, 200, { ok: true, jobId: job.id, total: job.total, processed: job.processed, created: job.created, skipped: job.skipped, failed: job.failed, status: job.status, defaultPassword: DEFAULT_STUDENT_PASSWORD })
+    return true
+  }
+
   if (req.method === 'POST' && url.pathname === '/api/student-portal/admin/accounts/generate') {
     if (!adminOnly()) { json(res, 403, { error: 'forbidden' }); return true }
+    const running = [...portfolioGenerationJobs.values()].find(job => job.schoolId === user.school_id && job.status === 'running')
+    if (running) {
+      json(res, 200, { ok: true, jobId: running.id, total: running.total, processed: running.processed, created: running.created, skipped: running.skipped, failed: running.failed, status: running.status, defaultPassword: DEFAULT_STUDENT_PASSWORD })
+      return true
+    }
     const input = await body(req)
     const requested = Array.isArray(input.studentIds) ? new Set(input.studentIds.map(value => String(value))) : null
     const students = await scoped(user.school_id, client => client.query(`SELECT id,name FROM students WHERE school_id=$1 AND active=true ORDER BY name`, [user.school_id]))
     const selected = students.rows.filter(student => (!requested || requested.has(student.id)) && identityNumber(student.id).length >= 6)
-    const credentials = []
-    for (const student of selected) {
-      const created = await upsertStudentAccount({ authPool, schoolId: user.school_id, student, passwordHash })
-      if (created) credentials.push(created)
-    }
-    json(res, 200, { ok: true, created: credentials.length, skipped: selected.length - credentials.length, defaultPassword: DEFAULT_STUDENT_PASSWORD, credentials })
+    const job = { id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`, schoolId: user.school_id, total: selected.length, processed: 0, created: 0, skipped: 0, failed: 0, status: 'running', startedAt: Date.now(), completedAt: null }
+    portfolioGenerationJobs.set(job.id, job)
+    void runStudentAccountGeneration(job, selected, authPool, passwordHash)
+    json(res, 200, { ok: true, jobId: job.id, total: job.total, processed: 0, created: 0, skipped: 0, failed: 0, status: job.status, defaultPassword: DEFAULT_STUDENT_PASSWORD })
     return true
   }
 
@@ -303,15 +358,15 @@ export async function handleStudentPortalRequest(context) {
     const input = await body(req, 8_000_000)
     const assignmentId = String(input.assignmentId || '')
     const slotNumber = Number(input.slotNumber)
-    const image = imageData(input.image)
-    if (!validUuid(assignmentId) || !Number.isInteger(slotNumber) || slotNumber < 1 || slotNumber > 6 || !image) { json(res, 400, { error: 'invalid_portfolio_image' }); return true }
+    const file = portfolioFile(input.file, input.fileName)
+    if (!validUuid(assignmentId) || !Number.isInteger(slotNumber) || slotNumber < 1 || slotNumber > 10 || !file) { json(res, 400, { error: 'invalid_portfolio_file' }); return true }
     const saved = await scoped(user.school_id, async client => {
       const subjects = await studentSubjects(client, user.school_id, user.student_id)
       if (!subjects?.subjects.some(subject => subject.assignmentId === assignmentId)) return null
-      const result = await client.query(`INSERT INTO student_portfolio_files(school_id,student_id,assignment_id,slot_number,image_data,uploaded_at)
-        VALUES($1,$2,$3::uuid,$4,$5,now())
-        ON CONFLICT(school_id,student_id,assignment_id,slot_number) DO UPDATE SET image_data=EXCLUDED.image_data,uploaded_at=now()
-        RETURNING slot_number AS "slotNumber",image_data AS "imageUrl",to_char(uploaded_at AT TIME ZONE 'Asia/Riyadh','YYYY-MM-DD HH24:MI') AS "uploadedAt"`, [user.school_id, user.student_id, assignmentId, slotNumber, image])
+      const result = await client.query(`INSERT INTO student_portfolio_files(school_id,student_id,assignment_id,slot_number,file_data,file_name,file_type,uploaded_at)
+        VALUES($1,$2,$3::uuid,$4,$5,$6,$7,now())
+        ON CONFLICT(school_id,student_id,assignment_id,slot_number) DO UPDATE SET file_data=EXCLUDED.file_data,file_name=EXCLUDED.file_name,file_type=EXCLUDED.file_type,uploaded_at=now()
+        RETURNING slot_number AS "slotNumber",file_data AS "fileUrl",file_name AS "fileName",file_type AS "fileType",to_char(uploaded_at AT TIME ZONE 'Asia/Riyadh','YYYY-MM-DD HH24:MI') AS "uploadedAt"`, [user.school_id, user.student_id, assignmentId, slotNumber, file.data, file.name, file.type])
       return result.rows[0]
     })
     if (!saved) { json(res, 403, { error: 'portfolio_assignment_forbidden' }); return true }
@@ -324,7 +379,7 @@ export async function handleStudentPortalRequest(context) {
     const input = await body(req)
     const assignmentId = String(input.assignmentId || '')
     const slotNumber = Number(input.slotNumber)
-    if (!validUuid(assignmentId) || !Number.isInteger(slotNumber) || slotNumber < 1 || slotNumber > 6) { json(res, 400, { error: 'invalid_portfolio_slot' }); return true }
+    if (!validUuid(assignmentId) || !Number.isInteger(slotNumber) || slotNumber < 1 || slotNumber > 10) { json(res, 400, { error: 'invalid_portfolio_slot' }); return true }
     await scoped(user.school_id, client => client.query(`DELETE FROM student_portfolio_files WHERE school_id=$1 AND student_id=$2 AND assignment_id=$3::uuid AND slot_number=$4`, [user.school_id, user.student_id, assignmentId, slotNumber]))
     json(res, 200, { ok: true })
     return true

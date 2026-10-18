@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { FolderOpen, KeyRound, Power, RefreshCw, ShieldCheck, Users } from 'lucide-react'
-import { api, type StudentPortalAccount } from './api'
+import { api, type StudentAccountGeneration, type StudentPortalAccount } from './api'
 import { StudentPortfolioBoard } from './StudentPortfolio'
 
 export function StudentAdminCenter() {
@@ -11,25 +11,50 @@ export function StudentAdminCenter() {
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
   const [search, setSearch] = useState('')
+  const [generation, setGeneration] = useState<StudentAccountGeneration | null>(null)
 
+  const refreshOverview = async () => {
+    const result = await api.studentAdminOverview()
+    setStudents(result.students)
+    setDefaultPassword(result.defaultPassword)
+  }
   const load = async () => {
     setBusy('load'); setError('')
-    try {
-      const result = await api.studentAdminOverview()
-      setStudents(result.students)
-      setDefaultPassword(result.defaultPassword)
-    } catch { setError('تعذر تحميل حسابات الطلاب.') } finally { setBusy('') }
+    try { await refreshOverview() }
+    catch { setError('تعذر تحميل حسابات الطلاب.') } finally { setBusy('') }
   }
   useEffect(() => { void load() }, [])
 
+  const followGeneration = async (jobId: string) => {
+    try {
+      while (true) {
+        await new Promise(resolve => window.setTimeout(resolve, 650))
+        const result = await api.studentAccountGenerationProgress(jobId)
+        setGeneration(result)
+        setDefaultPassword(result.defaultPassword)
+        if (result.status === 'running') continue
+        await refreshOverview()
+        setNotice(result.failed
+          ? `اكتمل إنشاء الحسابات مع تعذر إنشاء ${result.failed} حساب. تم إنشاء ${result.created} حساب وتجاوز ${result.skipped} حساب موجود.`
+          : result.created
+            ? `اكتمل إنشاء ${result.created} حساب طالب. كلمة المرور المؤقتة الموحدة: ${result.defaultPassword}`
+            : 'اكتملت العملية؛ لا توجد حسابات جديدة لأن الحسابات المؤهلة موجودة بالفعل.')
+        setBusy('')
+        return
+      }
+    } catch {
+      setError('تعذر متابعة تقدم إنشاء الحسابات. حدّث الصفحة للتحقق من حالة الحسابات.')
+      setBusy('')
+    }
+  }
   const generate = async () => {
     setBusy('generate'); setNotice(''); setError('')
     try {
-      const result = await api.generateStudentAccounts()
+      const result = await api.startStudentAccountGeneration()
+      setGeneration(result)
       setDefaultPassword(result.defaultPassword)
-      setNotice(result.created ? `تم إنشاء ${result.created} حساب طالب. كلمة المرور المؤقتة الموحدة: ${result.defaultPassword}` : 'لا توجد حسابات جديدة لإنشائها؛ الحسابات المؤهلة موجودة بالفعل.')
-      await load()
-    } catch { setError('تعذر إنشاء حسابات الطلاب. تأكد أن أرقام الهوية رقمية ومكتملة.') } finally { setBusy('') }
+      void followGeneration(result.jobId)
+    } catch { setError('تعذر بدء إنشاء حسابات الطلاب. تأكد أن أرقام الهوية رقمية ومكتملة.'); setBusy('') }
   }
   const reset = async (student: StudentPortalAccount) => {
     setBusy(`reset:${student.studentId}`); setNotice(''); setError('')
@@ -50,6 +75,7 @@ export function StudentAdminCenter() {
   }, [students, search])
   const created = students.filter(student => student.accountCreated).length
   const eligible = students.filter(student => student.eligible).length
+  const progress = generation?.total ? Math.round((generation.processed / generation.total) * 100) : generation ? 100 : 0
 
   return <section className="student-admin-center" dir="rtl">
     <div className="teacher-admin-head student-admin-head"><div><span>بوابة الطالب</span><h2>حسابات الطلاب وملف الإنجاز</h2><p>يستخدم الطالب رقم هويته للدخول، ثم يغير كلمة المرور المؤقتة في أول زيارة.</p></div><Users size={32} /></div>
@@ -57,6 +83,7 @@ export function StudentAdminCenter() {
     {tab === 'portfolio' ? <StudentPortfolioBoard scope="school" /> : <>
       <div className="student-account-summary"><article><Users size={19} /><span>الطلاب</span><b>{students.length}</b></article><article><ShieldCheck size={19} /><span>مؤهلون للحساب</span><b>{eligible}</b></article><article><KeyRound size={19} /><span>حسابات منشأة</span><b>{created}</b></article></div>
       <section className="teacher-admin-card student-account-tools"><div><strong>إنشاء الحسابات دفعة واحدة</strong><p>تُنشأ الحسابات للطلاب الذين يحملون رقم هوية رقميًا، وكلمة المرور المؤقتة الموحدة هي <b dir="ltr">{defaultPassword}</b>.</p></div><div><button type="button" className="outline-button" onClick={() => void load()} disabled={busy !== ''}><RefreshCw size={16} /> تحديث</button><button type="button" className="primary-button" onClick={() => void generate()} disabled={busy !== ''}><KeyRound size={16} /> {busy === 'generate' ? 'جارٍ الإنشاء…' : 'توليد حسابات الطلاب'}</button></div></section>
+      {generation && <section className={`student-account-progress ${generation.status}`} aria-live="polite"><div><strong>{generation.status === 'running' ? 'جارٍ إنشاء حسابات الطلاب' : generation.status === 'failed' ? 'توقفت عملية إنشاء الحسابات' : 'اكتمل إنشاء حسابات الطلاب'}</strong><span><b dir="ltr">{generation.processed}</b> من <b dir="ltr">{generation.total}</b> · <b dir="ltr">{progress}%</b></span></div><div className="student-account-progress-track"><i style={{ width: `${progress}%` }} /></div><small>تم إنشاء <b dir="ltr">{generation.created}</b> · موجود مسبقًا <b dir="ltr">{generation.skipped}</b>{generation.failed ? <> · تعذر <b dir="ltr">{generation.failed}</b></> : null}</small></section>}
       {notice && <p className="student-portal-notice success">{notice}</p>}{error && <p className="student-portal-notice error">{error}</p>}
       <input className="student-account-search" value={search} onChange={event => setSearch(event.target.value)} placeholder="ابحث باسم الطالب أو رقم الهوية أو الفصل" />
       <div className="teacher-account-list student-account-list">{filtered.map(student => <article key={student.studentId}>

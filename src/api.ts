@@ -1,6 +1,7 @@
 export type Account = { email: string; displayName: string; role: 'admin' | 'staff' | 'teacher' | 'administrator' | 'student'; schoolId: string; teacherId?: string; administratorId?: string; studentId?: string; lessonFlowAccess?: boolean; mustChangePassword?: boolean }
 export type StudentPortalAccount = { studentId: string; name: string; grade: string; classroom: string; phone: string; identityNumber: string; eligible: boolean; accountCreated: boolean; accountActive: boolean; mustChangePassword: boolean }
-export type StudentPortfolioSlot = { slotNumber: number; imageUrl: string; uploadedAt: string | null }
+export type StudentPortfolioSlot = { slotNumber: number; fileUrl: string; fileName: string; fileType: string; uploadedAt: string | null }
+export type StudentAccountGeneration = { ok: boolean; jobId: string; total: number; processed: number; created: number; skipped: number; failed: number; status: 'running' | 'completed' | 'failed'; defaultPassword: string }
 export type StudentPortfolioSubject = { assignmentId: string; subject: string; teacherName: string; grade: string; classroom: string; slots: StudentPortfolioSlot[] }
 export type StudentPortfolioGroup = { assignmentId: string; subject: string; teacherName: string; grade: string; classroom: string; studentCount: number; submittedFiles: number }
 export type StudentPortfolioEntries = { assignmentId: string; subject: string; teacherName: string; grade: string; classroom: string; students: Array<{ id: string; name: string; grade: string; classroom: string; identityNumber: string; slots: StudentPortfolioSlot[] }> }
@@ -335,7 +336,8 @@ export const api = {
   createStudent: (student: StudentInput) => request<{ ok: boolean; student: StudentRecord }>('/students', { method: 'POST', body: JSON.stringify(student) }),
   updateStudent: (studentId: string, student: StudentInput) => request<{ ok: boolean; student: StudentRecord }>(`/students/${encodeURIComponent(studentId)}`, { method: 'PATCH', body: JSON.stringify(student) }),
   studentAdminOverview: () => request<{ defaultPassword: string; students: StudentPortalAccount[] }>('/student-portal/admin/overview'),
-  generateStudentAccounts: (studentIds: string[] = []) => request<{ ok: boolean; created: number; skipped: number; defaultPassword: string; credentials: Array<{ studentId: string; name: string; identityNumber: string; temporaryPassword: string }> }>('/student-portal/admin/accounts/generate', { method: 'POST', body: JSON.stringify({ ...(studentIds.length ? { studentIds } : {}) }) }),
+  startStudentAccountGeneration: (studentIds: string[] = []) => request<StudentAccountGeneration>('/student-portal/admin/accounts/generate', { method: 'POST', body: JSON.stringify({ ...(studentIds.length ? { studentIds } : {}) }) }),
+  studentAccountGenerationProgress: (jobId: string) => request<StudentAccountGeneration>(`/student-portal/admin/accounts/generate/progress?jobId=${encodeURIComponent(jobId)}`),
   resetStudentAccount: (studentId: string) => request<{ ok: boolean; temporaryPassword: string }>('/student-portal/admin/accounts/reset', { method: 'POST', body: JSON.stringify({ studentId }) }),
   setStudentAccountStatus: (studentId: string, active: boolean) => request<{ ok: boolean }>('/student-portal/admin/accounts/status', { method: 'PATCH', body: JSON.stringify({ studentId, active }) }),
   schoolPortfolioGroups: () => request<{ groups: StudentPortfolioGroup[] }>('/student-portal/admin/portfolio/groups'),
@@ -344,7 +346,7 @@ export const api = {
   teacherPortfolioEntries: (assignmentId: string) => request<StudentPortfolioEntries>(`/student-portal/teacher/portfolio/entries?assignmentId=${encodeURIComponent(assignmentId)}`),
   studentPortalDashboard: () => request<StudentPortalDashboard>('/student-portal/student/dashboard'),
   changeStudentPassword: (password: string) => request<{ ok: boolean }>('/student-portal/student/password', { method: 'POST', body: JSON.stringify({ password }) }),
-  uploadStudentPortfolioImage: (assignmentId: string, slotNumber: number, image: string) => request<{ ok: boolean; file: StudentPortfolioSlot }>('/student-portal/student/portfolio/upload', { method: 'POST', body: JSON.stringify({ assignmentId, slotNumber, image }) }),
+  uploadStudentPortfolioFile: (assignmentId: string, slotNumber: number, file: string, fileName: string) => request<{ ok: boolean; file: StudentPortfolioSlot }>('/student-portal/student/portfolio/upload', { method: 'POST', body: JSON.stringify({ assignmentId, slotNumber, file, fileName }) }),
   deleteStudentPortfolioImage: (assignmentId: string, slotNumber: number) => request<{ ok: boolean }>('/student-portal/student/portfolio/delete', { method: 'POST', body: JSON.stringify({ assignmentId, slotNumber }) }),
   attendance: () => request<{ records: unknown[] }>('/attendance'),
   markAttendance: (studentId: string, status: 'present' | 'late') => request<{ ok: boolean; duplicate?: boolean }>('/attendance', { method: 'POST', body: JSON.stringify({ studentId, status }) }),
