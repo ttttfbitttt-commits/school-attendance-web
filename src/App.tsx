@@ -55,6 +55,8 @@ import { BehaviorCenter } from './BehaviorCenter'
 import { SchoolReferralCenter } from './StudentReferrals'
 import { TeacherCooperationAdmin } from './TeacherCooperation'
 import { BackupRestoreCenter } from './BackupRestoreCenter'
+import { StudentAdminCenter } from './StudentAdmin'
+import { StudentPortal } from './StudentPortal'
 
 type Student = {
   id: string
@@ -195,7 +197,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
   const [attendanceSearch, setAttendanceSearch] = useState('')
   const [attendanceStudentSearch, setAttendanceStudentSearch] = useState('')
   const [scanInput, setScanInput] = useState('')
-  const [activeNav, setActiveNav] = useState<'dashboard' | 'students' | 'attendance' | 'cooperation' | 'behavior' | 'lessons' | 'teachers' | 'administrators' | 'referrals' | 'reports' | 'messages' | 'backup'>('attendance')
+  const [activeNav, setActiveNav] = useState<'dashboard' | 'students' | 'studentPortal' | 'attendance' | 'cooperation' | 'behavior' | 'lessons' | 'teachers' | 'administrators' | 'referrals' | 'reports' | 'messages' | 'backup'>('attendance')
   const [manualAttendanceSelection, setManualAttendanceSelection] = useState<Student[]>([])
   const [manualAttendanceSubmitting, setManualAttendanceSubmitting] = useState(false)
   const [attendanceStatusUpdating, setAttendanceStatusUpdating] = useState<Set<string>>(new Set())
@@ -1606,7 +1608,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
     setTimeout(() => URL.revokeObjectURL(url), 600000)
   }
 
-  const pageLabel = activeNav === 'dashboard' ? 'إعدادات المدرسة' : activeNav === 'attendance' ? 'سجل الحضور' : activeNav === 'cooperation' ? 'المعلم المتعاون' : activeNav === 'behavior' ? 'سجل السلوك' : activeNav === 'lessons' ? 'سير الحصص' : activeNav === 'teachers' ? 'المعلمون' : activeNav === 'administrators' ? 'الإداريون' : activeNav === 'referrals' ? 'إحالات الطلاب' : activeNav === 'reports' ? 'التقارير' : activeNav === 'messages' ? 'الرسائل' : activeNav === 'backup' ? 'النسخ الاحتياطي والاستعادة' : 'إدارة الطلاب'
+  const pageLabel = activeNav === 'dashboard' ? 'إعدادات المدرسة' : activeNav === 'attendance' ? 'سجل الحضور' : activeNav === 'cooperation' ? 'المعلم المتعاون' : activeNav === 'behavior' ? 'سجل السلوك' : activeNav === 'lessons' ? 'سير الحصص' : activeNav === 'teachers' ? 'المعلمون' : activeNav === 'administrators' ? 'الإداريون' : activeNav === 'studentPortal' ? 'بوابة الطالب' : activeNav === 'referrals' ? 'إحالات الطلاب' : activeNav === 'reports' ? 'التقارير' : activeNav === 'messages' ? 'الرسائل' : activeNav === 'backup' ? 'النسخ الاحتياطي والاستعادة' : 'إدارة الطلاب'
   return (
     <div className="app-shell" dir="rtl">
       {isMobileMenuOpen && (
@@ -1665,6 +1667,17 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
             <span>إدارة الطلاب</span>
             <span className="nav-count">{students.length}</span>
           </button>
+
+          {account.role === 'admin' && <button
+            className={activeNav === 'studentPortal' ? 'nav-item active' : 'nav-item'}
+            onClick={() => {
+              setActiveNav('studentPortal')
+              setIsMobileMenuOpen(false)
+            }}
+          >
+            <FolderOpen size={18} />
+            <span>بوابة الطلاب</span>
+          </button>}
 
           <button
             className={activeNav === 'attendance' ? 'nav-item active' : 'nav-item'}
@@ -2403,6 +2416,8 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
 
         {activeNav === 'administrators' && <AdministratorAdminCenter schoolName={schoolSettings.schoolName} />}
 
+        {activeNav === 'studentPortal' && account.role === 'admin' && <StudentAdminCenter />}
+
         {activeNav === 'referrals' && <SchoolReferralCenter schoolName={schoolSettings.schoolName} />}
 
         {activeNav === 'behavior' && <BehaviorCenter school={schoolSettings} role={account.role === 'admin' ? 'admin' : 'staff'} />}
@@ -2897,6 +2912,8 @@ function App() {
     ? <TeacherPortal account={account} onLogout={logout} />
     : account.role === 'administrator'
       ? <AdministratorPortal account={account} onLogout={logout} />
+      : account.role === 'student'
+        ? <StudentPortal account={account} onLogout={logout} />
       : <AttendanceApp account={account} onLogout={logout} />}</AuthGate>
 }
 

@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
-import { BarChart3, BookOpenCheck, CalendarDays, Check, Copy, FileSpreadsheet, Handshake, KeyRound, LayoutDashboard, LogOut, Menu, Plus, Printer, Save, Send, Trash2, UserRound, X } from 'lucide-react'
+import { BarChart3, BookOpenCheck, CalendarDays, Check, Copy, FileSpreadsheet, FolderOpen, Handshake, KeyRound, LayoutDashboard, LogOut, Menu, Plus, Printer, Save, Send, Trash2, UserRound, X } from 'lucide-react'
 import { api, type Account, type NoorSheetMapping, type NoorSheetMappingSource, type TeacherAssessmentPeriod, type TeacherCooperationStatus, type TeacherComprehensiveReport, type TeacherComprehensiveReportOption, type TeacherComprehensiveReportType, type TeacherLesson, type TeacherLessonReport, type TeacherNote, type TeacherPortalDashboard, type TeacherPortalScheduleItem, type TeacherSheetColumn, type TeacherSheetConfig, type TeacherSheetOpenType, type TeacherSheetSubject, type TeacherSheetType } from './api'
 import { HijriDatePicker } from './HijriDatePicker'
 import { formatHijriDate } from './dateUtils'
 import * as XLSX from 'xlsx'
 import { TeacherReferralCenter } from './StudentReferrals'
 import { TeacherCooperationPanel } from './TeacherCooperation'
+import { StudentPortfolioBoard } from './StudentPortfolio'
 
 const notes: TeacherNote[] = ['هروب من الحصة', 'نائم أثناء الدرس', 'لم يحل الواجب', 'عدم التفاعل والمشاركة', 'مشارك فعال', 'لم يحضر الكتاب أو أوراق العمل', 'استخدام الجوال أثناء الحصة', 'الحديث مع زملائه أثناء الدرس']
 const dayNames = ['', 'الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت']
@@ -31,7 +32,7 @@ const displaySheetValue = (value: string | number | boolean | undefined, type?: 
 
 type TeacherAttendanceStatus = 'present' | 'absent' | 'late'
 type StudentState = { status: TeacherAttendanceStatus; note: TeacherNote | ''; sheetValues: Record<string, string | number | boolean> }
-type TeacherTab = 'home' | 'schedule' | 'cooperation' | 'referrals' | 'sheets' | 'reports' | 'password'
+type TeacherTab = 'home' | 'schedule' | 'cooperation' | 'referrals' | 'sheets' | 'portfolio' | 'reports' | 'password'
 type RenderSheetColumn = TeacherSheetColumn & { key: string; sheetType: TeacherSheetType }
 const getSheetColumns = (lesson: TeacherLesson): RenderSheetColumn[] => lesson.sheetConfigs.flatMap(config => config.columns.map(column => ({ ...column, key: `${config.sheetType}:${column.id}`, sheetType: config.sheetType })))
 const attendanceStatusLabel = (status: TeacherAttendanceStatus) => status === 'present' ? 'حاضر' : status === 'late' ? 'تأخر عن الحصة' : 'غائب'
@@ -769,6 +770,7 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
         {cooperationStatus?.available && <button type="button" className={`teacher-cooperation-nav ${activeTab === 'cooperation' ? 'active' : ''}`} onClick={() => navigate('cooperation')}><Handshake size={18} /> تعاون المعلم<span>متاح الآن</span></button>}
         <button type="button" className={activeTab === 'referrals' ? 'active' : ''} onClick={() => navigate('referrals')}><Send size={18} /> إحالة طالب</button>
         <button type="button" className={activeTab === 'sheets' ? 'active' : ''} onClick={() => navigate('sheets')}><FileSpreadsheet size={18} /> الكشوف</button>
+        <button type="button" className={activeTab === 'portfolio' ? 'active' : ''} onClick={() => navigate('portfolio')}><FolderOpen size={18} /> ملف الإنجاز</button>
         <button type="button" className={activeTab === 'reports' ? 'active' : ''} onClick={() => navigate('reports')}><BarChart3 size={18} /> التقارير</button>
         <button type="button" className={activeTab === 'password' ? 'active' : ''} onClick={() => navigate('password')}><KeyRound size={18} /> كلمة المرور</button>
       </nav>
@@ -819,6 +821,7 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
       {sheetMode === 'noorMapping' && <TeacherNoorSheetMapping sheets={sheets} onBack={() => setSheetMode('menu')} onSaved={config => setSheets(current => current.map(subject => subject.subject === config.subject ? { ...subject, configs: [...subject.configs.filter(item => item.sheetType !== config.sheetType || item.assessmentPeriod !== config.assessmentPeriod), config] } : subject))} />}
       {sheetMode !== 'setup' && sheetMode !== 'noorGuide' && sheetMode !== 'noorMapping' && sheetOnlyView && lesson && selected && <TeacherSheetRoster lesson={lesson} selected={selected} states={states} updateSheetValue={updateSheetValue} exportSheet={exportSheet} printSheet={printSheet} saveLesson={saveLesson} busy={busy} noorCalculated={Boolean(lesson.noorCalculated)} />}
     </section>}
+    {activeTab === 'portfolio' && <StudentPortfolioBoard scope="teacher" />}
     {activeTab === 'reports' && <TeacherReportsTab key={reportsKey} schedule={dashboard?.weekSchedule || []} schoolName={dashboard?.schoolName || 'المدرسة'} teacherName={dashboard?.teacher.name || account.displayName} />}
     {printPreview && <div className="teacher-print-overlay" role="dialog" aria-modal="true" aria-label="معاينة الطباعة"><div className="teacher-print-actions"><button type="button" className="outline-button" onClick={() => setPrintPreview('')}>إغلاق والعودة</button><button type="button" className="primary-button" onClick={() => window.print()}><Printer size={16} /> طباعة / حفظ PDF</button></div><div className="teacher-print-preview" dangerouslySetInnerHTML={{ __html: printPreview }} /></div>}
     </div>
