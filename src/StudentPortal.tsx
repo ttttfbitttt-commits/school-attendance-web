@@ -88,9 +88,46 @@ export function StudentPortal({ account, onLogout }: { account: Account; onLogou
       {busy === 'dashboard' ? <p className="teacher-empty">جارٍ تحميل بياناتك…</p> : <>
         {activeTab === 'home' && dashboard && <section className="student-home-grid"><article className="student-profile-card"><div className="student-profile-icon"><UserRound size={25} /></div><span>بيانات الطالب</span><h2>{dashboard.student.name}</h2><p>{dashboard.student.grade} · الفصل {dashboard.student.classroom}</p><dl><div><dt>رقم الهوية</dt><dd dir="ltr">{dashboard.student.identityNumber}</dd></div>{dashboard.student.phone && <div><dt>رقم الجوال</dt><dd dir="ltr">{dashboard.student.phone}</dd></div>}</dl></article><article className="student-qr-card"><div><QrCode size={24} /><span>باركود الطالب</span><h2>بطاقة التحضير</h2><p>اعرض هذا الرمز عند الحاجة إلى التحقق من حضورك.</p></div>{qr ? <img src={qr} alt="باركود الطالب" /> : <div className="student-qr-placeholder">جارٍ إنشاء الباركود…</div>}</article></section>}
         {activeTab === 'password' && <section className="student-password-card"><div><KeyRound size={23} /><div><span>حماية الحساب</span><h2>تغيير كلمة المرور</h2><p>استخدم كلمة مرور لا تقل عن 8 أحرف ولا تشاركها مع أي شخص.</p></div></div><label>كلمة المرور الجديدة<input type="password" autoComplete="new-password" value={password} onChange={event => setPassword(event.target.value)} /></label><label>تأكيد كلمة المرور<input type="password" autoComplete="new-password" value={confirmPassword} onChange={event => setConfirmPassword(event.target.value)} /></label><button type="button" className="primary-button" onClick={() => void changePassword()} disabled={busy === 'password'}>{busy === 'password' ? 'جارٍ الحفظ…' : 'حفظ كلمة المرور'}</button></section>}
-        {activeTab === 'portfolio' && dashboard && <section className="student-portfolio-page"><header><BookOpenCheck size={28} /><div><span>ملف إنجازي</span><h2>موادي الدراسية</h2><p>لكل مادة ستة مربعات، يرفع الطالب صورة واحدة في كل مربع.</p></div></header>{!dashboard.subjects.length ? <p className="teacher-empty">لا توجد مواد مرتبطة بفصلك حتى الآن.</p> : <div className="student-subject-grid">{dashboard.subjects.map(subject => <article key={subject.assignmentId}><header><div><strong>{subject.subject}</strong><span>المعلم: {subject.teacherName}</span></div><small>{subject.grade} · {subject.classroom}</small></header><div className="student-upload-slots">{subject.slots.map(slot => <div className={`student-upload-slot ${slot.imageUrl ? 'filled' : ''}`} key={slot.slotNumber}>{slot.imageUrl ? <><img src={slot.imageUrl} alt={`${subject.subject} المهمة ${slot.slotNumber}`} /><button type="button" onClick={() => void remove(subject, slot.slotNumber)} disabled={uploading !== ''}>حذف</button></> : <label><Camera size={22} /><strong>المربع {slot.slotNumber}</strong><span>{uploading === `${subject.assignmentId}:${slot.slotNumber}` ? 'جارٍ الرفع…' : 'رفع صورة'}</span><input type="file" accept="image/png,image/jpeg,image/webp" capture="environment" onChange={event => void upload(subject, slot.slotNumber, event.target.files?.[0])} disabled={uploading !== ''} /></label>}</div>)}</div></article>)}</div></section>}
-        {activeTab === 'schedule' && <section className="student-schedule-page"><header><CalendarDays size={28} /><div><span>جدولي الدراسي</span><h2>الحصص الأسبوعية</h2></div></header>{!schedule.length ? <p className="teacher-empty">لم يُربط جدول دراسي بفصلك بعد.</p> : <div className="student-schedule-days">{schedule.map(([weekday, items]) => <article key={weekday}><h3>{days[weekday] || 'اليوم'}</h3>{items.sort((a, b) => a.periodNumber - b.periodNumber).map(item => <div key={item.assignmentId}><b>الحصة {item.periodNumber}</b><strong>{item.subject}</strong><span>{item.teacherName}</span>{item.startTime && <small dir="ltr">{item.startTime} – {item.endTime}</small>}</div>)}</article>)}</div></section>}
-      </>}
+        {activeTab === 'portfolio' && dashboard && (
+          <section className="student-portfolio-page">
+            <header><BookOpenCheck size={28} /><div><span>ملف إنجازي</span><h2>موادي الدراسية</h2><p>لكل مادة ستة مربعات، يرفع الطالب صورة واحدة في كل مربع.</p></div></header>
+            {!dashboard.subjects.length ? <p className="teacher-empty">لا توجد مواد مرتبطة بفصلك حتى الآن.</p> : (
+              <div className="student-subject-grid">
+                {dashboard.subjects.map(subject => (
+                  <article key={subject.assignmentId}>
+                    <header><div><strong>{subject.subject}</strong><span>المعلم: {subject.teacherName}</span></div><small>{subject.grade} · {subject.classroom}</small></header>
+                    <div className="student-upload-slots">
+                      {subject.slots.map(slot => (
+                        <div className={`student-upload-slot ${slot.imageUrl ? 'filled' : ''}`} key={slot.slotNumber}>
+                          {slot.imageUrl ? <>
+                            <img src={slot.imageUrl} alt={`${subject.subject} المهمة ${slot.slotNumber}`} />
+                            <button type="button" onClick={() => void remove(subject, slot.slotNumber)} disabled={uploading !== ''}>حذف</button>
+                          </> : (
+                            <label><Camera size={22} /><strong>المربع {slot.slotNumber}</strong><span>{uploading === `${subject.assignmentId}:${slot.slotNumber}` ? 'جارٍ الرفع…' : 'رفع صورة'}</span><input type="file" accept="image/png,image/jpeg,image/webp" capture="environment" onChange={event => void upload(subject, slot.slotNumber, event.target.files?.[0])} disabled={uploading !== ''} /></label>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </section>
+        )}
+        {activeTab === 'schedule' && (
+          <section className="student-schedule-page">
+            <header><CalendarDays size={28} /><div><span>جدولي الدراسي</span><h2>الحصص الأسبوعية</h2></div></header>
+            {!schedule.length ? <p className="teacher-empty">لم يُربط جدول دراسي بفصلك بعد.</p> : (
+              <div className="student-schedule-days">
+                {schedule.map(([weekday, items]) => (
+                  <article key={weekday}><h3>{days[weekday] || 'اليوم'}</h3>{items.sort((a, b) => a.periodNumber - b.periodNumber).map(item => (
+                    <div key={item.assignmentId}><b>الحصة {item.periodNumber}</b><strong>{item.subject}</strong><span>{item.teacherName}</span>{item.startTime && <small dir="ltr">{item.startTime} – {item.endTime}</small>}</div>
+                  ))}</article>
+                ))}
+              </div>
+            )}
+          </section>
+        )}      </>}
     </div>
   </main>
 }
