@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { Download, FileText, Image as ImageIcon, X } from 'lucide-react'
+import { Download, FileText, X } from 'lucide-react'
 
 export type PortfolioPreviewFile = { fileUrl: string; fileName: string; fileType: string }
 
