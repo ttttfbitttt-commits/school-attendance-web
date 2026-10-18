@@ -21,7 +21,7 @@ export function StudentCooperationPanel({ status, onStatus }: { status: StudentC
   const scanTimerRef = useRef<number | null>(null)
   const scanBusyRef = useRef(false)
   const lastCodeRef = useRef({ code: '', at: 0 })
-  const feedbackTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null)
+  const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   const stopCamera = () => {
     if (frameRef.current) cancelAnimationFrame(frameRef.current)
@@ -43,7 +43,7 @@ export function StudentCooperationPanel({ status, onStatus }: { status: StudentC
     const timer = window.setInterval(() => { void refreshStatus() }, 20_000)
     return () => window.clearInterval(timer)
   })
-  useEffect(() => () => { stopCamera(); if (feedbackTimerRef.current) window.clearTimeout(feedbackTimerRef.current) }, [])
+  useEffect(() => () => { stopCamera(); if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current) }, [])
   useEffect(() => { if (!status.available) stopCamera() }, [status.available])
   useEffect(() => {
     const stopWhenHidden = () => { if (document.hidden) stopCamera() }
@@ -54,8 +54,8 @@ export function StudentCooperationPanel({ status, onStatus }: { status: StudentC
   const showFeedback = (next: Feedback) => {
     setFeedback(next)
     if (navigator.vibrate) navigator.vibrate(next.kind === 'error' ? [80, 50, 80] : 70)
-    if (feedbackTimerRef.current) window.clearTimeout(feedbackTimerRef.current)
-    feedbackTimerRef.current = window.setTimeout(() => setFeedback(null), next.kind === 'duplicate' ? 3000 : 2300)
+    if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current)
+    feedbackTimerRef.current = setTimeout(() => setFeedback(null), next.kind === 'duplicate' ? 3000 : 2300)
   }
   const processCode = async (rawCode: string) => {
     const code = rawCode.trim()
