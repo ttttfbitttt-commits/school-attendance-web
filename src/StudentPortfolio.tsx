@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ArrowRight, BookOpenCheck, FileText, FolderOpen, Image, Layers3, RefreshCw, Users } from 'lucide-react'
 import { api, type StudentPortfolioEntries, type StudentPortfolioGroup } from './api'
+import { PortfolioFilePreview, type PortfolioPreviewFile } from './PortfolioFilePreview'
 
 export function StudentPortfolioBoard({ scope = 'school' }: { scope?: 'school' | 'teacher' }) {
   const [groups, setGroups] = useState<StudentPortfolioGroup[]>([])
@@ -9,6 +10,7 @@ export function StudentPortfolioBoard({ scope = 'school' }: { scope?: 'school' |
   const [entries, setEntries] = useState<StudentPortfolioEntries | null>(null)
   const [busy, setBusy] = useState(true)
   const [error, setError] = useState('')
+  const [preview, setPreview] = useState<PortfolioPreviewFile | null>(null)
 
   const loadGroups = async () => {
     setBusy(true)
@@ -76,11 +78,12 @@ export function StudentPortfolioBoard({ scope = 'school' }: { scope?: 'school' |
           {entries.students.map(student => <article key={student.id}>
             <div className="student-portfolio-student-name"><b>{student.name}</b><span dir="ltr">{student.identityNumber}</span></div>
             <div className="student-portfolio-slot-list">{student.slots.map(slot => <div className={`student-portfolio-slot ${slot.fileUrl ? 'filled' : ''}`} key={slot.slotNumber}>
-              {slot.fileUrl ? slot.fileType.startsWith('image/') ? <a href={slot.fileUrl} target="_blank" rel="noreferrer"><img src={slot.fileUrl} alt={`إنجاز ${student.name} ${slot.slotNumber}`} /></a> : <a className="student-portfolio-file-link" href={slot.fileUrl} target="_blank" rel="noreferrer"><FileText size={20} /><span>{slot.fileName || 'فتح الملف'}</span></a> : <span>المربع {slot.slotNumber}<small>لم يُرفع ملف</small></span>}
+              {slot.fileUrl ? slot.fileType.startsWith('image/') ? <button type="button" className="student-portfolio-image-button" onClick={() => setPreview(slot)}><img src={slot.fileUrl} alt={`إنجاز ${student.name} ${slot.slotNumber}`} /></button> : <button type="button" className="student-portfolio-file-link" onClick={() => setPreview(slot)}><FileText size={20} /><span>{slot.fileName || 'فتح الملف'}</span></button> : <span>المربع {slot.slotNumber}<small>لم يُرفع ملف</small></span>}
             </div>)}</div>
           </article>)}
         </div>
       </section>}
     </>}
+    {preview && <PortfolioFilePreview file={preview} onClose={() => setPreview(null)} />}
   </section>
 }

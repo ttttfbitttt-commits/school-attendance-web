@@ -3,6 +3,7 @@ import * as QRCode from 'qrcode'
 import { BookOpenCheck, CalendarDays, Camera, FileText, Home, KeyRound, LogOut, Menu, QrCode, UserRound, X } from 'lucide-react'
 import { api, type Account, type StudentPortfolioSubject, type StudentPortalDashboard } from './api'
 import { StudentCooperationPanel } from './StudentCooperation'
+import { PortfolioFilePreview, type PortfolioPreviewFile } from './PortfolioFilePreview'
 
 type StudentTab = 'home' | 'portfolio' | 'schedule' | 'cooperation' | 'password'
 const days = ['', 'الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت']
@@ -30,6 +31,7 @@ export function StudentPortal({ account, onLogout }: { account: Account; onLogou
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
   const [uploading, setUploading] = useState('')
+  const [preview, setPreview] = useState<PortfolioPreviewFile | null>(null)
 
   const load = async () => {
     setBusy('dashboard'); setError('')
@@ -125,7 +127,7 @@ export function StudentPortal({ account, onLogout }: { account: Account; onLogou
                       {subject.slots.map(slot => (
                         <div className={`student-upload-slot ${slot.fileUrl ? 'filled' : ''}`} key={slot.slotNumber}>
                           {slot.fileUrl ? <>
-                            {slot.fileType.startsWith('image/') ? <img src={slot.fileUrl} alt={`${subject.subject} المهمة ${slot.slotNumber}`} /> : <a className="student-upload-file-link" href={slot.fileUrl} target="_blank" rel="noreferrer"><FileText size={26} /><span>{slot.fileName || 'فتح الملف'}</span></a>}
+                            {slot.fileType.startsWith('image/') ? <button type="button" className="student-upload-image-button" onClick={() => setPreview(slot)}><img src={slot.fileUrl} alt={`${subject.subject} المهمة ${slot.slotNumber}`} /></button> : <button type="button" className="student-upload-file-link" onClick={() => setPreview(slot)}><FileText size={26} /><span>{slot.fileName || 'فتح الملف'}</span></button>}
                             <button type="button" onClick={() => void remove(subject, slot.slotNumber)} disabled={uploading !== ''}>حذف</button>
                           </> : (
                             <label><Camera size={22} /><strong>المربع {slot.slotNumber}</strong><span>{uploading === `${subject.assignmentId}:${slot.slotNumber}` ? 'جارٍ الرفع…' : 'رفع ملف'}</span><input type="file" accept="image/png,image/jpeg,image/webp,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.doc,.docx" onChange={event => void upload(subject, slot.slotNumber, event.target.files?.[0])} disabled={uploading !== ''} /></label>
@@ -155,5 +157,6 @@ export function StudentPortal({ account, onLogout }: { account: Account; onLogou
         )}      </>}
         {activeTab === 'cooperation' && dashboard?.attendanceCooperation.available && <StudentCooperationPanel status={dashboard.attendanceCooperation} onStatus={attendanceCooperation => setDashboard(current => current ? { ...current, attendanceCooperation } : current)} />}
     </div>
+    {preview && <PortfolioFilePreview file={preview} onClose={() => setPreview(null)} />}
   </main>
 }
