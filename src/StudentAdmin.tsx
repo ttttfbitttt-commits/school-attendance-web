@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { FolderOpen, KeyRound, Power, RefreshCw, ShieldCheck, Users } from 'lucide-react'
+import { Camera, FolderOpen, KeyRound, Power, RefreshCw, ShieldCheck, Users } from 'lucide-react'
 import { api, type StudentAccountGeneration, type StudentPortalAccount } from './api'
 import { StudentPortfolioBoard } from './StudentPortfolio'
 
@@ -69,6 +69,16 @@ export function StudentAdminCenter() {
     try { await api.setStudentAccountStatus(student.studentId, !student.accountActive); await load() }
     catch { setError('تعذر تغيير حالة الحساب.') } finally { setBusy('') }
   }
+  const changeAttendanceCooperation = async (student: StudentPortalAccount) => {
+    setBusy(`cooperation:${student.studentId}`); setNotice(''); setError('')
+    try {
+      const result = await api.setStudentAttendanceCooperationAccess(student.studentId, !student.attendanceCooperationAccess)
+      setNotice(result.attendanceCooperationAccess
+        ? `مُنح ${student.name} صلاحية تعاون الطالب لتحضير فصلِه بالكاميرا في الحصة الأولى.`
+        : `أُلغيت صلاحية تعاون الطالب من حساب ${student.name}.`)
+      await refreshOverview()
+    } catch { setError('تعذر تغيير صلاحية تحضير الطالب.') } finally { setBusy('') }
+  }
   const filtered = useMemo(() => {
     const value = search.trim().toLocaleLowerCase('ar')
     return value ? students.filter(student => [student.name, student.identityNumber, student.grade, student.classroom].join(' ').toLocaleLowerCase('ar').includes(value)) : students
@@ -89,7 +99,7 @@ export function StudentAdminCenter() {
       <div className="teacher-account-list student-account-list">{filtered.map(student => <article key={student.studentId}>
         <div className="teacher-account-avatar">{student.name.charAt(0)}</div><div><strong>{student.name}</strong><span>{student.grade} · الفصل {student.classroom}</span><small dir="ltr">{student.identityNumber || 'لا يوجد رقم هوية رقمي'}</small></div>
         <span className={`teacher-account-badge ${student.accountCreated && student.accountActive ? 'ready' : ''}`}>{!student.eligible ? 'رقم الهوية غير صالح' : !student.accountCreated ? 'غير منشأ' : student.accountActive ? student.mustChangePassword ? 'بانتظار تغيير المرور' : 'نشط' : 'موقوف'}</span>
-        {student.accountCreated && <div className="teacher-account-actions"><button type="button" onClick={() => void reset(student)} disabled={busy !== ''}><RefreshCw size={14} /> إعادة ضبط</button><button type="button" onClick={() => void changeStatus(student)} disabled={busy !== ''}><Power size={14} /> {student.accountActive ? 'إيقاف' : 'تفعيل'}</button></div>}
+        {student.accountCreated && <div className="teacher-account-actions"><button type="button" onClick={() => void reset(student)} disabled={busy !== ''}><RefreshCw size={14} /> إعادة ضبط</button><button type="button" onClick={() => void changeStatus(student)} disabled={busy !== ''}><Power size={14} /> {student.accountActive ? 'إيقاف' : 'تفعيل'}</button><button type="button" className={student.attendanceCooperationAccess ? 'student-cooperation-access enabled' : 'student-cooperation-access'} aria-pressed={student.attendanceCooperationAccess} onClick={() => void changeAttendanceCooperation(student)} disabled={busy !== ''}><Camera size={14} /> {student.attendanceCooperationAccess ? 'إلغاء صلاحية التحضير' : 'صلاحية التحضير'}</button></div>}
       </article>)}</div>
     </>}
   </section>

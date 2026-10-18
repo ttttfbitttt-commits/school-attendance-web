@@ -7,6 +7,36 @@ const portfolioFileTypes = new Set(['image/png', 'image/jpeg', 'image/webp', 'ap
 const classroomKey = value => clean(value, 260).normalize('NFKC').replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه').replace(/[\u064B-\u065F\u0670ـ]/g, '').replace(/[^\p{L}\p{N}]+/gu, ' ').replace(/\s+/g, ' ').trim()
 const portfolioFileUrl = (assignmentId, studentId, slotNumber) => `/api/student-portal/portfolio/file?assignmentId=${encodeURIComponent(assignmentId)}&studentId=${encodeURIComponent(studentId)}&slotNumber=${encodeURIComponent(slotNumber)}`
 
+function riyadhClock() {
+  const values = Object.fromEntries(new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Asia/Riyadh', year: 'numeric', month: '2-digit', day: '2-digit',
+    hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  }).formatToParts(new Date()).filter(part => part.type !== 'literal').map(part => [part.type, part.value]))
+  const date = `${values.year}-${values.month}-${values.day}`
+  const day = new Date(`${date}T12:00:00Z`).getUTCDay()
+  return { date, hm: `${values.hour}:${values.minute}`, weekday: day === 0 ? 1 : day + 1 }
+}
+
+function barcodeCandidates(raw) {
+  const code = clean(raw, 500)
+  if (!code) return []
+  const values = [code]
+  const pathMatch = code.replace(/\\/g, '/').match(/(?:^|\/)student_barcodes\/([^/]+)\.png$/i)
+  if (pathMatch?.[1]) values.push(pathMatch[1])
+  return [...new Set(values.map(value => clean(value, 200).replace(/^([+-]?\d+)\.0+$/, '$1')).filter(Boolean))]
+}
+
+async function studentCooperationStatus(client, schoolId, studentId, authorized, clock = riyadhClock()) {
+  const student = (await client.query(`SELECT id,name,grade,classroom FROM students
+    WHERE school_id=$1 AND id=$2 AND active=true`, [schoolId, studentId])).rows[0]
+  const base = { authorized: Boolean(authorized), configured: false, available: false, date: clock.date, windowStart: '', windowEnd: '', classroom: student ? { grade: student.grade, classroom: student.classroom } : null }
+  if (!authorized || !student) return { ...base, student: null }
+  const slot = (await client.query(`SELECT to_char(starts_at,'HH24:MI') AS "startTime",to_char(ends_at,'HH24:MI') AS "endTime"
+    FROM lesson_time_slots WHERE school_id=$1 AND weekday=$2 AND period_number=1 LIMIT 1`, [schoolId, clock.weekday])).rows[0]
+  if (!slot) return { ...base, student }
+  return { ...base, configured: true, available: clock.hm >= slot.startTime && clock.hm < slot.endTime, windowStart: slot.startTime, windowEnd: slot.endTime, student }
+}
+
 async function ensureAutomaticMappings(client, schoolId) {
   const unmapped = (await client.query(`SELECT c.id,c.name FROM lesson_classrooms c LEFT JOIN teacher_classroom_student_maps m
     ON m.school_id=c.school_id AND m.classroom_id=c.id WHERE c.school_id=$1 AND c.active=true AND m.classroom_id IS NULL`, [schoolId])).rows
@@ -194,6 +224,7 @@ export async function migrateStudentPortal(adminPool) {
       password_hash text NOT NULL,
       active boolean NOT NULL DEFAULT true,
       must_change_password boolean NOT NULL DEFAULT true,
+      attendance_cooperation_access boolean NOT NULL DEFAULT false,
       created_at timestamptz NOT NULL DEFAULT now(),
       updated_at timestamptz NOT NULL DEFAULT now(),
       PRIMARY KEY (school_id,student_id),
@@ -217,6 +248,7 @@ export async function migrateStudentPortal(adminPool) {
     CREATE INDEX IF NOT EXISTS student_portfolio_files_assignment ON student_portfolio_files(school_id,assignment_id,student_id);
   `)
   await adminPool.query(`
+    ALTER TABLE student_login_accounts ADD COLUMN IF NOT EXISTS attendance_cooperation_access boolean NOT NULL DEFAULT false;
     DO $$ BEGIN
       IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='student_portfolio_files' AND column_name='image_data')
         AND NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='student_portfolio_files' AND column_name='file_data') THEN
@@ -244,14 +276,14 @@ export async function handleStudentPortalRequest(context) {
     if (!adminOnly()) { json(res, 403, { error: 'forbidden' }); return true }
     const students = await scoped(user.school_id, client => client.query(`SELECT id,name,grade,classroom,phone FROM students
       WHERE school_id=$1 AND active=true ORDER BY grade,classroom,name`, [user.school_id]))
-    const accounts = await authPool.query(`SELECT student_id AS "studentId",active AS "accountActive",must_change_password AS "mustChangePassword"
+    const accounts = await authPool.query(`SELECT student_id AS "studentId",active AS "accountActive",must_change_password AS "mustChangePassword",attendance_cooperation_access AS "attendanceCooperationAccess"
       FROM student_login_accounts WHERE school_id=$1`, [user.school_id])
     const byId = new Map(accounts.rows.map(row => [row.studentId, row]))
     json(res, 200, { defaultPassword: DEFAULT_STUDENT_PASSWORD, students: students.rows.map(student => {
       const account = byId.get(student.id)
       const number = identityNumber(student.id)
       return { studentId: student.id, name: student.name, grade: student.grade, classroom: student.classroom, phone: student.phone,
-        identityNumber: number, eligible: number.length >= 6, accountCreated: Boolean(account), accountActive: Boolean(account?.accountActive), mustChangePassword: Boolean(account?.mustChangePassword) }
+        identityNumber: number, eligible: number.length >= 6, accountCreated: Boolean(account), accountActive: Boolean(account?.accountActive), mustChangePassword: Boolean(account?.mustChangePassword), attendanceCooperationAccess: Boolean(account?.attendanceCooperationAccess) }
     }) })
     return true
   }
@@ -310,6 +342,18 @@ export async function handleStudentPortalRequest(context) {
     return true
   }
 
+  if (req.method === 'PATCH' && url.pathname === '/api/student-portal/admin/accounts/cooperation-access') {
+    if (!adminOnly()) { json(res, 403, { error: 'forbidden' }); return true }
+    const input = await body(req)
+    const studentId = clean(input.studentId, 100)
+    if (!studentId || typeof input.attendanceCooperationAccess !== 'boolean') { json(res, 400, { error: 'invalid_student_cooperation_access' }); return true }
+    const changed = await authPool.query(`UPDATE student_login_accounts SET attendance_cooperation_access=$1,updated_at=now()
+      WHERE school_id=$2 AND student_id=$3 RETURNING attendance_cooperation_access AS "attendanceCooperationAccess"`, [input.attendanceCooperationAccess, user.school_id, studentId])
+    if (!changed.rowCount) { json(res, 404, { error: 'student_account_not_found' }); return true }
+    json(res, 200, { ok: true, attendanceCooperationAccess: Boolean(changed.rows[0].attendanceCooperationAccess) })
+    return true
+  }
+
   if (req.method === 'GET' && url.pathname === '/api/student-portal/admin/portfolio/groups') {
     if (!adminOnly()) { json(res, 403, { error: 'forbidden' }); return true }
     json(res, 200, { groups: await scoped(user.school_id, client => assignmentGroups(client, user.school_id, 'school')) })
@@ -357,6 +401,53 @@ export async function handleStudentPortalRequest(context) {
     return true
   }
 
+  if (req.method === 'GET' && url.pathname === '/api/student-portal/student/cooperation/status') {
+    if (!studentOnly()) { json(res, 403, { error: 'forbidden' }); return true }
+    const status = await scoped(user.school_id, client => studentCooperationStatus(client, user.school_id, user.student_id, user.student_attendance_cooperation_access))
+    const { student, ...publicStatus } = status
+    json(res, 200, publicStatus)
+    return true
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/student-portal/student/cooperation/scan') {
+    if (!studentOnly()) { json(res, 403, { error: 'forbidden' }); return true }
+    const input = await body(req)
+    const candidates = barcodeCandidates(input.code)
+    if (!candidates.length) { json(res, 400, { error: 'invalid_barcode' }); return true }
+    const clock = riyadhClock()
+    const result = await scoped(user.school_id, async client => {
+      const status = await studentCooperationStatus(client, user.school_id, user.student_id, user.student_attendance_cooperation_access, clock)
+      if (!status.authorized) return { error: 'cooperation_not_authorized' }
+      if (!status.available || !status.student) return { error: 'cooperation_closed', status }
+      const wanted = new Set(candidates)
+      const classmates = (await client.query(`SELECT id,name,grade,classroom FROM students
+        WHERE school_id=$1 AND active=true AND grade=$2 AND classroom=$3`, [user.school_id, status.student.grade, status.student.classroom])).rows
+      const student = classmates.find(item => wanted.has(clean(item.id, 200).replace(/^([+-]?\d+)\.0+$/, '$1')))
+      if (!student) return { error: 'student_not_in_classroom' }
+      if (student.id === user.student_id) return { error: 'own_barcode_not_allowed' }
+      const existing = await client.query(`SELECT to_char(recorded_at AT TIME ZONE 'Asia/Riyadh','HH24:MI:SS') AS time
+        FROM attendance_logs WHERE school_id=$1 AND student_id=$2 AND attendance_date=$3`, [user.school_id, student.id, clock.date])
+      if (existing.rowCount) return { outcome: 'duplicate', student, attendance: { status: 'present', time: existing.rows[0].time } }
+      const inserted = await client.query(`INSERT INTO attendance_logs(school_id,student_id,attendance_date,recorded_by,status)
+        VALUES($1,$2,$3,$4,'present') ON CONFLICT(school_id,student_id,attendance_date) DO NOTHING
+        RETURNING to_char(recorded_at AT TIME ZONE 'Asia/Riyadh','HH24:MI:SS') AS time`, [user.school_id, student.id, clock.date, user.user_id])
+      if (!inserted.rowCount) {
+        const race = await client.query(`SELECT to_char(recorded_at AT TIME ZONE 'Asia/Riyadh','HH24:MI:SS') AS time
+          FROM attendance_logs WHERE school_id=$1 AND student_id=$2 AND attendance_date=$3`, [user.school_id, student.id, clock.date])
+        return { outcome: 'duplicate', student, attendance: { status: 'present', time: race.rows[0]?.time || '' } }
+      }
+      await client.query(`DELETE FROM absence_records WHERE school_id=$1 AND student_id=$2 AND absence_date=$3`, [user.school_id, student.id, clock.date])
+      return { outcome: 'created', student, attendance: { status: 'present', time: inserted.rows[0].time } }
+    })
+    if (result.error) {
+      const code = result.error === 'student_not_in_classroom' ? 404 : result.error === 'cooperation_closed' ? 409 : 403
+      json(res, code, result)
+      return true
+    }
+    json(res, 200, result)
+    return true
+  }
+
   if (req.method === 'GET' && url.pathname === '/api/student-portal/student/dashboard') {
     if (!studentOnly()) { json(res, 403, { error: 'forbidden' }); return true }
     const result = await scoped(user.school_id, async client => {
@@ -374,7 +465,9 @@ export async function handleStudentPortalRequest(context) {
         WHERE m.school_id=$1 AND m.grade_value=$2 AND m.classroom_value=$3
           AND a.import_id=(SELECT id FROM lesson_schedule_imports WHERE school_id=$1 AND is_active=true ORDER BY imported_at DESC LIMIT 1)
         ORDER BY a.weekday,a.period_number,a.subject_name`, [user.school_id, subjectData.student.grade, subjectData.student.classroom])).rows
-      return { schoolName: school?.name || 'المدرسة', student: { ...subjectData.student, identityNumber: identityNumber(subjectData.student.id), qrValue: subjectData.student.id }, subjects: subjectData.subjects, schedule }
+      const cooperation = await studentCooperationStatus(client, user.school_id, user.student_id, user.student_attendance_cooperation_access)
+      const { student: cooperationStudent, ...attendanceCooperation } = cooperation
+      return { schoolName: school?.name || 'المدرسة', attendanceCooperation, student: { ...subjectData.student, identityNumber: identityNumber(subjectData.student.id), qrValue: subjectData.student.id }, subjects: subjectData.subjects, schedule }
     })
     if (!result) { json(res, 404, { error: 'student_not_found' }); return true }
     json(res, 200, { ...result, mustChangePassword: Boolean(user.must_change_password) })

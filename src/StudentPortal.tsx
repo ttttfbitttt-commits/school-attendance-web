@@ -2,8 +2,9 @@ import { useEffect, useMemo, useState } from 'react'
 import * as QRCode from 'qrcode'
 import { BookOpenCheck, CalendarDays, Camera, FileText, Home, KeyRound, LogOut, Menu, QrCode, UserRound, X } from 'lucide-react'
 import { api, type Account, type StudentPortfolioSubject, type StudentPortalDashboard } from './api'
+import { StudentCooperationPanel } from './StudentCooperation'
 
-type StudentTab = 'home' | 'portfolio' | 'schedule' | 'password'
+type StudentTab = 'home' | 'portfolio' | 'schedule' | 'cooperation' | 'password'
 const days = ['', 'الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت']
 const portfolioFileTypes = new Set(['image/png', 'image/jpeg', 'image/webp', 'application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'])
 const portfolioTypeFromName = (file: File) => {
@@ -41,6 +42,16 @@ export function StudentPortal({ account, onLogout }: { account: Account; onLogou
     if (!dashboard?.student.qrValue) return
     void QRCode.toDataURL(dashboard.student.qrValue, { width: 300, margin: 1, errorCorrectionLevel: 'M', color: { dark: '#0b3a68', light: '#ffffff' } }).then(setQr).catch(() => setQr(''))
   }, [dashboard?.student.qrValue])
+  useEffect(() => {
+    if (!dashboard?.attendanceCooperation.authorized) return
+    const timer = window.setInterval(() => {
+      void api.studentCooperationStatus().then(next => setDashboard(current => current ? { ...current, attendanceCooperation: next } : current)).catch(() => {})
+    }, 5_000)
+    return () => window.clearInterval(timer)
+  }, [dashboard?.attendanceCooperation.authorized])
+  useEffect(() => {
+    if (activeTab === 'cooperation' && !dashboard?.attendanceCooperation.available) setActiveTab('home')
+  }, [activeTab, dashboard?.attendanceCooperation.available])
 
   const switchTab = (tab: StudentTab) => {
     setMenuOpen(false)
@@ -93,7 +104,7 @@ export function StudentPortal({ account, onLogout }: { account: Account; onLogou
   return <main className="student-portal" dir="rtl">
     <button type="button" className="student-mobile-menu" onClick={() => setMenuOpen(true)} aria-label="فتح قائمة بوابة الطالب"><Menu size={20} /></button>
     <aside className={`student-sidebar ${menuOpen ? 'open' : ''}`}><div className="student-brand"><BookOpenCheck size={25} /><div><strong>بوابة الطالب</strong><small>{dashboard?.student.name || account.displayName}</small></div><button type="button" onClick={() => setMenuOpen(false)}><X size={19} /></button></div>
-      <nav><button type="button" className={activeTab === 'home' ? 'active' : ''} onClick={() => switchTab('home')}><Home size={18} /> الرئيسية</button><button type="button" className={activeTab === 'portfolio' ? 'active' : ''} onClick={() => switchTab('portfolio')}><BookOpenCheck size={18} /> ملف إنجازي</button><button type="button" className={activeTab === 'schedule' ? 'active' : ''} onClick={() => switchTab('schedule')}><CalendarDays size={18} /> جدولي</button><button type="button" className={activeTab === 'password' ? 'active' : ''} onClick={() => switchTab('password')}><KeyRound size={18} /> كلمة المرور</button></nav><button type="button" className="student-logout" onClick={onLogout}><LogOut size={18} /> تسجيل الخروج</button>
+      <nav><button type="button" className={activeTab === 'home' ? 'active' : ''} onClick={() => switchTab('home')}><Home size={18} /> الرئيسية</button><button type="button" className={activeTab === 'portfolio' ? 'active' : ''} onClick={() => switchTab('portfolio')}><BookOpenCheck size={18} /> ملف إنجازي</button><button type="button" className={activeTab === 'schedule' ? 'active' : ''} onClick={() => switchTab('schedule')}><CalendarDays size={18} /> جدولي</button>{dashboard?.attendanceCooperation.available && <button type="button" className={activeTab === 'cooperation' ? 'active' : ''} onClick={() => switchTab('cooperation')}><Camera size={18} /> تعاون الطالب</button>}<button type="button" className={activeTab === 'password' ? 'active' : ''} onClick={() => switchTab('password')}><KeyRound size={18} /> كلمة المرور</button></nav><button type="button" className="student-logout" onClick={onLogout}><LogOut size={18} /> تسجيل الخروج</button>
     </aside>
     {menuOpen && <button type="button" className="student-sidebar-backdrop" onClick={() => setMenuOpen(false)} aria-label="إغلاق القائمة" />}
     <div className="student-workspace"><header className="student-topbar"><div><span>بوابة الطالب</span><h1>{dashboard?.schoolName || 'نظام الحصر'}</h1></div><button type="button" className="outline-button" onClick={() => void load()} disabled={busy !== ''}>تحديث البيانات</button></header>
@@ -142,6 +153,7 @@ export function StudentPortal({ account, onLogout }: { account: Account; onLogou
             )}
           </section>
         )}      </>}
+        {activeTab === 'cooperation' && dashboard?.attendanceCooperation.available && <StudentCooperationPanel status={dashboard.attendanceCooperation} onStatus={attendanceCooperation => setDashboard(current => current ? { ...current, attendanceCooperation } : current)} />}
     </div>
   </main>
 }
