@@ -21,7 +21,7 @@ export function StudentCooperationPanel({ status, onStatus }: { status: StudentC
   const scanTimerRef = useRef<number | null>(null)
   const scanBusyRef = useRef(false)
   const lastCodeRef = useRef({ code: '', at: 0 })
-  const feedbackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const feedbackTimerRef = useRef<ReturnType<typeof window.setTimeout> | null>(null)
 
   const stopCamera = () => {
     if (frameRef.current) cancelAnimationFrame(frameRef.current)
