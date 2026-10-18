@@ -328,7 +328,7 @@ export async function handleStudentPortalRequest(context) {
           JOIN lesson_schedule_assignments a ON a.school_id=m.school_id AND a.classroom_id=m.classroom_id
           JOIN lesson_classrooms c ON c.id=a.classroom_id AND c.school_id=a.school_id
           LEFT JOIN lesson_teachers t ON t.id=a.teacher_id AND t.school_id=a.school_id
-          LEFT JOIN lesson_time_slots ts ON ts.school_id=a.school_id AND ts.import_id=a.import_id AND ts.period_number=a.period_number
+          LEFT JOIN lesson_time_slots ts ON ts.school_id=a.school_id AND ts.weekday=a.weekday AND ts.period_number=a.period_number
         WHERE m.school_id=$1 AND m.grade_value=$2 AND m.classroom_value=$3
           AND a.import_id=(SELECT id FROM lesson_schedule_imports WHERE school_id=$1 AND is_active=true ORDER BY imported_at DESC LIMIT 1)
         ORDER BY a.weekday,a.period_number,a.subject_name`, [user.school_id, subjectData.student.grade, subjectData.student.classroom])).rows
