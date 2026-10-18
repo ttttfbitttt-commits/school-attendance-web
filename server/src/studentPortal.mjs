@@ -323,7 +323,7 @@ export async function handleStudentPortalRequest(context) {
       const school = (await client.query('SELECT name FROM schools WHERE id=$1', [user.school_id])).rows[0]
       const schedule = (await client.query(`SELECT a.id::text AS "assignmentId",a.weekday AS weekday,a.period_number AS "periodNumber",
         a.subject_name AS subject,COALESCE(t.full_name,'غير محدد') AS "teacherName",c.name AS classroom,
-        ts.start_time::text AS "startTime",ts.end_time::text AS "endTime"
+        to_char(ts.starts_at,'HH24:MI') AS "startTime",to_char(ts.ends_at,'HH24:MI') AS "endTime"
         FROM teacher_classroom_student_maps m
           JOIN lesson_schedule_assignments a ON a.school_id=m.school_id AND a.classroom_id=m.classroom_id
           JOIN lesson_classrooms c ON c.id=a.classroom_id AND c.school_id=a.school_id
