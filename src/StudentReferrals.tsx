@@ -85,37 +85,51 @@ function ReferralList({ referrals, onOpen, emptyText }: { referrals: StudentRefe
   </button>)}</div>
 }
 
-function ReferralDetail({ referral, schoolMode, onClose, onSaved, onPrint, onCancel }: { referral: StudentReferral; schoolMode: boolean; onClose: () => void; onSaved: () => void; onPrint: (item: StudentReferral) => void; onCancel?: (item: StudentReferral) => void }) {
+function ReferralDetail({ referral, schoolMode, counselorMode = false, onClose, onSaved, onPrint, onCancel }: { referral: StudentReferral; schoolMode: boolean; counselorMode?: boolean; onClose: () => void; onSaved: () => void; onPrint: (item: StudentReferral) => void; onCancel?: (item: StudentReferral) => void }) {
   const initialStatus: SchoolActionStatus = ['under_review', 'referred_to_counselor', 'completed'].includes(referral.status) ? referral.status as SchoolActionStatus : 'under_review'
   const [status, setStatus] = useState<SchoolActionStatus>(initialStatus)
   const [viceAction, setViceAction] = useState(referral.viceAction)
   const [viceName, setViceName] = useState(referral.vicePrincipalName)
   const [referred, setReferred] = useState(referral.referredToCounselor)
   const [counselorAction, setCounselorAction] = useState(referral.counselorAction)
-  const [counselorName, setCounselorName] = useState(referral.counselorName)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const save = async () => {
     setBusy(true); setError('')
     try {
-      const nextStatus = status === 'referred_to_counselor' || referred && status !== 'completed' ? 'referred_to_counselor' : status
-      await api.updateStudentReferral(referral.id, { status: nextStatus, referredToCounselor: referred, viceAction, vicePrincipalName: viceName, counselorAction, counselorName })
+      if (counselorMode) {
+        await api.completeCounselorStudentReferral(referral.id, counselorAction)
+      } else {
+        const nextStatus = referred ? 'referred_to_counselor' : status
+        await api.updateStudentReferral(referral.id, { status: nextStatus, referredToCounselor: referred, viceAction, vicePrincipalName: viceName })
+      }
       onSaved()
-    } catch { setError('تعذر حفظ الإجراء. أكمل اسم الوكيل والإجراء، وتأكد من بيانات المرشد عند إكمال إحالة محالة إليه.') } finally { setBusy(false) }
+    } catch {
+      setError(counselorMode ? 'تعذر حفظ إجراء المرشد. ربما عولجت الإحالة بالفعل بواسطة مرشد آخر.' : 'تعذر حفظ الإجراء. أكمل اسم الوكيل والإجراء ثم حاول مرة أخرى.')
+    } finally { setBusy(false) }
   }
   return <div className="referral-detail-card">
     <div className="referral-detail-head"><div><span>إحالة رقم {referral.referenceNumber}</span><h3>{referral.studentName}</h3><p>{referral.teacherName} · {referral.subject} · {periodLabel(referral.periodNumber)} · {formatHijriDate(referral.date)}</p></div><button type="button" className="icon-button" onClick={onClose}><X size={18} /></button></div>
     <div className="referral-detail-grid"><div><small>الصف والفصل</small><strong>{`${referral.grade} ${referral.classroom}`.trim()}</strong></div><div><small>سبب الإحالة</small><strong>{referral.reason === 'other' ? referral.otherReason : reasonLabels[referral.reason]}</strong></div></div>
     <div className="referral-description"><small>إيضاح المشكلة</small><p>{referral.problemDescription}</p></div>
     {referral.status === 'cancelled' && <div className="referral-cancelled-notice"><X size={18} /><div><strong>هذه الإحالة ملغاة من المعلم</strong><span>{referral.cancelledAt ? `تم الإلغاء في ${formatHijriDateTime(referral.cancelledAt)}.` : 'تم إلغاؤها ولم تعد ضمن الإحالات النشطة.'}</span></div></div>}
+    {(referral.viceAction || referral.counselorAction) && <section className="referral-recorded-actions">
+      {referral.viceAction && <article><small>إجراء وكيل المدرسة</small><strong>{referral.vicePrincipalName || 'وكيل المدرسة'}</strong><p>{referral.viceAction}</p></article>}
+      {referral.counselorAction && <article><small>إجراء المرشد الطلابي</small><strong>{referral.counselorName || 'المرشد الطلابي'}</strong><p>{referral.counselorAction}</p></article>}
+    </section>}
     {schoolMode && referral.status !== 'cancelled' && <div className="referral-action-form">
       <label>اسم وكيل المدرسة<input value={viceName} onChange={event => setViceName(event.target.value)} placeholder="اكتب الاسم كما سيظهر في النموذج" /></label>
       <label className="wide">الإجراء المتخذ<textarea value={viceAction} onChange={event => setViceAction(event.target.value)} placeholder="دوّن الإجراء الذي تم اتخاذه مع الطالب" rows={4} /></label>
-      <label className="referral-checkbox wide"><input type="checkbox" checked={referred} onChange={event => { setReferred(event.target.checked); if (event.target.checked) setStatus('referred_to_counselor') }} /> تمت إحالته إلى المرشد الطلابي</label>
-      {referred && <><label>اسم المرشد الطلابي<input value={counselorName} onChange={event => setCounselorName(event.target.value)} /></label><label className="wide">ما تم حيال الطالب لدى المرشد<textarea value={counselorAction} onChange={event => setCounselorAction(event.target.value)} rows={4} /></label></>}
-      <label>حالة الإحالة<select value={status} onChange={event => setStatus(event.target.value as SchoolActionStatus)}><option value="under_review">قيد الإجراء</option>{referred && <option value="referred_to_counselor">محالة للمرشد</option>}<option value="completed">مكتملة</option></select></label>
+      <label className="referral-checkbox wide"><input type="checkbox" checked={referred} disabled={referral.referredToCounselor} onChange={event => { setReferred(event.target.checked); if (event.target.checked) setStatus('referred_to_counselor') }} /> تمت إحالته إلى المرشد الطلابي</label>
+      {referred ? <p className="referral-counselor-handoff">أُحيلت هذه الحالة إلى المرشد الطلابي. سيُسجَّل اسم المرشد وإجراؤه تلقائيًا عند إتمامها من بوابته.</p> : <label>حالة الإحالة<select value={status} onChange={event => setStatus(event.target.value as SchoolActionStatus)}><option value="under_review">قيد الإجراء</option><option value="completed">مكتملة</option></select></label>}
       {error && <p className="teacher-notice error wide">{error}</p>}
       <button type="button" className="primary-button" disabled={busy} onClick={() => void save()}><CheckCircle2 size={17} /> {busy ? 'جارٍ الحفظ…' : 'حفظ الإجراء والحالة'}</button>
+    </div>}
+    {counselorMode && referral.status === 'referred_to_counselor' && !referral.counselorAction && <div className="referral-action-form counselor-referral-action">
+      <p className="wide">دوّن الإجراء المتخذ للحالة. سيظهر اسمك وتاريخ الإجراء تلقائيًا في النموذج الرسمي.</p>
+      <label className="wide">الإجراء المتخذ<textarea value={counselorAction} onChange={event => setCounselorAction(event.target.value)} placeholder="اكتب الإجراء الذي تم اتخاذه مع الطالب" rows={5} /></label>
+      {error && <p className="teacher-notice error wide">{error}</p>}
+      <button type="button" className="primary-button" disabled={busy || !counselorAction.trim()} onClick={() => void save()}><CheckCircle2 size={17} /> {busy ? 'جارٍ الحفظ…' : 'حفظ إجراء المرشد'}</button>
     </div>}
     <div className="referral-detail-actions">{referral.status !== 'cancelled' && <button type="button" className="outline-button" onClick={() => onPrint(referral)}><Printer size={16} /> عرض وطباعة النموذج الرسمي</button>}{!schoolMode && onCancel && !['completed', 'cancelled'].includes(referral.status) && <button type="button" className="outline-button danger-referral-button" onClick={() => onCancel(referral)}><X size={16} /> إلغاء الإحالة</button>}</div>
     {!!referral.events.length && <div className="referral-timeline"><h4>سجل المتابعة</h4>{referral.events.map(event => <div key={event.id}><Clock3 size={15} /><span><strong>{statusLabels[event.type as StudentReferralStatus] || event.type}</strong><small>{event.note} · {formatHijriDateTime(event.createdAt)}</small></span></div>)}</div>}
@@ -231,6 +245,39 @@ export function SchoolReferralCenter({ schoolName }: { schoolName: string }) {
       {error && <p className="teacher-notice error">{error}</p>}{busy ? <div className="referral-empty">جارٍ تحميل الإحالات…</div> : <ReferralList referrals={filtered} emptyText="لا توجد إحالات مطابقة." onOpen={open} />}
     </div>
     {selected && <ReferralDetail referral={selected} schoolMode onClose={() => setSelected(null)} onSaved={() => void saved()} onPrint={setPreview} />}
+    {preview && <ReferralOfficialPreview referral={preview} onClose={() => setPreview(null)} />}
+  </section>
+}
+
+export function CounselorReferralCenter({ schoolName }: { schoolName: string }) {
+  const [referrals, setReferrals] = useState<StudentReferral[]>([])
+  const [selected, setSelected] = useState<StudentReferral | null>(null)
+  const [preview, setPreview] = useState<StudentReferral | null>(null)
+  const [query, setQuery] = useState('')
+  const [busy, setBusy] = useState(true)
+  const [error, setError] = useState('')
+  const load = async () => {
+    setBusy(true); setError('')
+    try { const result = await api.studentReferrals(); setReferrals(result.referrals) }
+    catch { setError('تعذر تحميل الإحالات المحالة إليك. حدّث الصفحة وحاول مرة أخرى.') }
+    finally { setBusy(false) }
+  }
+  useEffect(() => { void load() }, [])
+  const filtered = useMemo(() => {
+    const needle = query.trim().toLowerCase()
+    if (!needle) return referrals
+    return referrals.filter(item => `${item.studentName} ${item.studentId} ${item.teacherName} ${item.grade} ${item.classroom}`.toLowerCase().includes(needle))
+  }, [query, referrals])
+  const pending = referrals.filter(item => item.status === 'referred_to_counselor' && !item.counselorAction).length
+  const completed = referrals.filter(item => Boolean(item.counselorAction)).length
+  return <section className="referral-school-center counselor-referral-center">
+    <header className="referral-school-header"><div><span>{schoolName} · بوابة المرشد الطلابي</span><h2>الإحالات المحالة</h2><p>راجع الإحالات التي حوّلها وكيل المدرسة، ثم وثّق الإجراء المتخذ باسمك.</p></div><FileText size={34} /></header>
+    <div className="counselor-referral-stats"><article><small>بانتظار الإجراء</small><strong>{pending}</strong></article><article><small>تم توثيقها</small><strong>{completed}</strong></article><article><small>إجمالي الإحالات</small><strong>{referrals.length}</strong></article></div>
+    <div className="referral-school-panel">
+      <div className="referral-toolbar"><label className="referral-search"><Search size={17} /><input value={query} onChange={event => setQuery(event.target.value)} placeholder="ابحث بالطالب أو المعلم أو الفصل" /></label><button className="icon-button" onClick={() => void load()} title="تحديث"><RefreshCw size={17} /></button></div>
+      {error && <p className="teacher-notice error">{error}</p>}{busy ? <div className="referral-empty">جارٍ تحميل الإحالات…</div> : <ReferralList referrals={filtered} emptyText="لا توجد إحالات محالة إلى المرشد حاليًا." onOpen={setSelected} />}
+    </div>
+    {selected && <ReferralDetail referral={selected} schoolMode={false} counselorMode onClose={() => setSelected(null)} onSaved={() => { setSelected(null); void load() }} onPrint={setPreview} />}
     {preview && <ReferralOfficialPreview referral={preview} onClose={() => setPreview(null)} />}
   </section>
 }

@@ -465,8 +465,10 @@ export const api = {
     request<{ ok: boolean; id: string }>('/student-referrals', { method: 'POST', body: JSON.stringify(payload) }),
   cancelStudentReferral: (id: string) => request<{ ok: boolean }>(`/student-referrals/${encodeURIComponent(id)}/cancel`, { method: 'POST', body: '{}' }),
   markStudentReferralViewed: (id: string) => request<{ ok: boolean; changed: boolean }>(`/student-referrals/${encodeURIComponent(id)}/viewed`, { method: 'POST', body: '{}' }),
-  updateStudentReferral: (id: string, payload: { status: Exclude<StudentReferralStatus, 'submitted' | 'viewed' | 'cancelled'>; referredToCounselor: boolean; viceAction: string; vicePrincipalName: string; counselorAction?: string; counselorName?: string; eventNote?: string }) =>
+  updateStudentReferral: (id: string, payload: { status: Exclude<StudentReferralStatus, 'submitted' | 'viewed' | 'cancelled'>; referredToCounselor: boolean; viceAction: string; vicePrincipalName: string; eventNote?: string }) =>
     request<{ ok: boolean }>(`/student-referrals/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify(payload) }),
+  completeCounselorStudentReferral: (id: string, counselorAction: string) =>
+    request<{ ok: boolean }>(`/student-referrals/${encodeURIComponent(id)}`, { method: 'PATCH', body: JSON.stringify({ counselorAction }) }),
   behaviorOverview: () => request<BehaviorOverview>('/behavior/overview'),
   behaviorCatalog: (filters: { category?: BehaviorCategory; mode?: 'in_person' | 'remote'; stage?: 'primary' | 'middle' | 'secondary'; q?: string } = {}) =>
     request<{ version: string; rules: BehaviorRule[] }>(`/behavior/catalog?${new URLSearchParams(Object.entries(filters).filter(([, value]) => value).map(([key, value]) => [key, value || '']))}`),

@@ -93,16 +93,18 @@ export async function migrateStudentReferrals(adminPool) {
 export async function handleStudentReferralRequest({ req, res, url, user, body, json, scoped }) {
   if (!url.pathname.startsWith('/api/student-referrals')) return false
   const isTeacher = user.role === 'teacher' && validId(user.teacher_id)
-  const isSchool = user.role === 'admin' || user.role === 'staff' || user.role === 'counselor'
+  const isSchool = user.role === 'admin' || user.role === 'staff'
+  const isCounselor = user.role === 'counselor' && validId(user.counselor_id)
 
   if (req.method === 'GET' && url.pathname === '/api/student-referrals') {
-    if (!isTeacher && !isSchool) { json(res, 403, { error: 'forbidden' }); return true }
+    if (!isTeacher && !isSchool && !isCounselor) { json(res, 403, { error: 'forbidden' }); return true }
     const filters = Object.fromEntries(url.searchParams)
     const result = await scoped(user.school_id, async client => {
       const values = [user.school_id]
       const where = ["r.school_id=$1", "r.status<>'cancelled'"]
       const add = value => { values.push(value); return `$${values.length}` }
       if (isTeacher) where.push(`r.teacher_id=${add(user.teacher_id)}`)
+      if (isCounselor) where.push("r.referred_to_counselor=true")
       if (filters.status && STATUSES.has(filters.status)) where.push(`r.status=${add(filters.status)}`)
       if (DATE.test(filters.from || '')) where.push(`r.referral_date>=${add(filters.from)}`)
       if (DATE.test(filters.to || '')) where.push(`r.referral_date<=${add(filters.to)}`)
@@ -208,31 +210,52 @@ export async function handleStudentReferralRequest({ req, res, url, user, body, 
 
   const updateMatch = url.pathname.match(/^\/api\/student-referrals\/([0-9a-f-]+)$/i)
   if (req.method === 'PATCH' && updateMatch) {
-    if (!isSchool || !validId(updateMatch[1])) { json(res, 403, { error: 'forbidden' }); return true }
+    if ((!isSchool && !isCounselor) || !validId(updateMatch[1])) { json(res, 403, { error: 'forbidden' }); return true }
     const input = await body(req)
+    if (isCounselor) {
+      const counselorAction = clean(input.counselorAction, 3000)
+      if (!counselorAction) { json(res, 400, { error: 'invalid_counselor_action' }); return true }
+      const changed = await scoped(user.school_id, async client => {
+        const counselor = (await client.query(`SELECT full_name FROM student_counselors
+          WHERE school_id=$1 AND id=$2 AND active=true`, [user.school_id, user.counselor_id])).rows[0]
+        if (!counselor) return { state: 'counselor_not_found' }
+        const result = await client.query(`UPDATE student_referrals SET status='completed',counselor_action=$1,counselor_name=$2,
+          counselor_action_by=$3,counselor_action_at=now(),completed_at=now(),updated_at=now()
+          WHERE school_id=$4 AND id=$5 AND referred_to_counselor=true AND status='referred_to_counselor' AND counselor_action=''
+          RETURNING id`, [counselorAction, counselor.full_name, user.user_id, user.school_id, updateMatch[1]])
+        if (!result.rowCount) return { state: 'referral_not_available' }
+        await addEvent(client, user.school_id, updateMatch[1], user, 'completed')
+        return { state: 'saved' }
+      })
+      if (changed.state !== 'saved') { json(res, 409, { error: changed.state }); return true }
+      json(res, 200, { ok: true })
+      return true
+    }
+
     const status = String(input.status || '')
     const viceAction = clean(input.viceAction, 3000)
     const vicePrincipalName = clean(input.vicePrincipalName, 180)
-    const counselorAction = clean(input.counselorAction, 3000)
-    const counselorName = clean(input.counselorName, 180)
     const referredToCounselor = Boolean(input.referredToCounselor)
-    if (!STATUSES.has(status) || status === 'submitted' || status === 'viewed' || status === 'cancelled' || !viceAction || !vicePrincipalName || (status === 'completed' && referredToCounselor && (!counselorAction || !counselorName))) {
+    if (!STATUSES.has(status) || status === 'submitted' || status === 'viewed' || status === 'cancelled' || !viceAction || !vicePrincipalName ||
+      (referredToCounselor && status !== 'referred_to_counselor') || (!referredToCounselor && status === 'referred_to_counselor')) {
       json(res, 400, { error: 'invalid_referral_action' }); return true
     }
     const changed = await scoped(user.school_id, async client => {
       const result = await client.query(`UPDATE student_referrals SET status=$1,referred_to_counselor=$2,vice_action=$3,vice_principal_name=$4,
-        counselor_action=$5,counselor_name=$6,viewed_by=COALESCE(viewed_by,$7),viewed_at=COALESCE(viewed_at,now()),
-        vice_action_by=$7,vice_action_at=now(),counselor_action_by=CASE WHEN $5<>'' THEN $7 ELSE counselor_action_by END,
-        counselor_action_at=CASE WHEN $5<>'' THEN now() ELSE counselor_action_at END,completed_at=CASE WHEN $1='completed' THEN now() ELSE NULL END,updated_at=now()
-        WHERE school_id=$8 AND id=$9 AND status <> 'cancelled' RETURNING id`,
-      [status, referredToCounselor, viceAction, vicePrincipalName, counselorAction, counselorName, user.user_id, user.school_id, updateMatch[1]])
-      if (result.rowCount) await addEvent(client, user.school_id, updateMatch[1], user, status, clean(input.eventNote, 1000) || 'تم تحديث إجراء الإحالة وحالتها.')
+        viewed_by=COALESCE(viewed_by,$5),viewed_at=COALESCE(viewed_at,now()),vice_action_by=$5,vice_action_at=now(),
+        counselor_action=CASE WHEN $1='referred_to_counselor' THEN '' ELSE counselor_action END,
+        counselor_name=CASE WHEN $1='referred_to_counselor' THEN '' ELSE counselor_name END,
+        counselor_action_by=CASE WHEN $1='referred_to_counselor' THEN NULL ELSE counselor_action_by END,
+        counselor_action_at=CASE WHEN $1='referred_to_counselor' THEN NULL ELSE counselor_action_at END,
+        completed_at=CASE WHEN $1='completed' THEN now() ELSE NULL END,updated_at=now()
+        WHERE school_id=$6 AND id=$7 AND status <> 'cancelled' RETURNING id`,
+      [status, referredToCounselor, viceAction, vicePrincipalName, user.user_id, user.school_id, updateMatch[1]])
+      if (result.rowCount) await addEvent(client, user.school_id, updateMatch[1], user, status)
       return Boolean(result.rowCount)
     })
     if (!changed) { json(res, 404, { error: 'referral_not_found' }); return true }
     json(res, 200, { ok: true })
     return true
   }
-
   return false
 }
