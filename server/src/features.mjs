@@ -571,6 +571,23 @@ export async function handleFeatureRequest(context) {
     return true
   }
 
+  // A late arrival can be corrected from the daily late log.  The same
+  // attendance row is retained and converted to present, so it immediately
+  // disappears from late reports and from the eligible late-message list.
+  if (req.method === 'PATCH' && url.pathname === '/api/reports/daily-lates/attendance') {
+    if (!adminOnly()) { json(res, 403, { error: 'forbidden' }); return true }
+    const input = await body(req)
+    const date = validDate(input.date)
+    const studentIds = selectedStudentIds(input, 5000)
+    if (!date || date > todayRiyadh() || !studentIds) { json(res, 400, { error: 'invalid_late_attendance_update' }); return true }
+    const updated = await scoped(user.school_id, async client => (await client.query(`UPDATE attendance_logs
+      SET status='present', excuse_status='unexcused'
+      WHERE school_id=$1 AND attendance_date=$2 AND status='late' AND student_id=ANY($3::text[])
+      RETURNING student_id`, [user.school_id, date, studentIds])).rowCount)
+    json(res, 200, { ok: true, date, updated })
+    return true
+  }
+
   if (req.method === 'GET' && ['/api/reports/absence-summary', '/api/reports/late-summary'].includes(url.pathname)) {
     const isLate = url.pathname.endsWith('late-summary')
     const rawIds = String(url.searchParams.get('studentIds') || '').split(',').map(value => value.trim()).filter(Boolean)
