@@ -316,6 +316,27 @@ export async function migrateFeatures(pool) {
     END $$;
   `)
 
+  // A manually entered student was stored with both grade and classroom set to
+  // "ثالث" even though the school already uses "ثالث ثانوي". Normalize only
+  // this unmistakable malformed shape; a legitimate grade/classroom pair is
+  // never changed by this migration.
+  const gradeNormalization = await pool.query(`INSERT INTO application_migrations(name)
+    VALUES ('normalize_malformed_third_secondary_grade_v1')
+    ON CONFLICT (name) DO NOTHING
+    RETURNING name`)
+  if (gradeNormalization.rowCount) {
+    await pool.query(`UPDATE students AS student
+      SET grade='ثالث ثانوي', updated_at=now()
+      WHERE btrim(student.grade)='ثالث'
+        AND btrim(student.classroom)='ثالث'
+        AND EXISTS (
+          SELECT 1 FROM students AS known_grade
+          WHERE known_grade.school_id=student.school_id
+            AND known_grade.active=true
+            AND btrim(known_grade.grade)='ثالث ثانوي'
+        )`)
+  }
+
   // The previous report inferred absence from every weekday without attendance.
   // Its only saved per-day records were student_excuses entries. Import their
   // recorded start dates once as explicit, unexcused absence days. The source

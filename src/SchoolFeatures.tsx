@@ -654,9 +654,11 @@ function DailyList({ id, title, date, onDate, rows, onStatus, onExcel, onPdf, on
   const [openClassroom, setOpenClassroom] = useState('')
   const [exportGrade, setExportGrade] = useState('')
   const [exportClassroom, setExportClassroom] = useState('')
-  const gradeOptions = useMemo(() => [...new Set(rows.map(row => row.grade.trim()).filter(Boolean))].sort((left, right) => left.localeCompare(right, 'ar', { numeric: true })), [rows])
-  const classroomOptions = useMemo(() => [...new Set(rows.filter(row => !exportGrade || row.grade.trim() === exportGrade).map(row => row.classroom.trim()).filter(Boolean))].sort((left, right) => left.localeCompare(right, 'ar', { numeric: true })), [exportGrade, rows])
-  const filteredRows = useMemo(() => rows.filter(row => (!exportGrade || row.grade.trim() === exportGrade) && (!exportClassroom || row.classroom.trim() === exportClassroom)), [exportClassroom, exportGrade, rows])
+  const rawGrades = useMemo(() => rows.map(row => row.grade), [rows])
+  const normalizedRowGrade = (row: DailyRow) => canonicalAttendanceGrade(row.grade, rawGrades)
+  const gradeOptions = useMemo(() => [...new Set(rows.map(normalizedRowGrade).filter(Boolean))].sort((left, right) => left.localeCompare(right, 'ar', { numeric: true })), [rawGrades, rows])
+  const classroomOptions = useMemo(() => [...new Set(rows.filter(row => !exportGrade || normalizedRowGrade(row) === exportGrade).map(row => row.classroom.trim()).filter(Boolean))].sort((left, right) => left.localeCompare(right, 'ar', { numeric: true })), [exportGrade, rawGrades, rows])
+  const filteredRows = useMemo(() => rows.filter(row => (!exportGrade || normalizedRowGrade(row) === exportGrade) && (!exportClassroom || row.classroom.trim() === exportClassroom)), [exportClassroom, exportGrade, rawGrades, rows])
   const pendingRows = useMemo(() => filteredRows.filter(row => !late && row.recordState === 'pending'), [filteredRows, late])
   const approvedRows = useMemo(() => filteredRows.filter(row => late || row.recordState !== 'pending'), [filteredRows, late])
   const exportScope = exportClassroom ? `الصف: ${exportGrade} — الفصل: ${exportClassroom}` : exportGrade ? `الصف: ${exportGrade}` : ''
@@ -664,7 +666,7 @@ function DailyList({ id, title, date, onDate, rows, onStatus, onExcel, onPdf, on
     if (!late) return [] as Array<{ grade: string; rows: DailyRow[]; classrooms: Array<{ classroom: string; rows: DailyRow[] }> }>
     const byGrade = new Map<string, DailyRow[]>()
     filteredRows.forEach(row => {
-      const grade = row.grade.trim() || 'صف غير محدد'
+      const grade = normalizedRowGrade(row)
       byGrade.set(grade, [...(byGrade.get(grade) || []), row])
     })
     return [...byGrade.entries()].map(([grade, gradeRows]) => {
@@ -682,7 +684,7 @@ function DailyList({ id, title, date, onDate, rows, onStatus, onExcel, onPdf, on
         })).sort((left, right) => left.classroom.localeCompare(right.classroom, 'ar', { numeric: true })),
       }
     }).sort((left, right) => left.grade.localeCompare(right.grade, 'ar', { numeric: true }))
-  }, [filteredRows, late])
+  }, [filteredRows, late, rawGrades])
 
   useEffect(() => {
     setSelected(current => new Set([...current].filter(studentId => rows.some(row => row.studentId === studentId))))
