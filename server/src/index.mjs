@@ -296,8 +296,8 @@ const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, `http://${req.headers.host}`)
     if (req.method === 'GET' && url.pathname === '/api/health') return json(res, 200, { ok: true })
-    if (req.method === 'POST' && url.pathname === '/api/auth/register') return requestSchoolRegistration({ req, res, authPool, body, json, passwordHash })
-    if (req.method === 'POST' && url.pathname === '/api/auth/verify-email') return verifySchoolRegistration({ req, res, authPool, body, json, scopedOn, createSession })
+    if (req.method === 'POST' && url.pathname === '/api/auth/register') return await requestSchoolRegistration({ req, res, authPool, body, json, passwordHash })
+    if (req.method === 'POST' && url.pathname === '/api/auth/verify-email') return await verifySchoolRegistration({ req, res, authPool, body, json, scopedOn, createSession })
     if (req.method === 'POST' && url.pathname === '/api/auth/login') {
       const { email, password } = await body(req)
       const retryAfter = loginRateLimited(req, 'school', email)
