@@ -96,6 +96,31 @@ async function scanNoorSheetImage(value) {
 }
 
 function validId(value) { return /^[0-9a-f-]{36}$/i.test(String(value || '')) }
+
+function normalizedSortValue(value) {
+  return String(value || '').trim().replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه').replace(/\s+/g, ' ')
+}
+
+function stageRank(value) {
+  const normalized = normalizedSortValue(value)
+  if (/(^|\s)(اول|الاول)(\s|$)/.test(normalized)) return 1
+  if (/(^|\s)(ثاني|الثاني)(\s|$)/.test(normalized)) return 2
+  if (/(^|\s)(ثالث|الثالث)(\s|$)/.test(normalized)) return 3
+  if (/(^|\s)(رابع|الرابع)(\s|$)/.test(normalized)) return 4
+  if (/(^|\s)(خامس|الخامس)(\s|$)/.test(normalized)) return 5
+  if (/(^|\s)(سادس|السادس)(\s|$)/.test(normalized)) return 6
+  return 99
+}
+
+function compareSchoolGrade(left, right) {
+  const leftRank = stageRank(left)
+  const rightRank = stageRank(right)
+  return leftRank - rightRank || String(left).localeCompare(String(right), 'ar', { numeric: true, sensitivity: 'base' })
+}
+
+function compareSchoolClassroom(left, right) {
+  return String(left).localeCompare(String(right), 'ar', { numeric: true, sensitivity: 'base' })
+}
 function validDate(value) {
   const date = String(value || '')
   const parsed = new Date(`${date}T12:00:00Z`)
@@ -559,6 +584,7 @@ export async function handleTeacherPortalRequest(context) {
 
   const adminOnly = () => user.role === 'admin'
   const teacherOnly = () => user.role === 'teacher' && validId(user.teacher_id)
+  const schoolReportAccess = () => user.role === 'admin' || (user.role === 'counselor' && validId(user.counselor_id))
 
   if (req.method === 'POST' && url.pathname === '/api/teacher-portal/teacher/password') {
     if (!teacherOnly()) { json(res, 403, { error: 'forbidden' }); return true }
@@ -933,6 +959,55 @@ export async function handleTeacherPortalRequest(context) {
     })
     if (result.error) { json(res, 409, result); return true }
     json(res, 200, { ok: true, ...result })
+    return true
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/teacher-portal/school/comprehensive-report/options') {
+    if (!schoolReportAccess()) { json(res, 403, { error: 'forbidden' }); return true }
+    const options = await scoped(user.school_id, async client => {
+      const rows = (await client.query(`SELECT DISTINCT btrim(grade) AS grade,btrim(classroom) AS classroom
+        FROM students WHERE school_id=$1 AND active=true AND btrim(grade) <> '' AND btrim(classroom) <> ''`, [user.school_id])).rows
+      const grouped = new Map()
+      for (const row of rows) grouped.set(row.grade, [...(grouped.get(row.grade) || []), row.classroom])
+      return [...grouped.entries()]
+        .map(([grade, classrooms]) => ({ grade, classrooms: [...new Set(classrooms)].sort(compareSchoolClassroom) }))
+        .sort((left, right) => compareSchoolGrade(left.grade, right.grade))
+    })
+    json(res, 200, { grades: options })
+    return true
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/teacher-portal/school/comprehensive-report') {
+    if (!schoolReportAccess()) { json(res, 403, { error: 'forbidden' }); return true }
+    const type = String(url.searchParams.get('type') || '')
+    const grade = clean(url.searchParams.get('grade'), 160)
+    const classroom = clean(url.searchParams.get('classroom'), 160)
+    if (!['absence', 'late'].includes(type) || !grade || !classroom) { json(res, 400, { error: 'invalid_comprehensive_report' }); return true }
+    const result = await scoped(user.school_id, async client => {
+      const roster = (await client.query(`SELECT id,name,phone,grade,classroom FROM students
+        WHERE school_id=$1 AND active=true AND btrim(grade)=$2 AND btrim(classroom)=$3`, [user.school_id, grade, classroom])).rows
+      if (!roster.length) return { error: 'classroom_not_found' }
+      const studentIds = roster.map(student => student.id)
+      const statusClause = type === 'absence' ? "r.attendance_status='absent'" : "r.attendance_status='late'"
+      const eventRows = (await client.query(`SELECT r.student_id AS "studentId",to_char(s.session_date,'YYYY-MM-DD') AS date,
+          s.subject_name AS subject,s.period_number AS period,s.teacher_name AS "teacherName"
+        FROM teacher_lesson_sessions s JOIN teacher_lesson_student_records r ON r.lesson_session_id=s.id AND r.school_id=s.school_id
+        WHERE s.school_id=$1 AND r.student_id=ANY($2::text[]) AND ${statusClause}
+        ORDER BY s.session_date,s.period_number,s.subject_name,s.teacher_name`, [user.school_id, studentIds])).rows
+      const eventsByStudent = new Map(roster.map(student => [student.id, []]))
+      for (const row of eventRows) eventsByStudent.get(row.studentId)?.push({
+        date: row.date, subject: row.subject || '', period: Number(row.period) || 0, teacherName: row.teacherName || '',
+      })
+      return {
+        type, grade, classroom,
+        students: roster.sort((left, right) => String(left.name).localeCompare(String(right.name), 'ar', { numeric: true, sensitivity: 'base' })).map(student => ({
+          id: student.id, name: student.name, phone: student.phone || '', grade: student.grade, classroom: student.classroom,
+          events: eventsByStudent.get(student.id) || [],
+        })),
+      }
+    })
+    if (result.error) { json(res, 404, result); return true }
+    json(res, 200, result)
     return true
   }
 

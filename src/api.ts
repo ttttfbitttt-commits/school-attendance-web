@@ -178,6 +178,13 @@ export type TeacherComprehensiveReport = {
   type: TeacherComprehensiveReportType; subject: string; grade: string; classroom: string; classroomId: string
   students: Array<{ id: string; name: string; grade: string; classroom: string; events: Array<{ date: string; note?: TeacherNote }> }>
 }
+export type SchoolComprehensiveReportType = 'absence' | 'late'
+export type SchoolComprehensiveReportOptions = { grades: Array<{ grade: string; classrooms: string[] }> }
+export type SchoolComprehensiveReport = {
+  type: SchoolComprehensiveReportType; grade: string; classroom: string
+  students: Array<{ id: string; name: string; phone: string; grade: string; classroom: string; events: Array<{ date: string; subject: string; period: number; teacherName: string }> }>
+}
+
 export type TeacherAdminOverview = {
   teachers: Array<{ teacherId: string; name: string; identityNumber: string; assignments: number; accountActive: boolean; accountCreated: boolean; mustChangePassword: boolean; credentialsAvailable: boolean }>
   classroomMappings: Array<{ classroomId: string; classroom: string; grade: string | null; classroomValue: string | null; mappingSource: 'automatic' | 'manual' | null }>
@@ -419,6 +426,8 @@ export const api = {
   teacherReports: (filters: { date?: string; from?: string; to?: string; studentId?: string; note?: string } = {}) => request<{ reports: TeacherLessonReport[] }>(`/teacher-portal/teacher/reports?${new URLSearchParams(Object.entries(filters).filter(([, value]) => value).map(([key, value]) => [key, value || '']))}`),
   teacherComprehensiveReportOptions: () => request<{ options: TeacherComprehensiveReportOption[] }>('/teacher-portal/teacher/comprehensive-report/options'),
   teacherComprehensiveReport: (type: TeacherComprehensiveReportType, subject: string, classroomId: string) => request<TeacherComprehensiveReport>(`/teacher-portal/teacher/comprehensive-report?${new URLSearchParams({ type, subject, classroomId })}`),
+  schoolComprehensiveReportOptions: () => request<SchoolComprehensiveReportOptions>('/teacher-portal/school/comprehensive-report/options'),
+  schoolComprehensiveReport: (type: SchoolComprehensiveReportType, grade: string, classroom: string) => request<SchoolComprehensiveReport>(`/teacher-portal/school/comprehensive-report?${new URLSearchParams({ type, grade, classroom })}`),
   changeTeacherPassword: (password: string) => request<{ ok: boolean }>('/teacher-portal/teacher/password', { method: 'POST', body: JSON.stringify({ password }) }),
   teacherSheets: () => request<{ sheets: TeacherSheetSubject[] }>('/teacher-portal/teacher/sheets'),
   scanNoorSheet: (subjectName: string, image: string) => request<NoorSheetScan>('/teacher-portal/teacher/noor-sheet/scan', { method: 'POST', body: JSON.stringify({ subjectName, image }) }),

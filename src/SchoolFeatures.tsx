@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import * as XLSX from 'xlsx'
 import { CheckCircle2, Download, FileText, Mail, Printer, RefreshCw, Save, Send, ShieldCheck, XCircle } from 'lucide-react'
-import { api, type LessonIncidentReportRow, type MessageLog, type MessageTeacher } from './api'
+import { api, type LessonIncidentReportRow, type MessageLog, type MessageTeacher, type SchoolComprehensiveReport, type SchoolComprehensiveReportOptions, type SchoolComprehensiveReportType } from './api'
 import { StudentDetailedReport } from './StudentDetailedReport'
 import { HijriDatePicker } from './HijriDatePicker'
 import { formatHijriDate, formatHijriDateTime } from './dateUtils'
@@ -782,9 +782,98 @@ function HistoryCounts({ type, students, schoolName }: { type: 'absence' | 'late
   return <section className="panel history-count-panel"><div className="panel-header"><div><span className="panel-kicker">ملخص تراكمي</span><h2>{title}</h2><p>ابحث وحدد الطلاب، أو افتح بطاقة لعرض فئتها.</p></div></div><div className="count-card-grid">{buckets.map(bucket => <button className={`count-card ${bucket.tone}`} type="button" key={bucket.tone} onClick={() => setShownRows(bucket.rows)}><span>{bucket.label.replace('غياب', type === 'late' ? 'تأخر' : 'غياب')}</span><strong>{bucket.rows.length} طالب</strong></button>)}</div><div className="student-picker"><input value={search} onChange={event => setSearch(event.target.value)} placeholder="ابحث باسم الطالب..." />{matches.map(student => <label key={student.id}><input type="checkbox" checked={selected.has(student.id)} onChange={() => setSelected(current => { const next = new Set(current); next.has(student.id) ? next.delete(student.id) : next.add(student.id); return next })} /> {student.name} · {student.grade} · {student.classroom}</label>)}<button type="button" className="primary-button" onClick={() => void load([...selected])} disabled={!selected.size}><CheckCircle2 size={16} /> تأكيد الطلاب المحددين</button><button type="button" className="secondary-button" onClick={() => { setSelected(new Set()); void load() }}>عرض الجميع</button></div><div className="feature-actions"><button type="button" className="export-btn csv" onClick={() => downloadWorkbook(title, [['الطالب','الصف','الفصل','الجوال','عدد الأيام','بعذر','بدون عذر'], ...shownRows.map(row => [row.name,row.grade,row.classroom,row.phone,row.days,row.excusedDays,row.unexcusedDays])], title, schoolName, title)} disabled={!shownRows.length}><Download size={16} /> Excel</button><button type="button" className="export-btn pdf" onClick={() => void printHistories(shownRows)} disabled={!shownRows.length}><Printer size={16} /> PDF لجميع الظاهرين</button></div><div className="daily-list">{shownRows.map(row => <button type="button" className="history-row" key={row.studentId} onClick={() => void open(row)}><span><strong>{row.name}</strong><small>{row.grade} · {row.classroom} · <bdi>{row.phone}</bdi></small></span><strong>{row.days} يومًا</strong></button>)}{!shownRows.length && <p className="report-empty-state">لا توجد بيانات ضمن هذا الاختيار.</p>}</div>{history && <div className="report-modal-overlay"><section className="report-modal"><header className="report-modal-header"><div><span className="panel-kicker">تفاصيل الطالب</span><h2>{history.student.name}</h2><p>{history.student.grade} · {history.student.classroom} · <bdi>{history.student.phone}</bdi></p></div><button type="button" className="modal-close-button" onClick={() => setHistory(null)}>×</button></header><div className="report-modal-actions"><button type="button" className="export-btn csv" onClick={() => downloadWorkbook(`${reportTitle}_${history.student.name}`, [['التاريخ','الحالة', ...(type === 'late' ? ['الوقت'] : [])], ...history.days.map(day => [day.date,statusText(day.status), ...(type === 'late' ? [day.time || '—'] : [])])], reportTitle, schoolName, `${reportTitle} - ${history.student.name}`)}>Excel</button><button type="button" className="export-btn pdf" onClick={() => void printHistories([{ studentId: history.student.studentId, name: history.student.name, grade: history.student.grade, classroom: history.student.classroom, phone: history.student.phone, days: history.days.length, excusedDays: 0, unexcusedDays: 0 }])}>PDF</button></div><div className="absence-detail-list">{history.days.map(day => <article className="absence-day-card" key={day.date}><strong>{day.date}</strong><span>{statusText(day.status)}{type === 'late' && day.time ? ` · ${day.time}` : ''}</span></article>)}</div></section></div>}</section>
 }
 
-type ReportSection = 'pending' | 'phones' | 'absences' | 'absence-history' | 'lates' | 'late-history' | 'student-detail' | 'incidents'
+type ReportSection = 'pending' | 'phones' | 'absences' | 'absence-history' | 'lates' | 'late-history' | 'student-detail' | 'incidents' | 'comprehensive-absence' | 'comprehensive-late'
 
-export function ReportsCenter({ students, schoolName }: { students: FeatureStudent[]; schoolName: string }) {
+type ComprehensiveClassReportProps = {
+  type: SchoolComprehensiveReportType
+  schoolName: string
+  onExit: () => void
+}
+
+function ComprehensiveClassReport({ type, schoolName, onExit }: ComprehensiveClassReportProps) {
+  const isAbsence = type === 'absence'
+  const title = isAbsence ? 'تقرير الغياب الشامل' : 'تقرير التأخر الشامل'
+  const eventLabel = isAbsence ? 'حصص الغياب' : 'حصص التأخر'
+  const emptyLabel = isAbsence ? 'لا يوجد غياب مسجل' : 'لا يوجد تأخر مسجل'
+  const [options, setOptions] = useState<SchoolComprehensiveReportOptions | null>(null)
+  const [grade, setGrade] = useState('')
+  const [report, setReport] = useState<SchoolComprehensiveReport | null>(null)
+  const [busy, setBusy] = useState<'options' | 'report' | ''>('options')
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let ignored = false
+    setBusy('options')
+    setError('')
+    void api.schoolComprehensiveReportOptions().then(result => {
+      if (!ignored) setOptions(result)
+    }).catch(() => {
+      if (!ignored) setError('تعذر تحميل المراحل والفصول. حدّث الصفحة أو أعد المحاولة.')
+    }).finally(() => {
+      if (!ignored) setBusy('')
+    })
+    return () => { ignored = true }
+  }, [])
+
+  const classrooms = useMemo(() => options?.grades.find(item => item.grade === grade)?.classrooms || [], [options, grade])
+  const eventText = (event: SchoolComprehensiveReport['students'][number]['events'][number]) => `${formatHijriDate(event.date)} · ${event.subject || 'مادة غير محددة'} · الحصة ${event.period || '—'}${event.teacherName ? ` · ${event.teacherName}` : ''}`
+  const loadReport = async (nextClassroom: string) => {
+    if (!grade || !nextClassroom || busy) return
+    setBusy('report')
+    setError('')
+    try {
+      setReport(await api.schoolComprehensiveReport(type, grade, nextClassroom))
+    } catch {
+      setReport(null)
+      setError(`تعذر تحميل ${title}. تحقق من الاتصال ثم أعد المحاولة.`)
+    } finally {
+      setBusy('')
+    }
+  }
+  const returnBack = () => {
+    setError('')
+    if (report) { setReport(null); return }
+    if (grade) { setGrade(''); return }
+    onExit()
+  }
+  const activeStudents = report?.students.filter(student => student.events.length).length || 0
+  const eventsCount = report?.students.reduce((count, student) => count + student.events.length, 0) || 0
+  const exportExcel = () => {
+    if (!report) return
+    const rows: Array<Array<string | number>> = [['م', 'اسم الطالب', 'رقم الطالب', `عدد ${eventLabel}`, 'التاريخ', 'المادة', 'الحصة', 'المعلم']]
+    report.students.forEach((student, index) => {
+      if (!student.events.length) rows.push([index + 1, student.name, student.id, 0, '—', '—', '—', '—'])
+      else student.events.forEach((event, eventIndex) => rows.push([eventIndex ? '' : index + 1, eventIndex ? '' : student.name, eventIndex ? '' : student.id, eventIndex ? '' : student.events.length, formatHijriDate(event.date), event.subject || '—', event.period || '—', event.teacherName || '—']))
+    })
+    downloadWorkbook(`${title}_${report.grade}_الفصل_${report.classroom}`, rows, isAbsence ? 'الغياب الشامل' : 'التأخر الشامل', schoolName, `${title} — ${report.grade} — الفصل ${report.classroom}`)
+  }
+  const exportPdf = () => {
+    if (!report) return
+    const rows = report.students.map((student, index) => `<tr><td>${index + 1}</td><td>${escapeHtml(student.name)}</td><td dir="ltr">${escapeHtml(student.id)}</td><td>${student.events.length}</td><td>${student.events.length ? student.events.map(event => escapeHtml(eventText(event))).join('<br>') : escapeHtml(emptyLabel)}</td></tr>`).join('')
+    openPrintDocument(title, `<section class="page"><h1>${escapeHtml(title)}</h1><p class="meta">${escapeHtml(report.grade)} · الفصل ${escapeHtml(report.classroom)} · ${report.students.length} طالبًا · ${activeStudents} لديهم ${eventLabel} · إجمالي السجلات: ${eventsCount}</p><table><thead><tr><th>م</th><th>الطالب</th><th>رقم الطالب</th><th>العدد</th><th>${escapeHtml(eventLabel)}</th></tr></thead><tbody>${rows}</tbody></table></section>`, schoolName, 'landscape')
+  }
+  const backLabel = report ? 'العودة إلى الفصول' : grade ? 'العودة إلى المراحل' : 'العودة إلى التقارير'
+
+  return <section className="panel comprehensive-class-report">
+    <div className="panel-header comprehensive-class-report-head">
+      <div><span className="panel-kicker">تقارير متابعة المعلمين</span><h2>{title}</h2><p>{report ? `سجل ${eventLabel} في ${report.grade} — الفصل ${report.classroom}.` : grade ? `اختر الفصل المطلوب من ${grade}.` : 'اختر المرحلة أولًا، ثم الفصل لعرض سجل الطلاب. لا تحتاج إلى اختيار مادة.'}</p></div>
+      <button type="button" className="outline-button" onClick={returnBack}>{backLabel}</button>
+    </div>
+    {error && <p className="report-status-notice error" role="alert">{error}</p>}
+    {busy === 'options' && <p className="report-empty-state">جارٍ تجهيز المراحل والفصول...</p>}
+    {!busy && !options?.grades.length && !error && <p className="report-empty-state">لا توجد مراحل أو فصول مرتبطة بطلاب نشطين حاليًا.</p>}
+    {!busy && !report && !grade && Boolean(options?.grades.length) && <div className="comprehensive-card-grid stage-card-grid">{options?.grades.map(item => <button type="button" className="comprehensive-choice-card" key={item.grade} onClick={() => setGrade(item.grade)}><span>المرحلة</span><strong>{item.grade}</strong><small>{item.classrooms.length} {item.classrooms.length === 1 ? 'فصل' : 'فصول'}</small></button>)}</div>}
+    {!busy && !report && Boolean(grade) && <div className="comprehensive-card-grid classroom-card-grid">{classrooms.map(item => <button type="button" className="comprehensive-choice-card classroom-choice" key={item} onClick={() => void loadReport(item)}><span>{grade}</span><strong>الفصل {item}</strong><small>عرض {eventLabel}</small></button>)}</div>}
+    {busy === 'report' && <p className="report-empty-state">جارٍ إعداد {title}...</p>}
+    {report && <>
+      <div className="comprehensive-report-summary" role="status"><span>{report.students.length} طالبًا في الفصل</span><span>{activeStudents} لديهم {eventLabel}</span><strong>{eventsCount} سجلًا</strong></div>
+      <div className="feature-actions comprehensive-report-actions"><button type="button" className="export-btn csv" onClick={exportExcel}><Download size={16} /> Excel</button><button type="button" className="export-btn pdf" onClick={exportPdf}><Printer size={16} /> PDF</button></div>
+      <div className="comprehensive-student-list">{report.students.map((student, index) => <article key={student.id}><div className="comprehensive-student-title"><b>{index + 1}</b><span><strong>{student.name}</strong><small dir="ltr">{student.id}</small></span><em>{student.events.length} {student.events.length === 1 ? 'سجل' : 'سجلات'}</em></div><div className="comprehensive-event-list">{student.events.length ? student.events.map((event, eventIndex) => <span key={`${event.date}-${event.subject}-${event.period}-${eventIndex}`}>{eventText(event)}</span>) : <small>{emptyLabel}</small>}</div></article>)}</div>
+    </>}
+  </section>
+}
+
+export function ReportsCenter({ students, schoolName, viewer = 'school' }: { students: FeatureStudent[]; schoolName: string; viewer?: 'school' | 'counselor' }) {
   const [activeReport, setActiveReport] = useState<ReportSection>('pending')
   const [todayMissingCount, setTodayMissingCount] = useState<number | null>(null)
   const [todayConfirmedCount, setTodayConfirmedCount] = useState<number | null>(null)
@@ -989,6 +1078,8 @@ export function ReportsCenter({ students, schoolName }: { students: FeatureStude
     { id: 'absence-history', label: 'أيام الغياب' },
     { id: 'lates', label: 'سجل التأخر', count: lates.length },
     { id: 'late-history', label: 'أيام التأخر' },
+    { id: 'comprehensive-absence', label: 'الغياب الشامل' },
+    { id: 'comprehensive-late', label: 'التأخر الشامل' },
     { id: 'student-detail', label: 'التقرير المفصل للطالب' },
     { id: 'incidents', label: 'تقارير المساءلات', count: incidentReportLoading ? null : incidentReport.length },
     { id: 'phones', label: 'هواتف الطلاب', count: students.length },
@@ -996,7 +1087,7 @@ export function ReportsCenter({ students, schoolName }: { students: FeatureStude
 
   return <section className="feature-page reports-center">
     <section className="panel feature-intro">
-      <div><span className="panel-kicker">إدارة المدرسة</span><h2>التقارير</h2><p>اختر التقرير المطلوب. يظهر قسم واحد في كل مرة، ويمكن تصدير تقاريره إلى Excel أو PDF.</p></div>
+      <div><span className="panel-kicker">{viewer === 'counselor' ? 'بوابة المرشد الطلابي' : 'إدارة المدرسة'}</span><h2>التقارير</h2><p>اختر التقرير المطلوب. يظهر قسم واحد في كل مرة، ويمكن تصدير تقاريره إلى Excel أو PDF.</p></div>
       <FileText size={34} />
     </section>
 
@@ -1068,6 +1159,9 @@ export function ReportsCenter({ students, schoolName }: { students: FeatureStude
           {!incidentReport.length && <p className="report-empty-state">لا توجد مساءلات غير ملغاة.</p>}
         </div>}
       </section>}
+
+      {activeReport === 'comprehensive-absence' && <ComprehensiveClassReport type="absence" schoolName={schoolName} onExit={() => setActiveReport('pending')} />}
+      {activeReport === 'comprehensive-late' && <ComprehensiveClassReport type="late" schoolName={schoolName} onExit={() => setActiveReport('pending')} />}
 
       {activeReport === 'phones' && <section className="panel">
         <div className="panel-header"><div><span className="panel-kicker">بيانات الاتصال</span><h2>تقرير هواتف الطلاب</h2></div><div className="feature-actions">
