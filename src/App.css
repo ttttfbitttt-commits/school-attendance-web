@@ -879,9 +879,10 @@ input {
 .student-editor-header p { margin:6px 0 0; color:var(--muted); font-size:12px; line-height:1.7; }
 .student-editor-fields { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:13px; padding:19px 22px; }
 .student-editor-fields label { display:grid; gap:6px; min-width:0; color:#456278; font-size:12px; font-weight:800; }
-.student-editor-fields input { box-sizing:border-box; width:100%; min-width:0; min-height:43px; padding:10px 11px; border:1px solid #cbdde9; border-radius:10px; color:#173b5a; background:#fff; font:inherit; outline:none; }
-.student-editor-fields input:focus { border-color:#167bc4; box-shadow:0 0 0 3px rgba(22,123,196,.12); }
+.student-editor-fields input,.student-editor-fields select { box-sizing:border-box; width:100%; min-width:0; min-height:43px; padding:10px 11px; border:1px solid #cbdde9; border-radius:10px; color:#173b5a; background:#fff; font:inherit; outline:none; }
+.student-editor-fields input:focus,.student-editor-fields select:focus { border-color:#167bc4; box-shadow:0 0 0 3px rgba(22,123,196,.12); }
 .student-editor-fields input[readonly] { background:#f3f7fa; color:#687e90; cursor:not-allowed; }
+.student-editor-fields select:disabled { background:#f3f7fa; color:#687e90; cursor:not-allowed; }
 .student-editor-error { margin:0 22px; padding:10px 12px; border:1px solid #fec9c5; border-radius:10px; color:#a12d27; background:#fff4f3; font-size:12px; font-weight:700; }
 .student-editor-actions { display:flex; justify-content:flex-end; gap:9px; padding:17px 22px 20px; border-top:1px solid #e7eef3; }
 

@@ -441,8 +441,23 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
   const printableStudents = useMemo(() => students.filter((student) => Boolean(student.qr)), [students])
 
   const availableGrades = useMemo(() => {
-    return Array.from(new Set(students.map((s) => s.grade).filter(Boolean))).sort()
+    return Array.from(new Set(students.map((s) => s.grade.trim()).filter(Boolean)))
+      .sort((left, right) => left.localeCompare(right, 'ar', { numeric: true }))
   }, [students])
+
+  // الإدخال اليدوي لا ينشئ صفاً أو فصلاً جديداً. يختار المستخدم صفاً موجوداً
+  // أولاً، ثم لا تظهر له إلا الفصول المرتبطة به في بيانات المدرسة.
+  const studentEditorClassrooms = useMemo(() => {
+    const selectedGrade = studentDraft.grade.trim()
+    if (!selectedGrade) return []
+
+    return Array.from(new Set(
+      students
+        .filter((student) => student.grade.trim() === selectedGrade)
+        .map((student) => student.classroom.trim())
+        .filter(Boolean)
+    )).sort((left, right) => left.localeCompare(right, 'ar', { numeric: true }))
+  }, [students, studentDraft.grade])
 
   const availableClassrooms = useMemo(() => {
     const pool = printGradeFilter === 'all'
@@ -670,7 +685,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
       classroom: normalize(studentDraft.classroom),
     }
     if (!draft.id || !draft.name || !draft.grade || !draft.classroom) {
-      setStudentEditorError('أدخل رقم الطالب والاسم والصف والفصل قبل الحفظ.')
+      setStudentEditorError('أدخل رقم الطالب والاسم، ثم اختر الصف والفصل قبل الحفظ.')
       return
     }
 
@@ -2183,11 +2198,28 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
                     </label>
                     <label>
                       <span>الصف</span>
-                      <input value={studentDraft.grade} autoComplete="off" onChange={(event) => setStudentDraft((current) => ({ ...current, grade: event.target.value }))} placeholder="مثال: ثالث ثانوي" />
+                      <select
+                        value={studentDraft.grade}
+                        onChange={(event) => setStudentDraft((current) => ({ ...current, grade: event.target.value, classroom: '' }))}
+                      >
+                        <option value="">اختر الصف</option>
+                        {availableGrades.map((grade) => (
+                          <option key={grade} value={grade}>{gradeLabel(grade)}</option>
+                        ))}
+                      </select>
                     </label>
                     <label>
                       <span>الفصل</span>
-                      <input value={studentDraft.classroom} autoComplete="off" onChange={(event) => setStudentDraft((current) => ({ ...current, classroom: event.target.value }))} placeholder="مثال: 1" />
+                      <select
+                        value={studentDraft.classroom}
+                        disabled={!studentDraft.grade || !studentEditorClassrooms.length}
+                        onChange={(event) => setStudentDraft((current) => ({ ...current, classroom: event.target.value }))}
+                      >
+                        <option value="">{studentDraft.grade ? 'اختر الفصل' : 'اختر الصف أولاً'}</option>
+                        {studentEditorClassrooms.map((classroom) => (
+                          <option key={classroom} value={classroom}>{classroom}</option>
+                        ))}
+                      </select>
                     </label>
                   </div>
 
