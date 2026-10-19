@@ -182,7 +182,7 @@ export type SchoolComprehensiveReportType = 'absence' | 'late'
 export type SchoolComprehensiveReportOptions = { grades: Array<{ grade: string; classrooms: string[] }> }
 export type SchoolComprehensiveReport = {
   type: SchoolComprehensiveReportType; grade: string; classroom: string
-  students: Array<{ id: string; name: string; phone: string; grade: string; classroom: string; events: Array<{ date: string; subject: string; period: number; teacherName: string }> }>
+  students: Array<{ id: string; name: string; phone: string; grade: string; classroom: string; events: Array<{ date: string; subject?: string; period?: number; teacherName?: string; time?: string; excuseStatus?: 'unexcused' | 'excused' }> }>
 }
 
 export type TeacherAdminOverview = {

@@ -121,6 +121,31 @@ function compareSchoolGrade(left, right) {
 function compareSchoolClassroom(left, right) {
   return String(left).localeCompare(String(right), 'ar', { numeric: true, sensitivity: 'base' })
 }
+
+function canonicalSchoolGrade(value, knownGrades = []) {
+  const original = clean(value, 160)
+  const normalized = normalizedSortValue(original)
+  if (!/^(اول|الاول|ثاني|الثاني|ثالث|الثالث)$/.test(normalized)) return original
+  const expanded = knownGrades.find(candidate => {
+    const normalizedCandidate = normalizedSortValue(candidate)
+    return normalizedCandidate.startsWith(`${normalized} `) && normalizedCandidate.includes('ثانوي')
+  })
+  return expanded ? clean(expanded, 160) : original
+}
+
+function schoolClassOptions(rows) {
+  const rawGrades = [...new Set(rows.map(row => clean(row.grade, 160)).filter(Boolean))]
+  const grouped = new Map()
+  for (const row of rows) {
+    const grade = canonicalSchoolGrade(row.grade, rawGrades)
+    const classroom = clean(row.classroom, 160)
+    if (!grade || !classroom) continue
+    grouped.set(grade, [...(grouped.get(grade) || []), classroom])
+  }
+  return [...grouped.entries()]
+    .map(([grade, classrooms]) => ({ grade, classrooms: [...new Set(classrooms)].sort(compareSchoolClassroom) }))
+    .sort((left, right) => compareSchoolGrade(left.grade, right.grade))
+}
 function validDate(value) {
   const date = String(value || '')
   const parsed = new Date(`${date}T12:00:00Z`)
@@ -967,11 +992,7 @@ export async function handleTeacherPortalRequest(context) {
     const options = await scoped(user.school_id, async client => {
       const rows = (await client.query(`SELECT DISTINCT btrim(grade) AS grade,btrim(classroom) AS classroom
         FROM students WHERE school_id=$1 AND active=true AND btrim(grade) <> '' AND btrim(classroom) <> ''`, [user.school_id])).rows
-      const grouped = new Map()
-      for (const row of rows) grouped.set(row.grade, [...(grouped.get(row.grade) || []), row.classroom])
-      return [...grouped.entries()]
-        .map(([grade, classrooms]) => ({ grade, classrooms: [...new Set(classrooms)].sort(compareSchoolClassroom) }))
-        .sort((left, right) => compareSchoolGrade(left.grade, right.grade))
+      return schoolClassOptions(rows)
     })
     json(res, 200, { grades: options })
     return true
@@ -984,20 +1005,27 @@ export async function handleTeacherPortalRequest(context) {
     const classroom = clean(url.searchParams.get('classroom'), 160)
     if (!['absence', 'late'].includes(type) || !grade || !classroom) { json(res, 400, { error: 'invalid_comprehensive_report' }); return true }
     const result = await scoped(user.school_id, async client => {
-      const roster = (await client.query(`SELECT id,name,phone,grade,classroom FROM students
-        WHERE school_id=$1 AND active=true AND btrim(grade)=$2 AND btrim(classroom)=$3`, [user.school_id, grade, classroom])).rows
+      const rosterRows = (await client.query(`SELECT id,name,phone,btrim(grade) AS grade,btrim(classroom) AS classroom FROM students
+        WHERE school_id=$1 AND active=true`, [user.school_id])).rows
+      const rawGrades = [...new Set(rosterRows.map(student => clean(student.grade, 160)).filter(Boolean))]
+      const roster = rosterRows.map(student => ({ ...student, grade: canonicalSchoolGrade(student.grade, rawGrades) }))
+        .filter(student => student.grade === grade && student.classroom === classroom)
       if (!roster.length) return { error: 'classroom_not_found' }
       const studentIds = roster.map(student => student.id)
-      const statusClause = type === 'absence' ? "r.attendance_status='absent'" : "r.attendance_status='late'"
-      const eventRows = (await client.query(`SELECT r.student_id AS "studentId",to_char(s.session_date,'YYYY-MM-DD') AS date,
-          s.subject_name AS subject,s.period_number AS period,s.teacher_name AS "teacherName"
-        FROM teacher_lesson_sessions s JOIN teacher_lesson_student_records r ON r.lesson_session_id=s.id AND r.school_id=s.school_id
-        WHERE s.school_id=$1 AND r.student_id=ANY($2::text[]) AND ${statusClause}
-        ORDER BY s.session_date,s.period_number,s.subject_name,s.teacher_name`, [user.school_id, studentIds])).rows
+      const eventRows = type === 'absence'
+        ? (await client.query(`SELECT r.student_id AS "studentId",to_char(s.session_date,'YYYY-MM-DD') AS date,
+            s.subject_name AS subject,s.period_number AS period,s.teacher_name AS "teacherName"
+          FROM teacher_lesson_sessions s JOIN teacher_lesson_student_records r ON r.lesson_session_id=s.id AND r.school_id=s.school_id
+          WHERE s.school_id=$1 AND r.student_id=ANY($2::text[]) AND r.attendance_status='absent'
+          ORDER BY s.session_date,s.period_number,s.subject_name,s.teacher_name`, [user.school_id, studentIds])).rows
+        : (await client.query(`SELECT a.student_id AS "studentId",to_char(a.attendance_date,'YYYY-MM-DD') AS date,
+            to_char(a.recorded_at AT TIME ZONE 'Asia/Riyadh','HH24:MI') AS time,a.excuse_status AS "excuseStatus"
+          FROM attendance_logs a WHERE a.school_id=$1 AND a.student_id=ANY($2::text[]) AND a.status='late'
+          ORDER BY a.attendance_date,a.recorded_at`, [user.school_id, studentIds])).rows
       const eventsByStudent = new Map(roster.map(student => [student.id, []]))
-      for (const row of eventRows) eventsByStudent.get(row.studentId)?.push({
-        date: row.date, subject: row.subject || '', period: Number(row.period) || 0, teacherName: row.teacherName || '',
-      })
+      for (const row of eventRows) eventsByStudent.get(row.studentId)?.push(type === 'absence'
+        ? { date: row.date, subject: row.subject || '', period: Number(row.period) || 0, teacherName: row.teacherName || '' }
+        : { date: row.date, time: row.time || '', excuseStatus: row.excuseStatus === 'excused' ? 'excused' : 'unexcused' })
       return {
         type, grade, classroom,
         students: roster.sort((left, right) => String(left.name).localeCompare(String(right.name), 'ar', { numeric: true, sensitivity: 'base' })).map(student => ({

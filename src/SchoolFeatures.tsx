@@ -793,7 +793,7 @@ type ComprehensiveClassReportProps = {
 function ComprehensiveClassReport({ type, schoolName, onExit }: ComprehensiveClassReportProps) {
   const isAbsence = type === 'absence'
   const title = isAbsence ? 'تقرير الغياب الشامل' : 'تقرير التأخر الشامل'
-  const eventLabel = isAbsence ? 'حصص الغياب' : 'حصص التأخر'
+  const eventLabel = isAbsence ? 'حصص الغياب' : 'أيام التأخر'
   const emptyLabel = isAbsence ? 'لا يوجد غياب مسجل' : 'لا يوجد تأخر مسجل'
   const [options, setOptions] = useState<SchoolComprehensiveReportOptions | null>(null)
   const [grade, setGrade] = useState('')
@@ -816,7 +816,9 @@ function ComprehensiveClassReport({ type, schoolName, onExit }: ComprehensiveCla
   }, [])
 
   const classrooms = useMemo(() => options?.grades.find(item => item.grade === grade)?.classrooms || [], [options, grade])
-  const eventText = (event: SchoolComprehensiveReport['students'][number]['events'][number]) => `${formatHijriDate(event.date)} · ${event.subject || 'مادة غير محددة'} · الحصة ${event.period || '—'}${event.teacherName ? ` · ${event.teacherName}` : ''}`
+  const eventText = (event: SchoolComprehensiveReport['students'][number]['events'][number]) => isAbsence
+    ? `${formatHijriDate(event.date)} · ${event.subject || 'مادة غير محددة'} · الحصة ${event.period || '—'}${event.teacherName ? ` · ${event.teacherName}` : ''}`
+    : `${formatHijriDate(event.date)} · سُجل التأخر ${event.time ? `الساعة ${event.time}` : ''}${event.excuseStatus === 'excused' ? ' · بعذر' : ''}`
   const loadReport = async (nextClassroom: string) => {
     if (!grade || !nextClassroom || busy) return
     setBusy('report')
@@ -840,10 +842,16 @@ function ComprehensiveClassReport({ type, schoolName, onExit }: ComprehensiveCla
   const eventsCount = report?.students.reduce((count, student) => count + student.events.length, 0) || 0
   const exportExcel = () => {
     if (!report) return
-    const rows: Array<Array<string | number>> = [['م', 'اسم الطالب', 'رقم الطالب', `عدد ${eventLabel}`, 'التاريخ', 'المادة', 'الحصة', 'المعلم']]
+    const rows: Array<Array<string | number>> = isAbsence
+      ? [['م', 'اسم الطالب', 'رقم الطالب', `عدد ${eventLabel}`, 'التاريخ', 'المادة', 'الحصة', 'المعلم']]
+      : [['م', 'اسم الطالب', 'رقم الطالب', `عدد ${eventLabel}`, 'التاريخ', 'وقت تسجيل التأخر', 'الحالة']]
     report.students.forEach((student, index) => {
-      if (!student.events.length) rows.push([index + 1, student.name, student.id, 0, '—', '—', '—', '—'])
-      else student.events.forEach((event, eventIndex) => rows.push([eventIndex ? '' : index + 1, eventIndex ? '' : student.name, eventIndex ? '' : student.id, eventIndex ? '' : student.events.length, formatHijriDate(event.date), event.subject || '—', event.period || '—', event.teacherName || '—']))
+      if (!student.events.length) rows.push(isAbsence
+        ? [index + 1, student.name, student.id, 0, '—', '—', '—', '—']
+        : [index + 1, student.name, student.id, 0, '—', '—', '—'])
+      else student.events.forEach((event, eventIndex) => rows.push(isAbsence
+        ? [eventIndex ? '' : index + 1, eventIndex ? '' : student.name, eventIndex ? '' : student.id, eventIndex ? '' : student.events.length, formatHijriDate(event.date), event.subject || '—', event.period || '—', event.teacherName || '—']
+        : [eventIndex ? '' : index + 1, eventIndex ? '' : student.name, eventIndex ? '' : student.id, eventIndex ? '' : student.events.length, formatHijriDate(event.date), event.time || '—', event.excuseStatus === 'excused' ? 'بعذر' : 'بدون عذر']))
     })
     downloadWorkbook(`${title}_${report.grade}_الفصل_${report.classroom}`, rows, isAbsence ? 'الغياب الشامل' : 'التأخر الشامل', schoolName, `${title} — ${report.grade} — الفصل ${report.classroom}`)
   }
@@ -856,19 +864,19 @@ function ComprehensiveClassReport({ type, schoolName, onExit }: ComprehensiveCla
 
   return <section className="panel comprehensive-class-report">
     <div className="panel-header comprehensive-class-report-head">
-      <div><span className="panel-kicker">تقارير متابعة المعلمين</span><h2>{title}</h2><p>{report ? `سجل ${eventLabel} في ${report.grade} — الفصل ${report.classroom}.` : grade ? `اختر الفصل المطلوب من ${grade}.` : 'اختر المرحلة أولًا، ثم الفصل لعرض سجل الطلاب. لا تحتاج إلى اختيار مادة.'}</p></div>
+      <div><span className="panel-kicker">{isAbsence ? 'تقارير متابعة المعلمين' : 'سجل الحضور اليومي'}</span><h2>{title}</h2><p>{report ? `سجل ${eventLabel} في ${report.grade} — الفصل ${report.classroom}.` : grade ? `اختر الفصل المطلوب من ${grade}.` : 'اختر المرحلة أولًا، ثم الفصل لعرض سجل الطلاب. لا تحتاج إلى اختيار مادة.'}</p></div>
       <button type="button" className="outline-button" onClick={returnBack}>{backLabel}</button>
     </div>
     {error && <p className="report-status-notice error" role="alert">{error}</p>}
     {busy === 'options' && <p className="report-empty-state">جارٍ تجهيز المراحل والفصول...</p>}
     {!busy && !options?.grades.length && !error && <p className="report-empty-state">لا توجد مراحل أو فصول مرتبطة بطلاب نشطين حاليًا.</p>}
     {!busy && !report && !grade && Boolean(options?.grades.length) && <div className="comprehensive-card-grid stage-card-grid">{options?.grades.map(item => <button type="button" className="comprehensive-choice-card" key={item.grade} onClick={() => setGrade(item.grade)}><span>المرحلة</span><strong>{item.grade}</strong><small>{item.classrooms.length} {item.classrooms.length === 1 ? 'فصل' : 'فصول'}</small></button>)}</div>}
-    {!busy && !report && Boolean(grade) && <div className="comprehensive-card-grid classroom-card-grid">{classrooms.map(item => <button type="button" className="comprehensive-choice-card classroom-choice" key={item} onClick={() => void loadReport(item)}><span>{grade}</span><strong>الفصل {item}</strong><small>عرض {eventLabel}</small></button>)}</div>}
+    {!busy && !report && Boolean(grade) && <div className="comprehensive-card-grid classroom-card-grid">{classrooms.map(item => <button type="button" className="comprehensive-choice-card classroom-choice" key={item} onClick={() => void loadReport(item)}><span>{grade}</span><strong>الفصل {item}</strong><small>{isAbsence ? 'من متابعة المعلمين' : 'من سجل الحضور'}</small></button>)}</div>}
     {busy === 'report' && <p className="report-empty-state">جارٍ إعداد {title}...</p>}
     {report && <>
       <div className="comprehensive-report-summary" role="status"><span>{report.students.length} طالبًا في الفصل</span><span>{activeStudents} لديهم {eventLabel}</span><strong>{eventsCount} سجلًا</strong></div>
       <div className="feature-actions comprehensive-report-actions"><button type="button" className="export-btn csv" onClick={exportExcel}><Download size={16} /> Excel</button><button type="button" className="export-btn pdf" onClick={exportPdf}><Printer size={16} /> PDF</button></div>
-      <div className="comprehensive-student-list">{report.students.map((student, index) => <article key={student.id}><div className="comprehensive-student-title"><b>{index + 1}</b><span><strong>{student.name}</strong><small dir="ltr">{student.id}</small></span><em>{student.events.length} {student.events.length === 1 ? 'سجل' : 'سجلات'}</em></div><div className="comprehensive-event-list">{student.events.length ? student.events.map((event, eventIndex) => <span key={`${event.date}-${event.subject}-${event.period}-${eventIndex}`}>{eventText(event)}</span>) : <small>{emptyLabel}</small>}</div></article>)}</div>
+      <div className="comprehensive-student-list">{report.students.map((student, index) => <article key={student.id}><div className="comprehensive-student-title"><b>{index + 1}</b><span><strong>{student.name}</strong><small dir="ltr">{student.id}</small></span><em>{student.events.length} {student.events.length === 1 ? 'سجل' : 'سجلات'}</em></div><div className="comprehensive-event-list">{student.events.length ? student.events.map((event, eventIndex) => <span key={`${event.date}-${event.subject || ''}-${event.period || ''}-${event.time || ''}-${eventIndex}`}>{eventText(event)}</span>) : <small>{emptyLabel}</small>}</div></article>)}</div>
     </>}
   </section>
 }
