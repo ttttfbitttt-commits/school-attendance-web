@@ -60,7 +60,7 @@ export type DetailedStudentReport = {
   summary: { schoolAbsenceDays: number; schoolLateDays: number }
   subjects: Array<{ subject: string; teacherName: string; grade: string; classroomValue: string }>
   grades: Array<{ date: string; subject: string; teacherName: string; grade: string; classroomValue: string; sheetType: TeacherSheetType; columns: TeacherSheetColumn[]; values: Record<string, string | number | boolean> }>
-  lessons: Array<{ date: string; weekday: number; periodNumber: number; subject: string; teacherName: string; classroom: string; grade: string; classroomValue: string; status: 'present' | 'absent' | 'late'; note: TeacherNote | '' }>
+  lessons: Array<{ date: string; weekday: number; periodNumber: number; subject: string; teacherName: string; classroom: string; grade: string; classroomValue: string; status: 'present' | 'absent' | 'late' | 'excused'; note: TeacherNote | '' }>
 }
 export type MessageLog = { id: string; studentId: string | null; studentName: string; recipient: string; senderName: string; type: 'late' | 'absence' | 'general' | 'teacher' | 'test'; body: string; status: 'sent' | 'failed'; errorDetail: string; createdAt: string }
 export type MessageTeacher = { id: string; name: string; identityNumber: string; phone: string }
@@ -165,12 +165,12 @@ export type TeacherSheetConfig = { id?: string; subject: string; sheetType: Teac
 export type NoorSheetScan = { columns: Array<{ label: string; maxScore: number }>; metadata: { subject: string; period: string } }
 export type TeacherSheetSubject = { subject: string; configs: TeacherSheetConfig[] }
 export type TeacherSheetReport = { subject: string; sheetType: TeacherSheetOpenType; assessmentPeriod: TeacherAssessmentPeriod; sections: Array<{ sheetType: TeacherSheetType; version: number; columns: TeacherSheetColumn[] }>; classroomId: string; classroom: string; grade: string; students: Array<{ id: string; name: string; phone: string; grade: string; classroom: string; values: Record<string, string | number | boolean> }> }
-export type TeacherLessonStudent = { id: string; name: string; phone: string; grade: string; classroom: string; status: 'present' | 'absent' | 'late'; note: TeacherNote | ''; sheetValues: Record<string, string | number | boolean> }
+export type TeacherLessonStudent = { id: string; name: string; phone: string; grade: string; classroom: string; status: 'present' | 'absent' | 'late' | 'excused'; note: TeacherNote | ''; sheetValues: Record<string, string | number | boolean> }
 export type TeacherLesson = { assignment: { assignmentId: string; classroomId: string; classroom: string; subject: string }; date: string; periodNumber: number; assessmentPeriod: TeacherAssessmentPeriod; mapping: { grade: string; classroom: string; mappingSource: 'automatic' | 'manual' }; sheetConfig: TeacherSheetConfig | null; sheetConfigs: TeacherSheetConfig[]; noorCalculated?: boolean; students: TeacherLessonStudent[] }
 export type TeacherLessonReport = {
   id: string; date: string; weekday: number; periodNumber: number; teacherId: string; teacherName: string; classroom: string; subject: string; grade: string; classroomValue: string; savedAt: string
-  studentsCount: number; presentCount: number; absentCount: number; lateCount: number
-  records: Array<{ studentId: string; name: string; grade: string; classroom: string; status: 'present' | 'absent' | 'late'; note: TeacherNote | '' }>
+  studentsCount: number; presentCount: number; absentCount: number; lateCount: number; excusedCount: number
+  records: Array<{ studentId: string; name: string; grade: string; classroom: string; status: 'present' | 'absent' | 'late' | 'excused'; note: TeacherNote | '' }>
 }
 export type TeacherComprehensiveReportType = 'absence' | 'late' | 'notes'
 export type TeacherComprehensiveReportOption = { subject: string; grade: string; classroom: string; classroomId: string }

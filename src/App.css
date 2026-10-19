@@ -5727,3 +5727,5 @@ body.referral-print-mode .referral-official-sheet{width:210mm!important;height:2
 .counselor-referral-stats article{background:#fff;border:1px solid #d8e5f0;border-radius:13px;padding:13px 16px;display:flex;align-items:center;justify-content:space-between;color:#56728c}.counselor-referral-stats strong{font-size:1.4rem;color:#0874c9}
 .counselor-referral-action>p{margin:0;color:#456a86;line-height:1.8}
 @media (max-width:700px){.referral-recorded-actions,.counselor-referral-stats{grid-template-columns:1fr}.referral-counselor-handoff{font-size:.88rem}}
+
+.teacher-status-toggle button.active.excused{color:#245b92;background:#edf4ff;border-color:#a9c9ef}
