@@ -342,7 +342,7 @@ export async function migrateFeatures(pool) {
 
 export async function handleFeatureRequest(context) {
   const { req, res, url, user, pool, body, json, scoped, todayRiyadh } = context
-  const adminOnly = () => user.role === 'admin'
+  const adminOnly = () => user.role === 'admin' || user.role === 'counselor'
 
   if (req.method === 'POST' && url.pathname === '/api/absences/cancel') {
     if (!adminOnly()) { json(res, 403, { error: 'forbidden' }); return true }

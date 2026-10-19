@@ -93,7 +93,7 @@ export async function migrateStudentReferrals(adminPool) {
 export async function handleStudentReferralRequest({ req, res, url, user, body, json, scoped }) {
   if (!url.pathname.startsWith('/api/student-referrals')) return false
   const isTeacher = user.role === 'teacher' && validId(user.teacher_id)
-  const isSchool = user.role === 'admin' || user.role === 'staff'
+  const isSchool = user.role === 'admin' || user.role === 'staff' || user.role === 'counselor'
 
   if (req.method === 'GET' && url.pathname === '/api/student-referrals') {
     if (!isTeacher && !isSchool) { json(res, 403, { error: 'forbidden' }); return true }

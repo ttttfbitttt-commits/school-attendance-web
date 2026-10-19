@@ -319,7 +319,7 @@ export async function migrateLessonFlow(pool) {
 
 export async function handleLessonFlowRequest(context) {
   const { req, res, url, user, body, json, scoped } = context
-  const adminOnly = () => user.role === 'admin' || (user.role === 'administrator' && user.lesson_flow_access === true)
+  const adminOnly = () => user.role === 'admin' || user.role === 'counselor' || (user.role === 'administrator' && user.lesson_flow_access === true)
 
   if (!url.pathname.startsWith('/api/lesson-flow')) return false
   if (!adminOnly()) { json(res, 403, { error: 'forbidden' }); return true }

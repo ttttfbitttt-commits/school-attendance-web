@@ -12,6 +12,7 @@ import { handleTeacherCooperationRequest, migrateTeacherCooperation } from './te
 import { handleAdministratorPortalRequest, migrateAdministratorPortal } from './administratorPortal.mjs'
 import { handleBackupRestoreRequest, migrateBackupRestore } from './backupRestore.mjs'
 import { handleStudentPortalRequest, migrateStudentPortal } from './studentPortal.mjs'
+import { handleCounselorPortalRequest, migrateCounselorPortal } from './counselorPortal.mjs'
 
 const { Pool } = pg
 if (!process.env.DATABASE_URL || !process.env.RUNTIME_DATABASE_URL || !process.env.AUTH_DATABASE_URL) {
@@ -109,15 +110,16 @@ async function auth(req) {
   const token = parseCookies(req)[COOKIE]
   if (!token) return null
   const { rows } = await authPool.query(`SELECT s.user_id, s.school_id, u.email, u.display_name, m.role,
-      account.teacher_id,administrator_account.administrator_id,student_account.student_id,
+      account.teacher_id,administrator_account.administrator_id,student_account.student_id,counselor_account.counselor_id,
       administrator_account.lesson_flow_access,student_account.attendance_cooperation_access AS student_attendance_cooperation_access,
-      COALESCE(account.must_change_password,administrator_account.must_change_password,student_account.must_change_password) AS must_change_password
+      COALESCE(account.must_change_password,administrator_account.must_change_password,student_account.must_change_password,counselor_account.must_change_password) AS must_change_password
     FROM sessions s JOIN users u ON u.id=s.user_id JOIN memberships m ON m.user_id=s.user_id AND m.school_id=s.school_id
       LEFT JOIN teacher_login_accounts account ON account.user_id=s.user_id AND account.school_id=s.school_id
       LEFT JOIN administrative_login_accounts administrator_account ON administrator_account.user_id=s.user_id AND administrator_account.school_id=s.school_id
       LEFT JOIN student_login_accounts student_account ON student_account.user_id=s.user_id AND student_account.school_id=s.school_id
+      LEFT JOIN counselor_login_accounts counselor_account ON counselor_account.user_id=s.user_id AND counselor_account.school_id=s.school_id
     WHERE s.token_hash=$1 AND s.expires_at > now()
-      AND ((m.role NOT IN ('teacher','administrator','student')) OR (m.role='teacher' AND account.active=true) OR (m.role='administrator' AND administrator_account.active=true) OR (m.role='student' AND student_account.active=true))`, [tokenHash(token)])
+      AND ((m.role NOT IN ('teacher','administrator','student','counselor')) OR (m.role='teacher' AND account.active=true) OR (m.role='administrator' AND administrator_account.active=true) OR (m.role='student' AND student_account.active=true) OR (m.role='counselor' AND counselor_account.active=true))`, [tokenHash(token)])
   return rows[0] || null
 }
 async function createSession(res, userId, schoolId) {
@@ -134,6 +136,7 @@ function account(row) {
     teacherId: row.teacher_id || undefined,
     administratorId: row.administrator_id || undefined,
     studentId: row.student_id || undefined,
+    counselorId: row.counselor_id || undefined,
     lessonFlowAccess: Boolean(row.lesson_flow_access),
     studentAttendanceCooperationAccess: Boolean(row.student_attendance_cooperation_access),
     mustChangePassword: Boolean(row.must_change_password),
@@ -213,7 +216,7 @@ async function configureDatabaseRoles() {
     teacher_classroom_student_maps, teacher_lesson_sessions, teacher_lesson_student_records,
     teacher_sheet_configs, teacher_sheet_entries, behavior_incidents, behavior_student_records,
     behavior_action_steps, behavior_score_movements, behavior_audit_logs, student_referrals, administrative_staff,
-    student_referral_events, teacher_attendance_contributions, student_portfolio_files TO attendance_app`)
+    student_referral_events, teacher_attendance_contributions, student_portfolio_files, student_counselors TO attendance_app`)
   await adminPool.query('GRANT SELECT ON behavior_catalog_rules TO attendance_app')
   await adminPool.query('GRANT USAGE, SELECT ON SEQUENCE behavior_audit_logs_id_seq TO attendance_app')
   await adminPool.query('GRANT USAGE, SELECT ON SEQUENCE student_referral_events_id_seq TO attendance_app')
@@ -222,6 +225,7 @@ async function configureDatabaseRoles() {
   await adminPool.query('GRANT SELECT, INSERT, UPDATE, DELETE ON teacher_login_accounts TO attendance_auth')
   await adminPool.query('GRANT SELECT, INSERT, UPDATE, DELETE ON administrative_login_accounts TO attendance_auth')
   await adminPool.query('GRANT SELECT, INSERT, UPDATE, DELETE ON student_login_accounts TO attendance_auth')
+  await adminPool.query('GRANT SELECT, INSERT, UPDATE, DELETE ON counselor_login_accounts TO attendance_auth')
   await adminPool.query('GRANT SELECT, INSERT, UPDATE, DELETE ON pending_school_registrations TO attendance_auth')
 }
 
@@ -258,6 +262,7 @@ async function enforceTenantRowSecurity() {
     ['teacher_attendance_contributions', 'school_id', 'teacher_attendance_contributions_school_scope'],
     ['administrative_staff', 'school_id', 'administrative_staff_school_scope'],
     ['student_portfolio_files', 'school_id', 'student_portfolio_files_school_scope'],
+    ['student_counselors', 'school_id', 'student_counselors_school_scope'],
   ]
   for (const [table, schoolColumn, policy] of tables) {
     await adminPool.query(`ALTER TABLE ${table} ENABLE ROW LEVEL SECURITY`)
@@ -278,6 +283,7 @@ async function migrateDatabase() {
   await migrateTeacherPortal(adminPool)
   await migrateAdministratorPortal(adminPool)
   await migrateStudentPortal(adminPool)
+  await migrateCounselorPortal(adminPool)
   await migrateBehavior(adminPool)
   await migrateStudentReferrals(adminPool)
   await migrateTeacherCooperation(adminPool)
@@ -368,6 +374,27 @@ const server = http.createServer(async (req, res) => {
       await createSession(res, student.user_id, student.school_id)
       return json(res, 200, { user: account(student) })
     }
+    if (req.method === 'POST' && url.pathname === '/api/auth/counselor-login') {
+      const { identityNumber, password, schoolId } = await body(req)
+      const identity = String(identityNumber || '').replace(/\D/g, '').slice(0, 32)
+      const retryAfter = loginRateLimited(req, 'counselor', identity)
+      if (retryAfter) return loginThrottleResponse(res, retryAfter)
+      const candidates = await authPool.query(`SELECT account.user_id,account.school_id,account.counselor_id,account.must_change_password,account.password_hash,u.email,u.display_name,m.role
+        FROM counselor_login_accounts account JOIN users u ON u.id=account.user_id
+          JOIN memberships m ON m.user_id=account.user_id AND m.school_id=account.school_id
+        WHERE account.identity_number=$1 AND account.active=true AND m.role='counselor'${schoolId ? ' AND account.school_id=$2' : ''}`,
+      schoolId ? [identity, String(schoolId)] : [identity])
+      const matches = candidates.rows.filter(row => passwordMatches(String(password || ''), row.password_hash))
+      if (!matches.length) { recordFailedLogin(req, 'counselor', identity); return json(res, 401, { error: 'invalid_counselor_login' }) }
+      if (!schoolId && matches.length > 1) {
+        const schools = await Promise.all(matches.map(async row => ({ id: row.school_id, name: (await scopedOn(authPool, row.school_id, client => client.query('SELECT name FROM schools WHERE id=$1', [row.school_id]))).rows[0]?.name || 'المدرسة' })))
+        return json(res, 409, { error: 'counselor_school_selection_required', schools })
+      }
+      const counselor = matches[0]
+      clearLoginAttempts(req, 'counselor', identity)
+      await createSession(res, counselor.user_id, counselor.school_id)
+      return json(res, 200, { user: account(counselor) })
+    }
     if (req.method === 'POST' && url.pathname === '/api/auth/logout') { const t=parseCookies(req)[COOKIE]; if(t) await authPool.query('DELETE FROM sessions WHERE token_hash=$1',[tokenHash(t)]); res.setHeader('set-cookie',sessionCookie('',0)); return json(res,200,{ok:true}) }
     const user = await auth(req)
     if (!user) return json(res, 401, { error: 'unauthorized' })
@@ -392,6 +419,7 @@ const server = http.createServer(async (req, res) => {
     if (await handleTeacherPortalRequest({ req, res, url, user, pool, authPool, body, json, scoped, todayRiyadh, passwordHash })) return
     if (await handleStudentPortalRequest({ req, res, url, user, pool, authPool, body, json, scoped, todayRiyadh, passwordHash })) return
     if (await handleAdministratorPortalRequest({ req, res, url, user, body, json, scoped, todayRiyadh, authPool, passwordHash })) return
+    if (await handleCounselorPortalRequest({ req, res, url, user, body, json, scoped, authPool, passwordHash })) return
     if (await handleLessonFlowRequest({ req, res, url, user, body, json, scoped })) return
     // Teacher accounts are intentionally isolated from the administrative attendance APIs.
     if (user.role === 'teacher' || user.role === 'administrator' || user.role === 'student') return json(res, 403, { error: 'portal_only' })

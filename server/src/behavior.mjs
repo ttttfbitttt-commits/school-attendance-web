@@ -262,7 +262,7 @@ export async function migrateBehavior(adminPool) {
 
 export async function handleBehaviorRequest({ req, res, url, user, pool, body, json, scoped, todayRiyadh }) {
   if (!url.pathname.startsWith('/api/behavior')) return false
-  const adminOnly = () => user.role === 'admin'
+  const adminOnly = () => user.role === 'admin' || user.role === 'counselor'
 
   if (req.method === 'GET' && url.pathname === '/api/behavior/catalog') {
     const category = clean(url.searchParams.get('category'), 30)
