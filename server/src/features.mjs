@@ -450,6 +450,78 @@ export async function handleFeatureRequest(context) {
     return true
   }
 
+  // The absence log is deliberately broader than the confirmed-absence report.
+  // It keeps a selected past day useful before a principal has approved absences:
+  // every active student who has neither an attendance record nor an approved
+  // absence is returned as a pending record.
+  if (req.method === 'GET' && url.pathname === '/api/reports/absence-log') {
+    const date = validDate(url.searchParams.get('date')) || todayRiyadh()
+    if (date > todayRiyadh()) { json(res, 400, { error: 'invalid_report_date' }); return true }
+    const rows = await scoped(user.school_id, async client => (await client.query(`WITH approved AS (
+        SELECT r.id,r.student_id AS "studentId",s.name,s.grade,s.classroom,s.phone,
+          r.status,r.note,to_char(r.absence_date,'YYYY-MM-DD') AS date,
+          'approved'::text AS "recordState"
+        FROM absence_records r
+        JOIN students s ON s.school_id=r.school_id AND s.id=r.student_id
+        WHERE r.school_id=$1 AND r.absence_date=$2
+      ), pending AS (
+        SELECT NULL::uuid AS id,s.id AS "studentId",s.name,s.grade,s.classroom,s.phone,
+          'unexcused'::text AS status,''::text AS note,$2::text AS date,
+          'pending'::text AS "recordState"
+        FROM students s
+        WHERE s.school_id=$1 AND s.active=true
+          AND NOT EXISTS (
+            SELECT 1 FROM attendance_logs a
+            WHERE a.school_id=s.school_id AND a.student_id=s.id AND a.attendance_date=$2
+          )
+          AND NOT EXISTS (
+            SELECT 1 FROM absence_records r
+            WHERE r.school_id=s.school_id AND r.student_id=s.id AND r.absence_date=$2
+          )
+      )
+      SELECT * FROM approved
+      UNION ALL
+      SELECT * FROM pending
+      ORDER BY grade,classroom,name`, [user.school_id, date])).rows)
+    json(res, 200, { date, rows })
+    return true
+  }
+
+  // This action is used from the daily absence log for students who were never
+  // registered that day. It writes an attendance record directly, so the student
+  // immediately leaves the pending list without first creating an absence record.
+  if (req.method === 'POST' && url.pathname === '/api/reports/absence-log/attendance') {
+    if (!adminOnly()) { json(res, 403, { error: 'forbidden' }); return true }
+    const input = await body(req)
+    const date = validDate(input.date)
+    const studentIds = selectedStudentIds(input, 5000)
+    const status = attendanceStatus(input.status)
+    const time = validTime(input.time || '08:00')
+    if (!date || date > todayRiyadh() || !studentIds || !status || !time) { json(res, 400, { error: 'invalid_absence_log_attendance' }); return true }
+    const result = await scoped(user.school_id, async client => {
+      const saved = await client.query(`WITH active AS (
+          SELECT id FROM students
+          WHERE school_id=$1 AND active=true AND id=ANY($2::text[])
+        ), removed_absences AS (
+          DELETE FROM absence_records
+          WHERE school_id=$1 AND absence_date=$3 AND student_id IN (SELECT id FROM active)
+        )
+        INSERT INTO attendance_logs(school_id,student_id,attendance_date,recorded_at,recorded_by,status,excuse_status)
+        SELECT $1,id,$3,(($3::date + $4::time) AT TIME ZONE $5),$6,$7,
+          CASE WHEN $7='late' THEN 'unexcused' ELSE 'unexcused' END
+        FROM active
+        ON CONFLICT(school_id,student_id,attendance_date) DO UPDATE
+          SET recorded_at=EXCLUDED.recorded_at,
+              recorded_by=EXCLUDED.recorded_by,
+              status=EXCLUDED.status,
+              excuse_status=EXCLUDED.excuse_status
+        RETURNING student_id`, [user.school_id, studentIds, date, time, RIYADH_TIME_ZONE, user.user_id, status])
+      return { saved: saved.rows.map(row => row.student_id) }
+    })
+    json(res, 200, { ok: true, date, status, time, updated: result.saved.length, studentIds: result.saved })
+    return true
+  }
+
   if (req.method === 'GET' && url.pathname === '/api/reports/daily-lates') {
     const date = validDate(url.searchParams.get('date')) || todayRiyadh()
     if (date > todayRiyadh()) { json(res, 400, { error: 'invalid_report_date' }); return true }

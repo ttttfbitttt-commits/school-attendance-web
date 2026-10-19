@@ -36,6 +36,19 @@ const messageGradeRank = (grade: string) => {
   if (normalized.includes('ثالث')) return 3
   return 99
 }
+const normalizedGrade = (value: string) => value.trim().replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي').replace(/\s+/g, ' ')
+const canonicalAttendanceGrade = (value: string, grades: readonly string[]) => {
+  const original = value.trim() || 'صف غير محدد'
+  const normalized = normalizedGrade(original)
+  const secondaryGrade = ['اول', 'ثاني', 'ثالث'].find(word => normalized === word)
+  if (!secondaryGrade) return original
+  const hasExpandedGrade = grades.some(grade => {
+    const candidate = normalizedGrade(grade)
+    return candidate.includes(secondaryGrade) && candidate.includes('ثانوي')
+  })
+  if (!hasExpandedGrade) return original
+  return secondaryGrade === 'اول' ? 'أول ثانوي' : secondaryGrade === 'ثاني' ? 'ثاني ثانوي' : 'ثالث ثانوي'
+}
 
 export function reportBrandHeader(title: string, schoolName: string) {
   const logoUrl = `${window.location.origin}/moe-logo.png`
@@ -618,23 +631,24 @@ export function MessageCenter({ students, attendance, schoolName }: { students: 
   </section>
 }
 
-type DailyRow = { studentId: string; name: string; grade: string; classroom: string; phone: string; status: 'unexcused' | 'excused'; date: string; time?: string }
+type DailyRow = { studentId: string; name: string; grade: string; classroom: string; phone: string; status: 'unexcused' | 'excused'; date: string; time?: string; recordState?: 'pending' | 'approved' }
 type PendingAbsenceRow = { studentId: string; name: string; grade: string; classroom: string; phone: string }
 type PendingAbsenceGroup = { grade: string; students: PendingAbsenceRow[] }
 type CountRow = { studentId: string; name: string; grade: string; classroom: string; phone: string; days: number; excusedDays: number; unexcusedDays: number }
 type History = { student: { studentId: string; name: string; grade: string; classroom: string; phone: string }; type: 'absence' | 'late'; days: Array<{ date: string; status: 'unexcused' | 'excused'; time?: string }> }
 const statusText = (status: 'unexcused' | 'excused') => status === 'excused' ? 'بعذر' : 'بدون عذر'
+const dailyRowStatusText = (row: DailyRow) => row.recordState === 'pending' ? 'لم يسجل حضور' : statusText(row.status)
 
 function exportDaily(title: string, rows: DailyRow[], schoolName: string) {
   const reportTitle = title.startsWith('غياب_') ? 'غياب الطلاب' : 'تأخر الطلاب'
-  downloadWorkbook(title, [['اسم الطالب', 'الصف', 'الفصل', 'رقم الجوال', 'الحالة'], ...rows.map(row => [row.name, row.grade, row.classroom, row.phone, statusText(row.status)])], reportTitle, schoolName, reportTitle)
+  downloadWorkbook(title, [['اسم الطالب', 'الصف', 'الفصل', 'رقم الجوال', 'الحالة'], ...rows.map(row => [row.name, row.grade, row.classroom, row.phone, dailyRowStatusText(row)])], reportTitle, schoolName, reportTitle)
 }
 
 function printDaily(title: string, rows: DailyRow[], schoolName: string, date: string) {
-  openPrintDocument(title, `<section class="page"><h1>${escapeHtml(title)}</h1><table><thead><tr><th>الطالب</th><th>الصف</th><th>الفصل</th><th>الجوال</th><th>الحالة</th></tr></thead><tbody>${rows.map(row => `<tr><td>${escapeHtml(row.name)}</td><td>${escapeHtml(row.grade)}</td><td>${escapeHtml(row.classroom)}</td><td dir="ltr">${escapeHtml(row.phone)}</td><td>${statusText(row.status)}</td></tr>`).join('')}</tbody></table><p class="meta">${escapeHtml(formatHijriDate(date))}</p></section>`, schoolName)
+  openPrintDocument(title, `<section class="page"><h1>${escapeHtml(title)}</h1><table><thead><tr><th>الطالب</th><th>الصف</th><th>الفصل</th><th>الجوال</th><th>الحالة</th></tr></thead><tbody>${rows.map(row => `<tr><td>${escapeHtml(row.name)}</td><td>${escapeHtml(row.grade)}</td><td>${escapeHtml(row.classroom)}</td><td dir="ltr">${escapeHtml(row.phone)}</td><td>${dailyRowStatusText(row)}</td></tr>`).join('')}</tbody></table><p class="meta">${escapeHtml(formatHijriDate(date))}</p></section>`, schoolName)
 }
 
-function DailyList({ id, title, date, onDate, rows, onStatus, onExcel, onPdf, onCancelApproval, cancelBusy = false, busy = false, actionNotice = '', late = false }: { id?: string; title: string; date: string; onDate: (value: string) => void; rows: DailyRow[]; onStatus: (ids: string[], status: 'unexcused' | 'excused') => void; onExcel: (rows: DailyRow[], scope: string) => void; onPdf: (rows: DailyRow[], scope: string) => void; onCancelApproval?: () => void; cancelBusy?: boolean; busy?: boolean; actionNotice?: string; late?: boolean }) {
+function DailyList({ id, title, date, onDate, rows, onStatus, onExcel, onPdf, onCancelApproval, onMarkAttendance, editable = true, cancelBusy = false, busy = false, actionNotice = '', late = false }: { id?: string; title: string; date: string; onDate: (value: string) => void; rows: DailyRow[]; onStatus: (ids: string[], status: 'unexcused' | 'excused') => void; onExcel: (rows: DailyRow[], scope: string) => void; onPdf: (rows: DailyRow[], scope: string) => void; onCancelApproval?: () => void; onMarkAttendance?: (studentIds: string[], status: 'present' | 'late') => void; editable?: boolean; cancelBusy?: boolean; busy?: boolean; actionNotice?: string; late?: boolean }) {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [openGrade, setOpenGrade] = useState('')
   const [openClassroom, setOpenClassroom] = useState('')
@@ -643,6 +657,8 @@ function DailyList({ id, title, date, onDate, rows, onStatus, onExcel, onPdf, on
   const gradeOptions = useMemo(() => [...new Set(rows.map(row => row.grade.trim()).filter(Boolean))].sort((left, right) => left.localeCompare(right, 'ar', { numeric: true })), [rows])
   const classroomOptions = useMemo(() => [...new Set(rows.filter(row => !exportGrade || row.grade.trim() === exportGrade).map(row => row.classroom.trim()).filter(Boolean))].sort((left, right) => left.localeCompare(right, 'ar', { numeric: true })), [exportGrade, rows])
   const filteredRows = useMemo(() => rows.filter(row => (!exportGrade || row.grade.trim() === exportGrade) && (!exportClassroom || row.classroom.trim() === exportClassroom)), [exportClassroom, exportGrade, rows])
+  const pendingRows = useMemo(() => filteredRows.filter(row => !late && row.recordState === 'pending'), [filteredRows, late])
+  const approvedRows = useMemo(() => filteredRows.filter(row => late || row.recordState !== 'pending'), [filteredRows, late])
   const exportScope = exportClassroom ? `الصف: ${exportGrade} — الفصل: ${exportClassroom}` : exportGrade ? `الصف: ${exportGrade}` : ''
   const lateGroups = useMemo(() => {
     if (!late) return [] as Array<{ grade: string; rows: DailyRow[]; classrooms: Array<{ classroom: string; rows: DailyRow[] }> }>
@@ -695,13 +711,13 @@ function DailyList({ id, title, date, onDate, rows, onStatus, onExcel, onPdf, on
 
   return <section id={id} className="panel daily-report-panel">
     <div className="panel-header">
-      <div><span className="panel-kicker">سجل يومي</span><h2>{title}</h2><p>العدد: {filteredRows.length}{exportScope ? ` من أصل ${rows.length}` : ''} طالبًا</p>{onCancelApproval && <p>اختر تاريخًا سابقًا من التقويم لمراجعة سجله أو إلغاء اعتماده.</p>}</div>
+      <div><span className="panel-kicker">سجل يومي</span><h2>{title}</h2><p>العدد: {filteredRows.length}{exportScope ? ` من أصل ${rows.length}` : ''} طالبًا{pendingRows.length ? ` · ${pendingRows.length} لم يسجل لهم حضور بعد` : ''}</p>{onCancelApproval && <p>اختر تاريخًا سابقًا من التقويم لمراجعة سجله أو إلغاء اعتماده.</p>}</div>
       <HijriDatePicker label="التاريخ الهجري" value={date} max={today()} disabled={busy || cancelBusy} onChange={value => { setExportGrade(''); setExportClassroom(''); onDate(value) }} />
     </div>
     <div className="feature-actions daily-actions" aria-busy={busy || cancelBusy}>
-      <button className="secondary-button" type="button" onClick={() => onStatus(filteredRows.map(row => row.studentId), 'excused')} disabled={!filteredRows.length || busy || cancelBusy}>اعتبار جميع الظاهرين بعذر</button>
-      <button className="secondary-button" type="button" onClick={() => onStatus(filteredRows.map(row => row.studentId), 'unexcused')} disabled={!filteredRows.length || busy || cancelBusy}>اعتبار جميع الظاهرين بدون عذر</button>
-      {onCancelApproval && <button className="danger-button cancel-absence-approval" type="button" onClick={onCancelApproval} disabled={!rows.length || busy || cancelBusy}><XCircle size={16} />{cancelBusy ? 'جارٍ إلغاء الاعتماد...' : 'إلغاء اعتماد هذا اليوم'}</button>}
+      {editable && <><button className="secondary-button" type="button" onClick={() => onStatus(approvedRows.map(row => row.studentId), 'excused')} disabled={!approvedRows.length || busy || cancelBusy}>اعتبار الغياب المعتمد بعذر</button>
+      <button className="secondary-button" type="button" onClick={() => onStatus(approvedRows.map(row => row.studentId), 'unexcused')} disabled={!approvedRows.length || busy || cancelBusy}>اعتبار الغياب المعتمد بدون عذر</button>
+      {onCancelApproval && <button className="danger-button cancel-absence-approval" type="button" onClick={onCancelApproval} disabled={!approvedRows.length || busy || cancelBusy}><XCircle size={16} />{cancelBusy ? 'جارٍ إلغاء الاعتماد...' : 'إلغاء اعتماد هذا اليوم'}</button>}</>}
       <button className="export-btn csv" type="button" onClick={() => onExcel(filteredRows, exportScope)} disabled={!filteredRows.length}><Download size={16} /> Excel</button>
       <button className="export-btn pdf" type="button" onClick={() => onPdf(filteredRows, exportScope)} disabled={!filteredRows.length}><Printer size={16} /> PDF</button>
     </div>
@@ -713,13 +729,13 @@ function DailyList({ id, title, date, onDate, rows, onStatus, onExcel, onPdf, on
     </section>
     {actionNotice && <p className="report-action-notice" role="status" aria-live="polite">{actionNotice}</p>}
     {late ? <>
-      <div className="late-report-selection-toolbar" aria-live="polite">
+      {editable && <div className="late-report-selection-toolbar" aria-live="polite">
         <div><strong>تحديد طلاب التأخر</strong><span>{selected.size ? `تم تحديد ${selected.size} طالباً. اختر الإجراء المطلوب.` : 'افتح الصف ثم الفصل لتحديد فصل كامل أو طلاب محددين.'}</span></div>
         <div>
           <button type="button" className="secondary-button" onClick={() => applySelected('excused')} disabled={!selected.size || busy || cancelBusy}>اعتبار المحددين بعذر</button>
           <button type="button" className="secondary-button" onClick={() => applySelected('unexcused')} disabled={!selected.size || busy || cancelBusy}>اعتبار المحددين بدون عذر</button>
         </div>
-      </div>
+      </div>}
       <div className="late-report-grade-groups">
         {lateGroups.map((group, groupIndex) => {
           const gradeKey = `late-grade:${group.grade}`
@@ -731,7 +747,7 @@ function DailyList({ id, title, date, onDate, rows, onStatus, onExcel, onPdf, on
               <div><span>صف الطلاب المتأخرين</span><h3>{group.grade}</h3><p>{group.rows.length} طالباً · {group.classrooms.length} فصول</p></div><b>{gradeOpen ? 'إخفاء الفصول' : 'عرض الفصول'}</b>
             </button>
             {gradeOpen && <div className="late-report-grade-content" id={gradeId}>
-              <div className="late-report-group-actions"><span>تحديد الصف كاملاً</span><button type="button" className="secondary-button" onClick={() => toggleRows(group.rows)} disabled={busy || cancelBusy}>{allGradeSelected ? `إلغاء تحديد ${group.grade}` : `تحديد ${group.grade} (${group.rows.length})`}</button></div>
+              {editable && <div className="late-report-group-actions"><span>تحديد الصف كاملاً</span><button type="button" className="secondary-button" onClick={() => toggleRows(group.rows)} disabled={busy || cancelBusy}>{allGradeSelected ? `إلغاء تحديد ${group.grade}` : `تحديد ${group.grade} (${group.rows.length})`}</button></div>}
               <div className="late-report-class-grid">{group.classrooms.map((classroom, classroomIndex) => {
                 const classroomKey = `late-classroom:${group.grade}:${classroom.classroom}`
                 const classroomOpen = openClassroom === classroomKey
@@ -740,8 +756,8 @@ function DailyList({ id, title, date, onDate, rows, onStatus, onExcel, onPdf, on
                 return <article className={`late-report-class-card${classroomOpen ? ' open' : ''}`} key={classroom.classroom}>
                   <button type="button" className="late-report-class-summary" onClick={() => setOpenClassroom(current => current === classroomKey ? '' : classroomKey)} aria-expanded={classroomOpen} aria-controls={classroomId}><div><span>الفصل</span><h4>{classroom.classroom}</h4><p>{classroom.rows.length} طالباً{allClassSelected ? ' · محدد بالكامل' : ''}</p></div><b>{classroomOpen ? 'إخفاء الطلاب' : 'عرض الطلاب'}</b></button>
                   {classroomOpen && <div className="late-report-class-content" id={classroomId}>
-                    <div className="late-report-group-actions compact"><span>تحديد الفصل</span><button type="button" className="secondary-button" onClick={() => toggleRows(classroom.rows)} disabled={busy || cancelBusy}>{allClassSelected ? 'إلغاء تحديد الفصل' : `تحديد الفصل (${classroom.rows.length})`}</button></div>
-                    <div className="daily-list late-report-student-list">{classroom.rows.map(row => <article key={row.studentId} className="daily-row"><label className="late-report-student-check"><input type="checkbox" checked={selected.has(row.studentId)} disabled={busy || cancelBusy} onChange={() => toggleRows([row])} /><span><strong>{row.name}</strong><small>{row.grade || '—'} · {row.classroom || '—'} · <span dir="ltr">{row.phone || '—'}</span>{row.time ? ` · ${row.time}` : ''}</small></span></label><select value={row.status} disabled={busy || cancelBusy} onChange={event => onStatus([row.studentId], event.target.value as 'unexcused' | 'excused')}><option value="unexcused">بدون عذر</option><option value="excused">بعذر</option></select></article>)}</div>
+                    {editable && <div className="late-report-group-actions compact"><span>تحديد الفصل</span><button type="button" className="secondary-button" onClick={() => toggleRows(classroom.rows)} disabled={busy || cancelBusy}>{allClassSelected ? 'إلغاء تحديد الفصل' : `تحديد الفصل (${classroom.rows.length})`}</button></div>}
+                    <div className="daily-list late-report-student-list">{classroom.rows.map(row => <article key={row.studentId} className="daily-row">{editable ? <label className="late-report-student-check"><input type="checkbox" checked={selected.has(row.studentId)} disabled={busy || cancelBusy} onChange={() => toggleRows([row])} /><span><strong>{row.name}</strong><small>{row.grade || '—'} · {row.classroom || '—'} · <span dir="ltr">{row.phone || '—'}</span>{row.time ? ` · ${row.time}` : ''}</small></span></label> : <div><strong>{row.name}</strong><small>{row.grade || '—'} · {row.classroom || '—'} · <span dir="ltr">{row.phone || '—'}</span>{row.time ? ` · ${row.time}` : ''}</small></div>}<select value={row.status} disabled={!editable || busy || cancelBusy} onChange={event => onStatus([row.studentId], event.target.value as 'unexcused' | 'excused')}><option value="unexcused">بدون عذر</option><option value="excused">بعذر</option></select></article>)}</div>
                   </div>}
                 </article>
               })}</div>
@@ -750,7 +766,7 @@ function DailyList({ id, title, date, onDate, rows, onStatus, onExcel, onPdf, on
         })}
       </div>
       {!lateGroups.length && <p className="report-empty-state">لا توجد سجلات لهذا التاريخ.</p>}
-    </> : <div className="daily-list">{filteredRows.map(row => <article key={row.studentId} className="daily-row"><div><strong>{row.name}</strong><small>{row.grade || '—'} · {row.classroom || '—'} · <span dir="ltr">{row.phone || '—'}</span></small></div><select value={row.status} disabled={busy || cancelBusy} onChange={event => onStatus([row.studentId], event.target.value as 'unexcused' | 'excused')}><option value="unexcused">بدون عذر</option><option value="excused">بعذر</option></select></article>)}{!filteredRows.length && <p className="report-empty-state">لا توجد سجلات ضمن هذا الاختيار.</p>}</div>}
+    </> : <div className="daily-list">{pendingRows.length > 0 && <section className="absence-pending-rows"><header><strong>طلاب لم يسجل لهم حضور</strong><span>لا يظهرون كغياب معتمد. سجّل حالتهم مباشرة عند الحاجة.</span></header>{pendingRows.map(row => <article key={row.studentId} className="daily-row pending-attendance-row"><div><strong>{row.name}</strong><small>{row.grade || '—'} · {row.classroom || '—'} · <span dir="ltr">{row.phone || '—'}</span></small></div>{editable && onMarkAttendance ? <div className="absence-attendance-actions"><button type="button" className="secondary-button" disabled={busy || cancelBusy} onClick={() => onMarkAttendance([row.studentId], 'present')}>حاضر</button><button type="button" className="primary-button" disabled={busy || cancelBusy} onClick={() => onMarkAttendance([row.studentId], 'late')}>متأخر</button></div> : <span className="daily-pending-status">لم يسجل حضور</span>}</article>)}</section>}{approvedRows.length > 0 && <section className="absence-approved-rows"><header><strong>الغياب المعتمد</strong><span>يمكن تعديل حالة الغياب أو إلغاء اعتماد اليوم.</span></header>{approvedRows.map(row => <article key={row.studentId} className="daily-row"><div><strong>{row.name}</strong><small>{row.grade || '—'} · {row.classroom || '—'} · <span dir="ltr">{row.phone || '—'}</span></small></div><select value={row.status} disabled={!editable || busy || cancelBusy} onChange={event => onStatus([row.studentId], event.target.value as 'unexcused' | 'excused')}><option value="unexcused">بدون عذر</option><option value="excused">بعذر</option></select></article>)}</section>}{!filteredRows.length && <p className="report-empty-state">لا توجد سجلات ضمن هذا الاختيار.</p>}</div>}
   </section>
 }
 
@@ -909,7 +925,7 @@ export function ReportsCenter({ students, schoolName, viewer = 'school' }: { stu
     setTodayMissingCount(pending.rows.length)
     setTodayConfirmedCount(confirmed.rows.length)
   }
-  const loadAbsences = async (date = absenceDate) => setAbsences((await api.dailyAbsences(date)).rows as DailyRow[])
+  const loadAbsences = async (date = absenceDate) => setAbsences((await api.absenceLog(date)).rows as DailyRow[])
   const loadLates = async (date = lateDate) => setLates((await api.dailyLates(date)).rows as DailyRow[])
 
   useEffect(() => {
@@ -932,9 +948,10 @@ export function ReportsCenter({ students, schoolName, viewer = 'school' }: { stu
   }, [activeReport])
 
   const pendingAbsenceGroups = useMemo<PendingAbsenceGroup[]>(() => {
+    const knownGrades = pendingAbsences.map(student => student.grade)
     const groups = new Map<string, PendingAbsenceRow[]>()
     for (const student of pendingAbsences) {
-      const grade = student.grade.trim() || 'صف غير محدد'
+      const grade = canonicalAttendanceGrade(student.grade, knownGrades)
       groups.set(grade, [...(groups.get(grade) || []), student])
     }
     return [...groups.entries()]
@@ -949,10 +966,8 @@ export function ReportsCenter({ students, schoolName, viewer = 'school' }: { stu
     try {
       const date = today()
       const result = await api.calculateAbsences(date, group.students.map(student => student.studentId))
-      const [, daily] = await Promise.all([loadToday(), api.dailyAbsences(date)])
-      setTodayConfirmedCount(daily.rows.length)
+      await Promise.all([loadToday(), loadAbsences(date)])
       setAbsenceDate(date)
-      setAbsences(daily.rows as DailyRow[])
       setNotice(`تم اعتماد غياب ${result.created} طالبًا من ${group.grade}.`)
     } catch {
       setNotice('تعذر اعتماد الغياب أو تحديث السجل. أعد المحاولة.')
@@ -968,10 +983,8 @@ export function ReportsCenter({ students, schoolName, viewer = 'school' }: { stu
     try {
       const date = today()
       const result = await api.cancelAbsences(date)
-      const [, remaining] = await Promise.all([loadToday(), api.dailyAbsences(date)])
-      setTodayConfirmedCount(remaining.rows.length)
+      await Promise.all([loadToday(), loadAbsences(date)])
       setAbsenceDate(date)
-      setAbsences(remaining.rows as DailyRow[])
       setNotice(`تم إلغاء اعتماد الغياب وحذف ${result.deleted} سجلًا لهذا اليوم. لم تُسجل هذه الأيام ضمن عدد الغياب.`)
     } catch (error) {
       const code = error instanceof Error ? error.message : ''
@@ -983,15 +996,14 @@ export function ReportsCenter({ students, schoolName, viewer = 'school' }: { stu
 
   const cancelSelectedAbsenceDate = async () => {
     const date = absenceDate
-    const count = absences.length
+    const count = absences.filter(row => row.recordState !== 'pending').length
     if (cancelingSelectedAbsenceDate || !count) return
     if (!window.confirm(`سيؤدي هذا إلى إلغاء اعتماد غياب ${count} طالبًا بتاريخ ${formatHijriDate(date)} وحذف سجلات الغياب لهذا التاريخ فقط. لن تُحتسب هذه الأيام ضمن الغياب، ولن تتأثر الأيام الأخرى أو سجلات الحضور. لا يمكن التراجع عن الحذف. هل تريد المتابعة؟`)) return
     setCancelingSelectedAbsenceDate(true)
     setDailyStatusNotice(`جارٍ إلغاء اعتماد غياب ${formatHijriDate(date)}...`)
     try {
       const result = await api.cancelAbsences(date)
-      const remaining = await api.dailyAbsences(date)
-      setAbsences(remaining.rows as DailyRow[])
+      await loadAbsences(date)
       if (date === today()) await loadToday()
       setDailyStatusNotice(`تم إلغاء اعتماد غياب ${formatHijriDate(date)} وحذف ${result.deleted} سجلًا. لم تُحتسب هذه الأيام ضمن عدد الغياب.`)
     } catch (error) {
@@ -1013,6 +1025,22 @@ export function ReportsCenter({ students, schoolName, viewer = 'school' }: { stu
     } catch (error) {
       const code = error instanceof Error ? error.message : ''
       setDailyStatusNotice(code === 'forbidden' ? 'يلزم استخدام حساب مدير المدرسة لتعديل سجل الغياب.' : 'تعذر تحديث حالة الغياب. تحقق من السجل وحاول مرة أخرى.')
+    } finally {
+      setUpdatingDailyStatus(false)
+    }
+  }
+  const recordMissingAttendance = async (studentIds: string[], status: 'present' | 'late') => {
+    if (updatingDailyStatus || !studentIds.length) return
+    setUpdatingDailyStatus(true)
+    setDailyStatusNotice(status === 'present' ? 'جارٍ تسجيل الطالب حاضرًا...' : 'جارٍ تسجيل الطالب متأخرًا...')
+    try {
+      const result = await api.recordAttendanceFromAbsenceLog({ date: absenceDate, studentIds, status })
+      await loadAbsences(absenceDate)
+      if (absenceDate === today()) await loadToday()
+      setDailyStatusNotice(status === 'present' ? `تم تسجيل ${result.updated} طالب حاضرًا.` : `تم تسجيل ${result.updated} طالب متأخرًا.`)
+    } catch (error) {
+      const code = error instanceof Error ? error.message : ''
+      setDailyStatusNotice(code === 'forbidden' ? 'يلزم استخدام حساب مدير المدرسة لتعديل سجل الحضور.' : 'تعذر تسجيل الحضور. تحقق من الاتصال ثم أعد المحاولة.')
     } finally {
       setUpdatingDailyStatus(false)
     }
@@ -1178,9 +1206,9 @@ export function ReportsCenter({ students, schoolName, viewer = 'school' }: { stu
         </div></div>
       </section>}
 
-      {activeReport === 'absences' && <DailyList id="daily-absence-log" title="غياب الطلاب" date={absenceDate} onDate={value => { if (!value) return; setAbsenceDate(value); setDailyStatusNotice(''); void loadAbsences(value) }} rows={absences} onStatus={(ids, status) => void updateAbsence(ids, status)} onExcel={(reportRows, scope) => exportDaily(`غياب_${absenceDate}${scope ? `_${scope}` : ''}`, reportRows, schoolName)} onPdf={(reportRows, scope) => printDaily(`غياب الطلاب${scope ? ` — ${scope}` : ''}`, reportRows, schoolName, absenceDate)} onCancelApproval={() => void cancelSelectedAbsenceDate()} cancelBusy={cancelingSelectedAbsenceDate} busy={updatingDailyStatus} actionNotice={dailyStatusNotice} />}
+      {activeReport === 'absences' && <DailyList id="daily-absence-log" title="غياب الطلاب" date={absenceDate} onDate={value => { if (!value) return; setAbsenceDate(value); setDailyStatusNotice(''); void loadAbsences(value) }} rows={absences} onStatus={(ids, status) => void updateAbsence(ids, status)} onMarkAttendance={viewer === 'school' ? (ids, status) => void recordMissingAttendance(ids, status) : undefined} editable={viewer === 'school'} onExcel={(reportRows, scope) => exportDaily(`غياب_${absenceDate}${scope ? `_${scope}` : ''}`, reportRows, schoolName)} onPdf={(reportRows, scope) => printDaily(`غياب الطلاب${scope ? ` — ${scope}` : ''}`, reportRows, schoolName, absenceDate)} onCancelApproval={() => void cancelSelectedAbsenceDate()} cancelBusy={cancelingSelectedAbsenceDate} busy={updatingDailyStatus} actionNotice={dailyStatusNotice} />}
       {activeReport === 'absence-history' && <HistoryCounts type="absence" students={students} schoolName={schoolName} />}
-      {activeReport === 'lates' && <DailyList title="تأخر الطلاب" date={lateDate} onDate={value => { setLateDate(value); void loadLates(value) }} rows={lates} onStatus={(ids, status) => void updateLate(ids, status)} onExcel={(reportRows, scope) => exportDaily(`تأخر_${lateDate}${scope ? `_${scope}` : ''}`, reportRows, schoolName)} onPdf={(reportRows, scope) => printDaily(`تأخر الطلاب${scope ? ` — ${scope}` : ''}`, reportRows, schoolName, lateDate)} busy={updatingDailyStatus} actionNotice={dailyStatusNotice} late />}
+      {activeReport === 'lates' && <DailyList title="تأخر الطلاب" date={lateDate} onDate={value => { setLateDate(value); void loadLates(value) }} rows={lates} onStatus={(ids, status) => void updateLate(ids, status)} editable={viewer === 'school'} onExcel={(reportRows, scope) => exportDaily(`تأخر_${lateDate}${scope ? `_${scope}` : ''}`, reportRows, schoolName)} onPdf={(reportRows, scope) => printDaily(`تأخر الطلاب${scope ? ` — ${scope}` : ''}`, reportRows, schoolName, lateDate)} busy={updatingDailyStatus} actionNotice={dailyStatusNotice} late />}
       {activeReport === 'late-history' && <HistoryCounts type="late" students={students} schoolName={schoolName} />}
       {activeReport === 'student-detail' && <StudentDetailedReport students={students} schoolName={schoolName} printDocument={openPrintDocument} />}
     </div>
