@@ -52,6 +52,13 @@ export async function migrateCounselorPortal(adminPool) {
     );
     CREATE INDEX IF NOT EXISTS student_counselor_grade_assignments_counselor
       ON student_counselor_grade_assignments(school_id, counselor_id, grade);
+
+    ALTER TABLE absence_follow_up_cases ADD COLUMN IF NOT EXISTS referred_counselor_id uuid REFERENCES student_counselors(id) ON DELETE SET NULL;
+    ALTER TABLE absence_follow_up_cases ADD COLUMN IF NOT EXISTS referred_counselor_name text NOT NULL DEFAULT '';
+    ALTER TABLE absence_follow_up_cases ADD COLUMN IF NOT EXISTS referral_note text NOT NULL DEFAULT '';
+    ALTER TABLE absence_follow_up_cases ADD COLUMN IF NOT EXISTS referred_by uuid REFERENCES users(id) ON DELETE SET NULL;
+    ALTER TABLE absence_follow_up_cases ADD COLUMN IF NOT EXISTS referred_by_name text NOT NULL DEFAULT '';
+    ALTER TABLE absence_follow_up_cases ADD COLUMN IF NOT EXISTS referred_at timestamptz;
   `)
 }
 

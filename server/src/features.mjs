@@ -409,7 +409,8 @@ export async function handleFeatureRequest(context) {
           a.student_id AS "studentId",s.name,s.grade,s.classroom,s.phone,a.status,
           totals."absenceDays",totals."unexcusedDays",totals."excusedDays",totals."specialDays",
           COALESCE(follow_up.contact_outcome,'') AS "contactOutcome",COALESCE(follow_up.contact_method,'') AS "contactMethod",
-          COALESCE(follow_up.contact_note,'') AS "contactNote",COALESCE(follow_up.contacted_by_name,'') AS "contactedByName",follow_up.contacted_at AS "contactedAt"
+          COALESCE(follow_up.contact_note,'') AS "contactNote",COALESCE(follow_up.contacted_by_name,'') AS "contactedByName",follow_up.contacted_at AS "contactedAt",
+          COALESCE(follow_up.referred_counselor_name,'') AS "referredCounselorName",COALESCE(follow_up.referral_note,'') AS "referralNote",follow_up.referred_at AS "referredAt"
         FROM absence_records a
         JOIN students s ON s.school_id=a.school_id AND s.id=a.student_id AND s.active=true
         JOIN LATERAL (
@@ -483,6 +484,51 @@ export async function handleFeatureRequest(context) {
     })
     if (!result) { json(res, 404, { error: 'approved_absence_not_found' }); return true }
     json(res, 200, { ok: true, contact: result.rows[0] })
+    return true
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/absence-procedures/vice/refer') {
+    if (user.role !== 'vice_principal') { json(res, 403, { error: 'forbidden' }); return true }
+    const input = await body(req)
+    const studentId = String(input.studentId || '').trim()
+    const date = validDate(input.date)
+    const note = String(input.note || '').replace(/\s+/g, ' ').trim().slice(0, 2000)
+    const vicePrincipalName = String(user.display_name || '').replace(/\s+/g, ' ').trim().slice(0, 180) || 'وكيل المدرسة'
+    if (!studentId || !date || date > todayRiyadh() || note.length < 3) {
+      json(res, 400, { error: 'invalid_absence_referral' }); return true
+    }
+    const result = await scoped(user.school_id, async client => {
+      const grades = await studentWellbeingGrades(client, user)
+      if (!grades?.length) return { error: 'vice_grade_not_assigned' }
+      const caseRow = (await client.query(`SELECT student.grade
+        FROM absence_records absence
+        JOIN students student ON student.school_id=absence.school_id AND student.id=absence.student_id AND student.active=true
+        JOIN absence_follow_up_cases follow_up ON follow_up.school_id=absence.school_id
+          AND follow_up.student_id=absence.student_id AND follow_up.absence_date=absence.absence_date
+        WHERE absence.school_id=$1 AND absence.student_id=$2 AND absence.absence_date=$3::date
+          AND absence.status IN ('unexcused','excused','special') AND student.grade=ANY($4::text[])
+          AND follow_up.contact_outcome IN ('contacted','no_answer')
+          AND NOT EXISTS (
+            SELECT 1 FROM attendance_logs attendance
+            WHERE attendance.school_id=absence.school_id AND attendance.student_id=absence.student_id
+              AND attendance.attendance_date=absence.absence_date AND attendance.status IN ('present','late')
+          )`, [user.school_id, studentId, date, grades])).rows[0]
+      if (!caseRow) return { error: 'contact_documentation_required' }
+      const counselor = (await client.query(`SELECT counselor.id AS "counselorId",counselor.full_name AS "counselorName"
+        FROM student_counselor_grade_assignments assignment
+        JOIN student_counselors counselor ON counselor.school_id=assignment.school_id AND counselor.id=assignment.counselor_id AND counselor.active=true
+        WHERE assignment.school_id=$1 AND assignment.grade=$2
+        LIMIT 1`, [user.school_id, caseRow.grade])).rows[0]
+      if (!counselor) return { error: 'counselor_not_assigned' }
+      const referral = await client.query(`UPDATE absence_follow_up_cases
+        SET referred_counselor_id=$4,referred_counselor_name=$5,referral_note=$6,referred_by=$7,referred_by_name=$8,referred_at=now(),updated_at=now()
+        WHERE school_id=$1 AND student_id=$2 AND absence_date=$3::date
+        RETURNING referred_counselor_name AS "referredCounselorName",referral_note AS "referralNote",referred_at AS "referredAt"`,
+      [user.school_id, studentId, date, counselor.counselorId, counselor.counselorName, note, user.user_id, vicePrincipalName])
+      return { referral: referral.rows[0] }
+    })
+    if (result.error) { json(res, result.error === 'counselor_not_assigned' ? 409 : 400, result); return true }
+    json(res, 200, { ok: true, referral: result.referral })
     return true
   }
 
