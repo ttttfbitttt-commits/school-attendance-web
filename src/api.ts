@@ -1,4 +1,5 @@
 export type Account = { email: string; displayName: string; role: 'admin' | 'staff' | 'teacher' | 'administrator' | 'student' | 'counselor'; schoolId: string; teacherId?: string; administratorId?: string; studentId?: string; counselorId?: string; lessonFlowAccess?: boolean; studentAttendanceCooperationAccess?: boolean; mustChangePassword?: boolean }
+export type LoginChoice = { userId: string; schoolId: string; role: Account['role']; schoolName: string }
 export type StudentPortalAccount = { studentId: string; name: string; grade: string; classroom: string; phone: string; identityNumber: string; eligible: boolean; accountCreated: boolean; accountActive: boolean; mustChangePassword: boolean; attendanceCooperationAccess: boolean }
 export type StudentPortfolioSlot = { slotNumber: number; fileUrl: string; fileName: string; fileType: string; uploadedAt: string | null }
 export type StudentAccountGeneration = { ok: boolean; jobId: string; total: number; processed: number; created: number; skipped: number; failed: number; status: 'running' | 'completed' | 'failed'; defaultPassword: string }
@@ -331,6 +332,7 @@ async function schoolBackupDownload(currentPassword: string, backupPassword: str
 
 export const api = {
   me: () => request<{ user: Account }>('/me'),
+  unifiedLogin: (identifier: string, password: string, choice?: Pick<LoginChoice, 'userId' | 'schoolId' | 'role'>) => request<{ user: Account }>('/auth/unified-login', { method: 'POST', body: JSON.stringify({ identifier, password, ...choice }) }),
   login: (email: string, password: string) => request<{ user: Account }>('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
   teacherLogin: (identityNumber: string, password: string, schoolId = '') => request<{ user: Account }>('/auth/teacher-login', { method: 'POST', body: JSON.stringify({ identityNumber, password, schoolId: schoolId || undefined }) }),
   administratorLogin: (identityNumber: string, password: string, schoolId = '') => request<{ user: Account }>('/auth/administrator-login', { method: 'POST', body: JSON.stringify({ identityNumber, password, schoolId: schoolId || undefined }) }),

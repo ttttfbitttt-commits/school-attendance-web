@@ -151,6 +151,56 @@ function account(row) {
     mustChangePassword: Boolean(row.must_change_password),
   }
 }
+function normalizeUnifiedIdentifier(value) {
+  return String(value || '').trim().slice(0, 254)
+}
+function isEmailIdentifier(value) {
+  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
+}
+async function unifiedLoginCandidates(identifier) {
+  if (isEmailIdentifier(identifier)) {
+    const result = await authPool.query(`SELECT u.id AS user_id,u.email,u.display_name,m.school_id,m.role,u.password_hash,
+        NULL::uuid AS teacher_id,NULL::uuid AS administrator_id,NULL::uuid AS student_id,NULL::uuid AS counselor_id,
+        false AS lesson_flow_access,false AS student_attendance_cooperation_access,false AS must_change_password
+      FROM users u JOIN memberships m ON m.user_id=u.id
+      WHERE u.email=lower($1) AND m.role IN ('admin','staff')`, [identifier])
+    return result.rows
+  }
+
+  const identity = identifier.replace(/\D/g, '').slice(0, 32)
+  if (!identity) return []
+  const result = await authPool.query(`
+    SELECT account.user_id,account.school_id,account.teacher_id::text AS teacher_id,NULL::text AS administrator_id,NULL::text AS student_id,NULL::text AS counselor_id,
+      account.must_change_password,false AS lesson_flow_access,false AS student_attendance_cooperation_access,account.password_hash,u.email,u.display_name,m.role
+    FROM teacher_login_accounts account JOIN users u ON u.id=account.user_id
+      JOIN memberships m ON m.user_id=account.user_id AND m.school_id=account.school_id
+    WHERE account.identity_number=$1 AND account.active=true AND m.role='teacher'
+    UNION ALL
+    SELECT account.user_id,account.school_id,NULL::text,account.administrator_id::text,NULL::text,NULL::text,
+      account.must_change_password,account.lesson_flow_access,false,account.password_hash,u.email,u.display_name,m.role
+    FROM administrative_login_accounts account JOIN users u ON u.id=account.user_id
+      JOIN memberships m ON m.user_id=account.user_id AND m.school_id=account.school_id
+    WHERE account.identity_number=$1 AND account.active=true AND m.role='administrator'
+    UNION ALL
+    SELECT account.user_id,account.school_id,NULL::text,NULL::text,account.student_id,NULL::text,
+      account.must_change_password,false,account.attendance_cooperation_access,account.password_hash,u.email,u.display_name,m.role
+    FROM student_login_accounts account JOIN users u ON u.id=account.user_id
+      JOIN memberships m ON m.user_id=account.user_id AND m.school_id=account.school_id
+    WHERE account.identity_number=$1 AND account.active=true AND m.role='student'
+    UNION ALL
+    SELECT account.user_id,account.school_id,NULL::text,NULL::text,NULL::text,account.counselor_id::text,
+      account.must_change_password,false,false,account.password_hash,u.email,u.display_name,m.role
+    FROM counselor_login_accounts account JOIN users u ON u.id=account.user_id
+      JOIN memberships m ON m.user_id=account.user_id AND m.school_id=account.school_id
+    WHERE account.identity_number=$1 AND account.active=true AND m.role='counselor'`, [identity])
+  return result.rows
+}
+async function unifiedLoginChoices(rows) {
+  return Promise.all(rows.map(async row => {
+    const school = await scopedOn(authPool, row.school_id, client => client.query('SELECT name FROM schools WHERE id=$1', [row.school_id]))
+    return { userId: row.user_id, schoolId: row.school_id, role: row.role, schoolName: school.rows[0]?.name || 'المدرسة' }
+  }))
+}
 const defaultPreferences = { attendanceMode: 'auto', cutoffTime: '07:30', gradeAliases: {} }
 function schoolProfile(row) {
   const preferences = row.preferences && typeof row.preferences === 'object' ? row.preferences : {}
@@ -336,6 +386,32 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/api/health') return json(res, 200, { ok: true })
     if (req.method === 'POST' && url.pathname === '/api/auth/register') return await requestSchoolRegistration({ req, res, authPool, body, json, passwordHash })
     if (req.method === 'POST' && url.pathname === '/api/auth/verify-email') return await verifySchoolRegistration({ req, res, authPool, body, json, scopedOn, createSession })
+    if (req.method === 'POST' && url.pathname === '/api/auth/unified-login') {
+      const { identifier: rawIdentifier, password, userId, schoolId, role } = await body(req)
+      const identifier = normalizeUnifiedIdentifier(rawIdentifier)
+      const retryAfter = loginRateLimited(req, 'unified', identifier)
+      if (retryAfter) return loginThrottleResponse(res, retryAfter)
+      const candidates = await unifiedLoginCandidates(identifier)
+      const matches = candidates.filter(row => passwordMatches(String(password || ''), row.password_hash))
+      if (!matches.length) {
+        recordFailedLogin(req, 'unified', identifier)
+        return json(res, 401, { error: 'invalid_login' })
+      }
+      const selectionRequested = Boolean(userId || schoolId || role)
+      const selected = selectionRequested
+        ? matches.find(row => row.user_id === String(userId || '') && row.school_id === String(schoolId || '') && row.role === String(role || ''))
+        : matches.length === 1 ? matches[0] : null
+      if (!selected) {
+        if (selectionRequested) {
+          recordFailedLogin(req, 'unified', identifier)
+          return json(res, 401, { error: 'invalid_login' })
+        }
+        return json(res, 409, { error: 'login_selection_required', choices: await unifiedLoginChoices(matches) })
+      }
+      clearLoginAttempts(req, 'unified', identifier)
+      await createSession(res, selected.user_id, selected.school_id)
+      return json(res, 200, { user: account(selected) })
+    }
     if (req.method === 'POST' && url.pathname === '/api/auth/login') {
       const { email, password } = await body(req)
       const retryAfter = loginRateLimited(req, 'school', email)
