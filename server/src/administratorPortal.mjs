@@ -35,7 +35,7 @@ function decryptTemporaryPassword(value) {
 export async function migrateAdministratorPortal(adminPool) {
   await adminPool.query(`
     ALTER TABLE memberships DROP CONSTRAINT IF EXISTS memberships_role_check;
-    ALTER TABLE memberships ADD CONSTRAINT memberships_role_check CHECK (role IN ('admin','staff','teacher','administrator','student','counselor'));
+    ALTER TABLE memberships ADD CONSTRAINT memberships_role_check CHECK (role IN ('admin','staff','teacher','administrator','student','counselor','vice_principal'));
 
     CREATE TABLE IF NOT EXISTS administrative_staff (
       id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
