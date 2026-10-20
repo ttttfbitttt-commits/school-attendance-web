@@ -1,5 +1,5 @@
 import { type FormEvent, useEffect, useMemo, useState } from 'react'
-import { KeyRound, Phone, Power, RefreshCw, ShieldCheck, UserPlus, UsersRound, X } from 'lucide-react'
+import { KeyRound, Power, RefreshCw, ShieldCheck, UserPlus, UsersRound, X } from 'lucide-react'
 import { api, type SchoolVicePrincipal, type VicePrincipalGradeOption } from './api'
 
 const emptyForm = { name: '', identityNumber: '', phone: '', grade: '' }
