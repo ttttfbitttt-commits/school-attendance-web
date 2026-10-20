@@ -22,7 +22,11 @@ function evidenceReportHtml(teacher: TeacherEvidenceAdminRecords['teacher'], rec
   }).join('')
 }
 
-export function TeacherEvidenceAdmin({ schoolName }: { schoolName: string }) {
+export function TeacherEvidenceAdmin({ schoolName, loadTeachers = api.teacherAdminEvidence, loadRecords = api.teacherAdminEvidenceRecords }: {
+  schoolName: string
+  loadTeachers?: () => Promise<{ teachers: TeacherEvidenceAdminTeacher[] }>
+  loadRecords?: (teacherId: string) => Promise<TeacherEvidenceAdminRecords>
+}) {
   const [teachers, setTeachers] = useState<TeacherEvidenceAdminTeacher[]>([])
   const [selected, setSelected] = useState<TeacherEvidenceAdminRecords | null>(null)
   const [search, setSearch] = useState('')
@@ -33,7 +37,7 @@ export function TeacherEvidenceAdmin({ schoolName }: { schoolName: string }) {
     setBusy('load')
     setError('')
     try {
-      const result = await api.teacherAdminEvidence()
+      const result = await loadTeachers()
       setTeachers(result.teachers)
     } catch {
       setError('تعذر تحميل شواهد المعلمين. حدّث الصفحة ثم أعد المحاولة.')
@@ -41,7 +45,7 @@ export function TeacherEvidenceAdmin({ schoolName }: { schoolName: string }) {
       setBusy('')
     }
   }
-  useEffect(() => { void load() }, [])
+  useEffect(() => { void load() }, [loadTeachers])
 
   const filteredTeachers = useMemo(() => {
     const query = search.trim()
@@ -53,7 +57,7 @@ export function TeacherEvidenceAdmin({ schoolName }: { schoolName: string }) {
     setBusy('report')
     setError('')
     try {
-      setSelected(await api.teacherAdminEvidenceRecords(teacherId))
+      setSelected(await loadRecords(teacherId))
     } catch {
       setError('تعذر عرض شواهد هذا المعلم.')
     } finally {
@@ -97,6 +101,6 @@ export function TeacherEvidenceAdmin({ schoolName }: { schoolName: string }) {
     </div>
     {error && <p className="teacher-notice error">{error}</p>}
     <div className="teacher-admin-tools teacher-evidence-admin-tools"><label><Search size={16} /><input value={search} onChange={event => setSearch(event.target.value)} placeholder="ابحث باسم المعلم أو رقم الهوية" /></label></div>
-    {busy === 'load' ? <p className="teacher-empty">جارٍ تحميل أسماء المعلمين…</p> : !filteredTeachers.length ? <p className="teacher-empty">لا توجد أسماء مطابقة للبحث.</p> : <div className="teacher-evidence-admin-list">{filteredTeachers.map(teacher => <article key={teacher.teacherId}><div><strong>{teacher.name}</strong><span>هوية: {teacher.identityNumber}</span></div><b>{teacher.evidenceCount} {teacher.evidenceCount === 1 ? 'شاهد' : 'شواهد'}</b><button type="button" className="outline-button" disabled={busy === 'report'} onClick={() => void showTeacher(teacher.teacherId)}><FileImage size={16} /> عرض</button></article>)}</div>}
+    {busy === 'load' ? <p className="teacher-empty">جارٍ تحميل أسماء المعلمين…</p> : !filteredTeachers.length ? <p className="teacher-empty">لا توجد أسماء مطابقة للبحث.</p> : <div className="teacher-evidence-admin-list">{filteredTeachers.map(teacher => <article key={teacher.teacherId}><div><strong>{teacher.name}</strong><span>هوية: {teacher.identityNumber}</span></div><b>{teacher.evidenceCount} {teacher.evidenceCount === 1 ? 'شاهد' : 'شواهد'}</b><button type="button" className="outline-button" disabled={busy === 'report'} onClick={() => void showTeacher(teacher.teacherId)}><FileImage size={16} /> عرض الشواهد</button></article>)}</div>}
   </section>
 }

@@ -319,6 +319,7 @@ const EVIDENCE_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp'])
 const MAX_EVIDENCE_IMAGE_BYTES = 1_000_000
 
 function teacherEvidenceFileUrl(evidenceId, slotNumber, access = 'teacher') {
+  if (access === 'activity_leader') return `/api/activity-leaders/leader/evidence/file?evidenceId=${encodeURIComponent(evidenceId)}&slotNumber=${encodeURIComponent(slotNumber)}`
   const route = access === 'admin' ? 'admin/evidence/file' : 'teacher/evidence/file'
   return `/api/teacher-portal/${route}?evidenceId=${encodeURIComponent(evidenceId)}&slotNumber=${encodeURIComponent(slotNumber)}`
 }
@@ -331,7 +332,7 @@ function evidenceImage(value) {
   return { data: String(value), type: match[1] }
 }
 
-function sendEvidenceImage(res, image) {
+export function sendEvidenceImage(res, image) {
   const match = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(String(image?.imageData || ''))
   if (!match || !EVIDENCE_IMAGE_TYPES.has(match[1])) return false
   const data = Buffer.from(match[2], 'base64')
@@ -371,7 +372,7 @@ async function teacherEvidenceOptions(client, schoolId, teacherId) {
   }
 }
 
-async function teacherEvidenceRecords(client, schoolId, teacherId, access = 'teacher') {
+export async function teacherEvidenceRecords(client, schoolId, teacherId, access = 'teacher') {
   const records = (await client.query(`SELECT id,slot_number AS "slotNumber",grade_value AS grade,classroom_value AS classroom,title,strategy,
       visit_teacher_id AS "visitTeacherId",visit_teacher_name AS "visitTeacherName",vice_principal_id AS "vicePrincipalId",
       vice_principal_name AS "vicePrincipalName",activity_leader_name AS "activityLeaderName",notes,
@@ -387,6 +388,16 @@ async function teacherEvidenceRecords(client, schoolId, teacherId, access = 'tea
     imagesByEvidence.set(image.evidenceId, list)
   }
   return records.map(record => ({ ...record, slotNumber: Number(record.slotNumber), images: imagesByEvidence.get(record.id) || [] }))
+}
+
+export async function teacherEvidenceTeachers(client, schoolId) {
+  return (await client.query(`SELECT t.id AS "teacherId",t.full_name AS name,t.identity_number AS "identityNumber",
+      COUNT(evidence.id)::int AS "evidenceCount"
+    FROM lesson_teachers t
+    LEFT JOIN teacher_evidence_records evidence ON evidence.school_id=t.school_id AND evidence.teacher_id=t.id
+    WHERE t.school_id=$1 AND t.active=true
+    GROUP BY t.id,t.full_name,t.identity_number
+    ORDER BY t.full_name`, [schoolId])).rows
 }
 
 function credentialEncryptionKey() {
@@ -1315,13 +1326,7 @@ export async function handleTeacherPortalRequest(context) {
   if (!adminOnly()) { json(res, 403, { error: 'forbidden' }); return true }
 
   if (req.method === 'GET' && url.pathname === '/api/teacher-portal/admin/evidence') {
-    const teachers = await scoped(user.school_id, async client => (await client.query(`SELECT t.id AS "teacherId",t.full_name AS name,t.identity_number AS "identityNumber",
-        COUNT(evidence.id)::int AS "evidenceCount"
-      FROM lesson_teachers t
-      LEFT JOIN teacher_evidence_records evidence ON evidence.school_id=t.school_id AND evidence.teacher_id=t.id
-      WHERE t.school_id=$1 AND t.active=true
-      GROUP BY t.id,t.full_name,t.identity_number
-      ORDER BY t.full_name`, [user.school_id])).rows)
+    const teachers = await scoped(user.school_id, client => teacherEvidenceTeachers(client, user.school_id))
     json(res, 200, { teachers })
     return true
   }

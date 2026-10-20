@@ -1,3 +1,5 @@
+import { sendEvidenceImage, teacherEvidenceRecords, teacherEvidenceTeachers } from './teacherPortal.mjs'
+
 const DEFAULT_ACTIVITY_LEADER_PASSWORD = '12345678'
 
 const clean = (value, max = 200) => String(value ?? '').replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max)
@@ -64,6 +66,46 @@ export async function handleActivityLeaderPortalRequest(context) {
   if (req.method === 'GET' && url.pathname === '/api/activity-leaders/admin/overview') {
     if (!adminOnly()) { json(res, 403, { error: 'forbidden' }); return true }
     json(res, 200, await overview(user, scoped, authPool)); return true
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/activity-leaders/leader/evidence') {
+    if (!leaderOnly()) { json(res, 403, { error: 'forbidden' }); return true }
+    json(res, 200, { teachers: await scoped(user.school_id, client => teacherEvidenceTeachers(client, user.school_id)) })
+    return true
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/activity-leaders/leader/profile') {
+    if (!leaderOnly()) { json(res, 403, { error: 'forbidden' }); return true }
+    const school = await scoped(user.school_id, async client => (await client.query('SELECT name FROM schools WHERE id=$1', [user.school_id])).rows[0] || null)
+    json(res, 200, { schoolName: school?.name || 'المدرسة' })
+    return true
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/activity-leaders/leader/evidence/records') {
+    if (!leaderOnly()) { json(res, 403, { error: 'forbidden' }); return true }
+    const teacherId = String(url.searchParams.get('teacherId') || '')
+    if (!validUuid(teacherId)) { json(res, 400, { error: 'invalid_teacher' }); return true }
+    const result = await scoped(user.school_id, async client => {
+      const teacher = (await client.query(`SELECT id AS "teacherId",full_name AS name,identity_number AS "identityNumber"
+        FROM lesson_teachers WHERE school_id=$1 AND id=$2 AND active=true`, [user.school_id, teacherId])).rows[0] || null
+      return teacher ? { teacher, records: await teacherEvidenceRecords(client, user.school_id, teacherId, 'activity_leader') } : null
+    })
+    if (!result) { json(res, 404, { error: 'teacher_not_found' }); return true }
+    json(res, 200, result)
+    return true
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/activity-leaders/leader/evidence/file') {
+    if (!leaderOnly()) { json(res, 403, { error: 'forbidden' }); return true }
+    const evidenceId = String(url.searchParams.get('evidenceId') || '')
+    const slotNumber = Number(url.searchParams.get('slotNumber'))
+    if (!validUuid(evidenceId) || !Number.isInteger(slotNumber) || slotNumber < 1 || slotNumber > 4) { json(res, 400, { error: 'invalid_evidence_file' }); return true }
+    const image = await scoped(user.school_id, async client => (await client.query(`SELECT image.image_data AS "imageData"
+      FROM teacher_evidence_images image
+      JOIN teacher_evidence_records evidence ON evidence.id=image.evidence_id AND evidence.school_id=image.school_id
+      WHERE image.school_id=$1 AND image.evidence_id=$2 AND image.slot_number=$3`, [user.school_id, evidenceId, slotNumber])).rows[0] || null)
+    if (!image || !sendEvidenceImage(res, image)) { json(res, 404, { error: 'evidence_file_not_found' }); return true }
+    return true
   }
 
   if (req.method === 'POST' && url.pathname === '/api/activity-leaders/admin/leaders') {
