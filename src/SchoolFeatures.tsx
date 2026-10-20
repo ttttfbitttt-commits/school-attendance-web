@@ -1053,7 +1053,7 @@ export function ReportsCenter({ students, schoolName, viewer = 'school' }: { stu
 
   return <section className="feature-page reports-center">
     <section className="panel feature-intro">
-      <div><span className="panel-kicker">{viewer === 'counselor' ? 'بوابة المرشد الطلابي' : 'إدارة المدرسة'}</span><h2>التقارير</h2><p>اختر التقرير المطلوب. يظهر قسم واحد في كل مرة، ويمكن تصدير تقاريره إلى Excel أو PDF.</p></div>
+      <div><span className="panel-kicker">{viewer === 'counselor' ? 'بوابة الموجّه الطلابي' : 'إدارة المدرسة'}</span><h2>التقارير</h2><p>اختر التقرير المطلوب. يظهر قسم واحد في كل مرة، ويمكن تصدير تقاريره إلى Excel أو PDF.</p></div>
       <FileText size={34} />
     </section>
 

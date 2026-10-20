@@ -59,7 +59,7 @@ export function AuthGate({ children }: { children: (account: Account, logout: ()
         return
       }
       setError(mode === 'teacher' || mode === 'administrator' || mode === 'student' || mode === 'counselor'
-        ? `تعذر دخول ${mode === 'student' ? 'حساب الطالب' : mode === 'administrator' ? 'حساب الإداري' : mode === 'counselor' ? 'حساب المرشد الطلابي' : 'حساب المعلم'}. تحقق من رقم الهوية وكلمة المرور، أو اطلب من الإدارة إعادة ضبط الحساب.`
+        ? `تعذر دخول ${mode === 'student' ? 'حساب الطالب' : mode === 'administrator' ? 'حساب الإداري' : mode === 'counselor' ? 'حساب الموجّه الطلابي' : 'حساب المعلم'}. تحقق من رقم الهوية وكلمة المرور، أو اطلب من الإدارة إعادة ضبط الحساب.`
         : registering && apiError.code === 'email_verification_not_configured'
           ? 'تأكيد البريد غير مفعّل بعد. لم يتم إنشاء الحساب؛ تواصل مع إدارة النظام.'
           : registering && apiError.code === 'email_send_failed'
@@ -130,14 +130,14 @@ export function AuthGate({ children }: { children: (account: Account, logout: ()
   const counselor = mode === 'counselor'
   return <main className="auth-page" dir="rtl"><section className="auth-card">
     <div className="auth-icon"><School size={30} /></div>
-    <h1>{teacher ? 'بوابة المعلم' : administrator ? 'بوابة الإداري' : student ? 'بوابة الطالب' : counselor ? 'بوابة المرشد الطلابي' : 'نظام الحصر'}</h1>
+    <h1>{teacher ? 'بوابة المعلم' : administrator ? 'بوابة الإداري' : student ? 'بوابة الطالب' : counselor ? 'بوابة الموجّه الطلابي' : 'نظام الحصر'}</h1>
     <p>{teacher || administrator || student || counselor ? 'ادخل برقم الهوية وكلمة المرور التي سلّمتها لك إدارة مدرستك.' : 'الانضباط أول خطوات النجاح'}</p>
     <div className="auth-tabs auth-tabs-six">
       <button className={mode === 'admin' && !registering ? 'active' : ''} type="button" onClick={() => switchMode('admin', false)}>دخول المدرسة</button>
       <button className={mode === 'teacher' ? 'active' : ''} type="button" onClick={() => switchMode('teacher', false)}>دخول المعلم</button>
       <button className={mode === 'administrator' ? 'active' : ''} type="button" onClick={() => switchMode('administrator', false)}>دخول الإداري</button>
       <button className={mode === 'student' ? 'active' : ''} type="button" onClick={() => switchMode('student', false)}>دخول الطالب</button>
-      <button className={mode === 'counselor' ? 'active' : ''} type="button" onClick={() => switchMode('counselor', false)}>دخول المرشد</button>
+      <button className={mode === 'counselor' ? 'active' : ''} type="button" onClick={() => switchMode('counselor', false)}>دخول الموجّه الطلابي</button>
       <button className={mode === 'admin' && registering ? 'active' : ''} type="button" onClick={() => switchMode('admin', true)}>تسجيل مدرسة</button>
     </div>
     <form key={teacher ? 'teacher-login' : administrator ? 'administrator-login' : student ? 'student-login' : counselor ? 'counselor-login' : registering ? 'school-registration' : 'school-login'} onSubmit={submit} autoComplete="on">
@@ -156,7 +156,7 @@ export function AuthGate({ children }: { children: (account: Account, logout: ()
       </>}
       {registrationSent && <div className="auth-success" role="status">إذا كان البريد صالحاً وغير مسجل، أرسلنا رابط تأكيد. افتحه واضغط زر التأكيد لإكمال التسجيل.</div>}
       {error && <div className="auth-error">{error}</div>}
-      <button className="auth-submit" type="submit">{teacher ? 'دخول بوابة المعلم' : administrator ? 'دخول بوابة الإداري' : student ? 'دخول بوابة الطالب' : counselor ? 'دخول بوابة المرشد' : registering ? registrationSent ? 'إعادة إرسال رابط التأكيد' : 'إرسال رابط التأكيد' : 'تسجيل الدخول'}</button>
+      <button className="auth-submit" type="submit">{teacher ? 'دخول بوابة المعلم' : administrator ? 'دخول بوابة الإداري' : student ? 'دخول بوابة الطالب' : counselor ? 'دخول بوابة الموجّه الطلابي' : registering ? registrationSent ? 'إعادة إرسال رابط التأكيد' : 'إرسال رابط التأكيد' : 'تسجيل الدخول'}</button>
     </form>
   </section></main>
 }
