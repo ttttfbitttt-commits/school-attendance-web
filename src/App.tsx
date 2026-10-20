@@ -63,6 +63,7 @@ import { CounselorAdminCenter } from './CounselorAdmin'
 import { CounselorPortal } from './CounselorPortal'
 import { VicePrincipalAdminCenter } from './VicePrincipalAdmin'
 import { ActivityLeaderAdminCenter } from './ActivityLeaderAdmin'
+import { ActivityLeaderPortal } from './ActivityLeaderPortal'
 
 type Student = {
   id: string
@@ -3069,7 +3070,9 @@ function App() {
         ? <StudentPortal account={account} onLogout={logout} />
         : account.role === 'counselor'
           ? <CounselorPortal account={account} onLogout={logout} />
-          : <AttendanceApp account={account} onLogout={logout} />}</AuthGate>
+          : account.role === 'activity_leader'
+            ? <ActivityLeaderPortal account={account} onLogout={logout} />
+            : <AttendanceApp account={account} onLogout={logout} />}</AuthGate>
 }
 
 export default App

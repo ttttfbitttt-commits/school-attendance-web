@@ -11,6 +11,7 @@ const roleLabel: Record<LoginChoice['role'], string> = {
   student: 'بوابة الطالب',
   counselor: 'بوابة الموجّه الطلابي',
   vice_principal: 'بوابة وكيل المدرسة',
+  activity_leader: 'بوابة رائد النشاط',
 }
 
 export function AuthGate({ children }: { children: (account: Account, logout: () => void) => ReactNode }) {

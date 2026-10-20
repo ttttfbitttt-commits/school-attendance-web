@@ -14,6 +14,7 @@ import { handleBackupRestoreRequest, migrateBackupRestore } from './backupRestor
 import { handleStudentPortalRequest, migrateStudentPortal } from './studentPortal.mjs'
 import { handleCounselorPortalRequest, migrateCounselorPortal } from './counselorPortal.mjs'
 import { handleVicePrincipalPortalRequest, migrateVicePrincipalPortal } from './vicePrincipalPortal.mjs'
+import { handleActivityLeaderPortalRequest, migrateActivityLeaderPortal } from './activityLeaderPortal.mjs'
 import { guideCanAccessStudent, gradeScope, studentGuideGrades } from './counselorScope.mjs'
 
 const { Pool } = pg
@@ -39,7 +40,7 @@ const SCHOOL_STORAGE_TABLES = [
   'teacher_incidents', 'teacher_day_absences', 'teacher_classroom_student_maps', 'teacher_lesson_sessions', 'teacher_lesson_student_records',
   'teacher_sheet_configs', 'teacher_sheet_entries', 'teacher_evidence_records', 'teacher_evidence_images', 'behavior_incidents', 'behavior_student_records', 'behavior_action_steps',
   'behavior_score_movements', 'behavior_audit_logs', 'student_referrals', 'student_referral_events', 'teacher_attendance_contributions',
-  'administrative_staff', 'student_counselors', 'student_counselor_grade_assignments', 'school_vice_principals', 'vice_principal_grade_assignments',
+  'administrative_staff', 'student_counselors', 'student_counselor_grade_assignments', 'school_vice_principals', 'vice_principal_grade_assignments', 'school_activity_leaders',
 ]
 
 function json(res, status, body) {
@@ -120,17 +121,18 @@ async function auth(req) {
   const token = parseCookies(req)[COOKIE]
   if (!token) return null
   const { rows } = await authPool.query(`SELECT s.user_id, s.school_id, u.email, u.display_name, m.role,
-      account.teacher_id,administrator_account.administrator_id,student_account.student_id,counselor_account.counselor_id,vice_principal_account.vice_principal_id,
+      account.teacher_id,administrator_account.administrator_id,student_account.student_id,counselor_account.counselor_id,vice_principal_account.vice_principal_id,activity_leader_account.activity_leader_id,
       administrator_account.lesson_flow_access,student_account.attendance_cooperation_access AS student_attendance_cooperation_access,
-      COALESCE(account.must_change_password,administrator_account.must_change_password,student_account.must_change_password,counselor_account.must_change_password,vice_principal_account.must_change_password) AS must_change_password
+      COALESCE(account.must_change_password,administrator_account.must_change_password,student_account.must_change_password,counselor_account.must_change_password,vice_principal_account.must_change_password,activity_leader_account.must_change_password) AS must_change_password
     FROM sessions s JOIN users u ON u.id=s.user_id JOIN memberships m ON m.user_id=s.user_id AND m.school_id=s.school_id
       LEFT JOIN teacher_login_accounts account ON account.user_id=s.user_id AND account.school_id=s.school_id
       LEFT JOIN administrative_login_accounts administrator_account ON administrator_account.user_id=s.user_id AND administrator_account.school_id=s.school_id
       LEFT JOIN student_login_accounts student_account ON student_account.user_id=s.user_id AND student_account.school_id=s.school_id
       LEFT JOIN counselor_login_accounts counselor_account ON counselor_account.user_id=s.user_id AND counselor_account.school_id=s.school_id
       LEFT JOIN vice_principal_login_accounts vice_principal_account ON vice_principal_account.user_id=s.user_id AND vice_principal_account.school_id=s.school_id
+      LEFT JOIN activity_leader_login_accounts activity_leader_account ON activity_leader_account.user_id=s.user_id AND activity_leader_account.school_id=s.school_id
     WHERE s.token_hash=$1 AND s.expires_at > now()
-      AND ((m.role NOT IN ('teacher','administrator','student','counselor','vice_principal')) OR (m.role='teacher' AND account.active=true) OR (m.role='administrator' AND administrator_account.active=true) OR (m.role='student' AND student_account.active=true) OR (m.role='counselor' AND counselor_account.active=true) OR (m.role='vice_principal' AND vice_principal_account.active=true))`, [tokenHash(token)])
+      AND ((m.role NOT IN ('teacher','administrator','student','counselor','vice_principal','activity_leader')) OR (m.role='teacher' AND account.active=true) OR (m.role='administrator' AND administrator_account.active=true) OR (m.role='student' AND student_account.active=true) OR (m.role='counselor' AND counselor_account.active=true) OR (m.role='vice_principal' AND vice_principal_account.active=true) OR (m.role='activity_leader' AND activity_leader_account.active=true))`, [tokenHash(token)])
   return rows[0] || null
 }
 async function createSession(res, userId, schoolId) {
@@ -149,6 +151,7 @@ function account(row) {
     studentId: row.student_id || undefined,
     counselorId: row.counselor_id || undefined,
     vicePrincipalId: row.vice_principal_id || undefined,
+    activityLeaderId: row.activity_leader_id || undefined,
     lessonFlowAccess: Boolean(row.lesson_flow_access),
     studentAttendanceCooperationAccess: Boolean(row.student_attendance_cooperation_access),
     mustChangePassword: Boolean(row.must_change_password),
@@ -163,7 +166,7 @@ function isEmailIdentifier(value) {
 async function unifiedLoginCandidates(identifier) {
   if (isEmailIdentifier(identifier)) {
     const result = await authPool.query(`SELECT u.id AS user_id,u.email,u.display_name,m.school_id,m.role,u.password_hash,
-        NULL::uuid AS teacher_id,NULL::uuid AS administrator_id,NULL::uuid AS student_id,NULL::uuid AS counselor_id,
+        NULL::uuid AS teacher_id,NULL::uuid AS administrator_id,NULL::uuid AS student_id,NULL::uuid AS counselor_id,NULL::uuid AS activity_leader_id,
         false AS lesson_flow_access,false AS student_attendance_cooperation_access,false AS must_change_password
       FROM users u JOIN memberships m ON m.user_id=u.id
       WHERE u.email=lower($1) AND m.role IN ('admin','staff')`, [identifier])
@@ -173,35 +176,41 @@ async function unifiedLoginCandidates(identifier) {
   const identity = identifier.replace(/\D/g, '').slice(0, 32)
   if (!identity) return []
   const result = await authPool.query(`
-    SELECT account.user_id,account.school_id,account.teacher_id::text AS teacher_id,NULL::text AS administrator_id,NULL::text AS student_id,NULL::text AS counselor_id,
+    SELECT account.user_id,account.school_id,account.teacher_id::text AS teacher_id,NULL::text AS administrator_id,NULL::text AS student_id,NULL::text AS counselor_id,NULL::text AS activity_leader_id,
       account.must_change_password,false AS lesson_flow_access,false AS student_attendance_cooperation_access,account.password_hash,u.email,u.display_name,m.role
     FROM teacher_login_accounts account JOIN users u ON u.id=account.user_id
       JOIN memberships m ON m.user_id=account.user_id AND m.school_id=account.school_id
     WHERE account.identity_number=$1 AND account.active=true AND m.role='teacher'
     UNION ALL
-    SELECT account.user_id,account.school_id,NULL::text,account.administrator_id::text,NULL::text,NULL::text,
+    SELECT account.user_id,account.school_id,NULL::text,account.administrator_id::text,NULL::text,NULL::text,NULL::text,
       account.must_change_password,account.lesson_flow_access,false,account.password_hash,u.email,u.display_name,m.role
     FROM administrative_login_accounts account JOIN users u ON u.id=account.user_id
       JOIN memberships m ON m.user_id=account.user_id AND m.school_id=account.school_id
     WHERE account.identity_number=$1 AND account.active=true AND m.role='administrator'
     UNION ALL
-    SELECT account.user_id,account.school_id,NULL::text,NULL::text,account.student_id,NULL::text,
+    SELECT account.user_id,account.school_id,NULL::text,NULL::text,account.student_id,NULL::text,NULL::text,
       account.must_change_password,false,account.attendance_cooperation_access,account.password_hash,u.email,u.display_name,m.role
     FROM student_login_accounts account JOIN users u ON u.id=account.user_id
       JOIN memberships m ON m.user_id=account.user_id AND m.school_id=account.school_id
     WHERE account.identity_number=$1 AND account.active=true AND m.role='student'
     UNION ALL
-    SELECT account.user_id,account.school_id,NULL::text,NULL::text,NULL::text,account.counselor_id::text,
+    SELECT account.user_id,account.school_id,NULL::text,NULL::text,NULL::text,account.counselor_id::text,NULL::text,
       account.must_change_password,false,false,account.password_hash,u.email,u.display_name,m.role
     FROM counselor_login_accounts account JOIN users u ON u.id=account.user_id
       JOIN memberships m ON m.user_id=account.user_id AND m.school_id=account.school_id
     WHERE account.identity_number=$1 AND account.active=true AND m.role='counselor'
     UNION ALL
-    SELECT account.user_id,account.school_id,NULL::text,NULL::text,NULL::text,NULL::text,
+    SELECT account.user_id,account.school_id,NULL::text,NULL::text,NULL::text,NULL::text,NULL::text,
       account.must_change_password,false,false,account.password_hash,u.email,u.display_name,m.role
     FROM vice_principal_login_accounts account JOIN users u ON u.id=account.user_id
       JOIN memberships m ON m.user_id=account.user_id AND m.school_id=account.school_id
-    WHERE account.identity_number=$1 AND account.active=true AND m.role='vice_principal'`, [identity])
+    WHERE account.identity_number=$1 AND account.active=true AND m.role='vice_principal'
+    UNION ALL
+    SELECT account.user_id,account.school_id,NULL::text,NULL::text,NULL::text,NULL::text,account.activity_leader_id::text,
+      account.must_change_password,false,false,account.password_hash,u.email,u.display_name,m.role
+    FROM activity_leader_login_accounts account JOIN users u ON u.id=account.user_id
+      JOIN memberships m ON m.user_id=account.user_id AND m.school_id=account.school_id
+    WHERE account.identity_number=$1 AND account.active=true AND m.role='activity_leader'`, [identity])
   return result.rows
 }
 async function unifiedLoginChoices(rows) {
@@ -313,7 +322,7 @@ async function configureDatabaseRoles() {
     teacher_sheet_configs, teacher_sheet_entries, teacher_evidence_records, teacher_evidence_images, behavior_incidents, behavior_student_records,
     behavior_action_steps, behavior_score_movements, behavior_audit_logs, student_referrals, administrative_staff,
     student_referral_events, teacher_attendance_contributions, student_portfolio_files, student_counselors, student_counselor_grade_assignments,
-    school_vice_principals, vice_principal_grade_assignments TO attendance_app`)
+    school_vice_principals, vice_principal_grade_assignments, school_activity_leaders TO attendance_app`)
   await adminPool.query('GRANT SELECT ON behavior_catalog_rules TO attendance_app')
   await adminPool.query('GRANT USAGE, SELECT ON SEQUENCE behavior_audit_logs_id_seq TO attendance_app')
   await adminPool.query('GRANT USAGE, SELECT ON SEQUENCE student_referral_events_id_seq TO attendance_app')
@@ -324,6 +333,7 @@ async function configureDatabaseRoles() {
   await adminPool.query('GRANT SELECT, INSERT, UPDATE, DELETE ON student_login_accounts TO attendance_auth')
   await adminPool.query('GRANT SELECT, INSERT, UPDATE, DELETE ON counselor_login_accounts TO attendance_auth')
   await adminPool.query('GRANT SELECT, INSERT, UPDATE, DELETE ON vice_principal_login_accounts TO attendance_auth')
+  await adminPool.query('GRANT SELECT, INSERT, UPDATE, DELETE ON activity_leader_login_accounts TO attendance_auth')
   await adminPool.query('GRANT SELECT, INSERT, UPDATE, DELETE ON pending_school_registrations TO attendance_auth')
 }
 
@@ -366,6 +376,7 @@ async function enforceTenantRowSecurity() {
     ['student_counselor_grade_assignments', 'school_id', 'student_counselor_grade_assignments_school_scope'],
     ['school_vice_principals', 'school_id', 'school_vice_principals_school_scope'],
     ['vice_principal_grade_assignments', 'school_id', 'vice_principal_grade_assignments_school_scope'],
+    ['school_activity_leaders', 'school_id', 'school_activity_leaders_school_scope'],
   ]
   for (const [table, schoolColumn, policy] of tables) {
     await adminPool.query(`ALTER TABLE ${table} ENABLE ROW LEVEL SECURITY`)
@@ -388,6 +399,7 @@ async function migrateDatabase() {
   await migrateStudentPortal(adminPool)
   await migrateCounselorPortal(adminPool)
   await migrateVicePrincipalPortal(adminPool)
+  await migrateActivityLeaderPortal(adminPool)
   await migrateBehavior(adminPool)
   await migrateStudentReferrals(adminPool)
   await migrateTeacherCooperation(adminPool)
@@ -550,6 +562,7 @@ const server = http.createServer(async (req, res) => {
     if (await handleBackupRestoreRequest({ req, res, url, user, body, json, backupPool, authPool, passwordMatches })) return
     if (await handleTeacherCooperationRequest({ req, res, url, user, body, json, scoped })) return
     if (await handleStudentReferralRequest({ req, res, url, user, body, json, scoped, todayRiyadh })) return
+    if (await handleActivityLeaderPortalRequest({ req, res, url, user, body, json, scoped, authPool, passwordHash })) return
     if (await handleTeacherPortalRequest({ req, res, url, user, pool, authPool, body, json, scoped, todayRiyadh, passwordHash })) return
     if (await handleStudentPortalRequest({ req, res, url, user, pool, authPool, body, json, scoped, todayRiyadh, passwordHash })) return
     if (await handleAdministratorPortalRequest({ req, res, url, user, body, json, scoped, todayRiyadh, authPool, passwordHash })) return
@@ -557,7 +570,7 @@ const server = http.createServer(async (req, res) => {
     if (await handleVicePrincipalPortalRequest({ req, res, url, user, body, json, scoped, authPool, passwordHash })) return
     if (await handleLessonFlowRequest({ req, res, url, user, body, json, scoped })) return
     // Teacher accounts are intentionally isolated from the administrative attendance APIs.
-    if (user.role === 'teacher' || user.role === 'administrator' || user.role === 'student') return json(res, 403, { error: 'portal_only' })
+    if (user.role === 'teacher' || user.role === 'administrator' || user.role === 'student' || user.role === 'activity_leader') return json(res, 403, { error: 'portal_only' })
     if (req.method === 'GET' && url.pathname === '/api/school') {
       const result = await scoped(user.school_id, async c => c.query('SELECT name,principal_name,academic_year,semester,preferences FROM schools WHERE id=$1', [user.school_id]))
       if (!result.rows[0]) return json(res, 404, { error: 'school_not_found' })
