@@ -147,6 +147,10 @@ export type LessonScanPreview = {
 }
 export type TeacherPortalScheduleItem = { assignmentId: string; classroomId: string; classroom: string; weekday: number; periodNumber: number; subject: string; startTime: string | null; endTime: string | null }
 export type TeacherPortalDashboard = { schoolName: string; teacher: { name: string; identityNumber: string }; date: string; weekday: number; schedule: TeacherPortalScheduleItem[]; weekSchedule: TeacherPortalScheduleItem[]; periodNumbers: number[] }
+export type TeacherEvidenceClass = { grade: string; classrooms: string[] }
+export type TeacherEvidenceImage = { slotNumber: number; fileUrl: string; updatedAt: string }
+export type TeacherEvidenceRecord = { id: string; slotNumber: number; grade: string; classroom: string; title: string; strategy: string; visitTeacherId: string | null; visitTeacherName: string; vicePrincipalId: string | null; vicePrincipalName: string; activityLeaderName: string; notes: string; createdAt: string; updatedAt: string; images: TeacherEvidenceImage[] }
+export type TeacherEvidenceOverview = { options: { classes: TeacherEvidenceClass[]; teachers: Array<{ teacherId: string; name: string }>; vicePrincipals: Array<{ vicePrincipalId: string; name: string }> }; records: TeacherEvidenceRecord[] }
 export type TeacherCooperationContributor = { teacherId: string; name: string; count: number; firstTime: string; lastTime: string }
 export type TeacherCooperationScan = { id: string; studentId: string; studentName: string; grade: string; classroom: string; periodNumber: number; status: 'present' | 'late'; time: string }
 export type TeacherCooperationStudent = { id: string; name: string; grade: string; classroom: string }
@@ -432,6 +436,8 @@ export const api = {
   cancelLessonIncident: (id: string, note = '') => request<{ ok: boolean }>(`/lesson-flow/incidents/${encodeURIComponent(id)}/cancel`, { method: 'POST', body: JSON.stringify({ note }) }),
   deleteLessonIncident: (id: string) => request<{ ok: boolean }>(`/lesson-flow/incidents/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   teacherDashboard: (date: string) => request<TeacherPortalDashboard>(`/teacher-portal/teacher/dashboard?date=${encodeURIComponent(date)}`),
+  teacherEvidence: () => request<TeacherEvidenceOverview>('/teacher-portal/teacher/evidence'),
+  saveTeacherEvidence: (payload: { slotNumber: number; grade: string; classroom: string; title: string; strategy: string; visitTeacherId: string; vicePrincipalId: string; activityLeaderName: string; notes: string; images: Array<{ slotNumber: number; image: string }>; deleteSlots: number[] }) => request<{ ok: boolean; record: TeacherEvidenceRecord }>('/teacher-portal/teacher/evidence', { method: 'POST', body: JSON.stringify(payload) }),
   teacherLesson: (classroomId: string, date: string, periodNumber: number, sheetType: TeacherSheetOpenType, assessmentPeriod: TeacherAssessmentPeriod = 'period1') => request<TeacherLesson>(`/teacher-portal/teacher/lesson?classroomId=${encodeURIComponent(classroomId)}&date=${encodeURIComponent(date)}&periodNumber=${periodNumber}&sheetType=${sheetType}&assessmentPeriod=${assessmentPeriod}`),
   saveTeacherLesson: (payload: { classroomId: string; date: string; periodNumber: number; sheetType: TeacherSheetOpenType; assessmentPeriod: TeacherAssessmentPeriod; students: Array<{ studentId: string; status: 'present' | 'absent' | 'late' | 'excused'; note: TeacherNote | ''; sheetValues: Record<string, string | number | boolean> }> }) => request<{ ok: boolean; saved: number }>('/teacher-portal/teacher/lesson', { method: 'PUT', body: JSON.stringify(payload) }),
   teacherReports: (filters: { date?: string; from?: string; to?: string; studentId?: string; note?: string } = {}) => request<{ reports: TeacherLessonReport[] }>(`/teacher-portal/teacher/reports?${new URLSearchParams(Object.entries(filters).filter(([, value]) => value).map(([key, value]) => [key, value || '']))}`),

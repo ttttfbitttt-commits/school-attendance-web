@@ -314,6 +314,80 @@ function temporaryPassword() {
   return Array.from(bytes, byte => alphabet[byte % alphabet.length]).join('')
 }
 
+const EVIDENCE_SLOT_COUNT = 4
+const EVIDENCE_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp'])
+const MAX_EVIDENCE_IMAGE_BYTES = 1_000_000
+
+function teacherEvidenceFileUrl(evidenceId, slotNumber) {
+  return `/api/teacher-portal/teacher/evidence/file?evidenceId=${encodeURIComponent(evidenceId)}&slotNumber=${encodeURIComponent(slotNumber)}`
+}
+
+function evidenceImage(value) {
+  const match = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(String(value || ''))
+  if (!match || !EVIDENCE_IMAGE_TYPES.has(match[1])) return null
+  const bytes = Buffer.byteLength(match[2], 'base64')
+  if (!bytes || bytes > MAX_EVIDENCE_IMAGE_BYTES) return null
+  return { data: String(value), type: match[1] }
+}
+
+function sendEvidenceImage(res, image) {
+  const match = /^data:(image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(String(image?.imageData || ''))
+  if (!match || !EVIDENCE_IMAGE_TYPES.has(match[1])) return false
+  const data = Buffer.from(match[2], 'base64')
+  res.writeHead(200, {
+    'content-type': match[1],
+    'content-length': data.length,
+    'content-disposition': 'inline',
+    'cache-control': 'private, no-store',
+    'x-content-type-options': 'nosniff',
+  })
+  res.end(data)
+  return true
+}
+
+async function teacherEvidenceOptions(client, schoolId, teacherId) {
+  const [classes, teachers, vicePrincipals] = await Promise.all([
+    client.query(`SELECT DISTINCT m.grade_value AS grade,m.classroom_value AS classroom
+      FROM lesson_schedule_assignments a
+      JOIN lesson_schedule_imports imported ON imported.id=a.import_id AND imported.school_id=a.school_id AND imported.is_active=true
+      JOIN teacher_classroom_student_maps m ON m.school_id=a.school_id AND m.classroom_id=a.classroom_id
+      WHERE a.school_id=$1 AND a.teacher_id=$2
+      ORDER BY m.grade_value,m.classroom_value`, [schoolId, teacherId]),
+    client.query(`SELECT id AS "teacherId",full_name AS name FROM lesson_teachers
+      WHERE school_id=$1 AND active=true AND id<>$2 ORDER BY full_name`, [schoolId, teacherId]),
+    client.query(`SELECT id AS "vicePrincipalId",full_name AS name FROM school_vice_principals
+      WHERE school_id=$1 AND active=true ORDER BY full_name`, [schoolId]),
+  ])
+  const grades = new Map()
+  for (const row of classes.rows) {
+    if (!grades.has(row.grade)) grades.set(row.grade, [])
+    grades.get(row.grade).push(row.classroom)
+  }
+  return {
+    classes: [...grades.entries()].map(([grade, classrooms]) => ({ grade, classrooms: [...new Set(classrooms)].sort(compareSchoolClassroom) })).sort((left, right) => compareSchoolGrade(left.grade, right.grade)),
+    teachers: teachers.rows,
+    vicePrincipals: vicePrincipals.rows,
+  }
+}
+
+async function teacherEvidenceRecords(client, schoolId, teacherId) {
+  const records = (await client.query(`SELECT id,slot_number AS "slotNumber",grade_value AS grade,classroom_value AS classroom,title,strategy,
+      visit_teacher_id AS "visitTeacherId",visit_teacher_name AS "visitTeacherName",vice_principal_id AS "vicePrincipalId",
+      vice_principal_name AS "vicePrincipalName",activity_leader_name AS "activityLeaderName",notes,
+      created_at AS "createdAt",updated_at AS "updatedAt"
+    FROM teacher_evidence_records WHERE school_id=$1 AND teacher_id=$2 ORDER BY slot_number`, [schoolId, teacherId])).rows
+  if (!records.length) return []
+  const images = (await client.query(`SELECT evidence_id AS "evidenceId",slot_number AS "slotNumber",updated_at AS "updatedAt"
+    FROM teacher_evidence_images WHERE school_id=$1 AND evidence_id=ANY($2::uuid[]) ORDER BY slot_number`, [schoolId, records.map(record => record.id)])).rows
+  const imagesByEvidence = new Map()
+  for (const image of images) {
+    const list = imagesByEvidence.get(image.evidenceId) || []
+    list.push({ slotNumber: Number(image.slotNumber), fileUrl: teacherEvidenceFileUrl(image.evidenceId, image.slotNumber), updatedAt: image.updatedAt })
+    imagesByEvidence.set(image.evidenceId, list)
+  }
+  return records.map(record => ({ ...record, slotNumber: Number(record.slotNumber), images: imagesByEvidence.get(record.id) || [] }))
+}
+
 function credentialEncryptionKey() {
   const raw = process.env.TEACHER_CREDENTIAL_ENCRYPTION_KEY || process.env.ALMADAR_ENCRYPTION_KEY || ''
   const key = Buffer.from(String(raw), 'base64url')
@@ -553,6 +627,38 @@ export async function migrateTeacherPortal(adminPool) {
     ALTER TABLE teacher_sheet_entries ADD COLUMN IF NOT EXISTS classroom_value text NOT NULL DEFAULT '';
     CREATE INDEX IF NOT EXISTS teacher_sheet_entries_lookup ON teacher_sheet_entries(school_id,teacher_id,assignment_id,entry_date);
     CREATE INDEX IF NOT EXISTS teacher_sheet_entries_history ON teacher_sheet_entries(school_id,teacher_id,classroom_id,entry_date,student_id);
+
+    CREATE TABLE IF NOT EXISTS teacher_evidence_records (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      school_id uuid NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+      teacher_id uuid NOT NULL REFERENCES lesson_teachers(id) ON DELETE CASCADE,
+      slot_number smallint NOT NULL CHECK (slot_number BETWEEN 1 AND ${EVIDENCE_SLOT_COUNT}),
+      grade_value text NOT NULL DEFAULT '',
+      classroom_value text NOT NULL DEFAULT '',
+      title text NOT NULL DEFAULT '',
+      strategy text NOT NULL DEFAULT '',
+      visit_teacher_id uuid REFERENCES lesson_teachers(id) ON DELETE SET NULL,
+      visit_teacher_name text NOT NULL DEFAULT '',
+      vice_principal_id uuid,
+      vice_principal_name text NOT NULL DEFAULT '',
+      activity_leader_name text NOT NULL DEFAULT '',
+      notes text NOT NULL DEFAULT '',
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now(),
+      UNIQUE (school_id,teacher_id,slot_number)
+    );
+    CREATE INDEX IF NOT EXISTS teacher_evidence_records_teacher ON teacher_evidence_records(school_id,teacher_id,slot_number);
+
+    CREATE TABLE IF NOT EXISTS teacher_evidence_images (
+      school_id uuid NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+      evidence_id uuid NOT NULL REFERENCES teacher_evidence_records(id) ON DELETE CASCADE,
+      slot_number smallint NOT NULL CHECK (slot_number BETWEEN 1 AND ${EVIDENCE_SLOT_COUNT}),
+      image_data text NOT NULL,
+      image_type text NOT NULL,
+      updated_at timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (school_id,evidence_id,slot_number)
+    );
+    CREATE INDEX IF NOT EXISTS teacher_evidence_images_record ON teacher_evidence_images(school_id,evidence_id,slot_number);
   `)
   await adminPool.query(`UPDATE teacher_sheet_entries e SET
       student_name=CASE WHEN e.student_name='' THEN s.name ELSE e.student_name END,
@@ -622,6 +728,98 @@ export async function handleTeacherPortalRequest(context) {
       WHERE school_id=$2 AND teacher_id=$3 AND user_id=$4 AND active=true`, [hash, user.school_id, user.teacher_id, user.user_id])
     await authPool.query('UPDATE users SET password_hash=$1 WHERE id=$2', [hash, user.user_id])
     json(res, 200, { ok: true })
+    return true
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/teacher-portal/teacher/evidence') {
+    if (!teacherOnly()) { json(res, 403, { error: 'forbidden' }); return true }
+    const result = await scoped(user.school_id, async client => ({
+      options: await teacherEvidenceOptions(client, user.school_id, user.teacher_id),
+      records: await teacherEvidenceRecords(client, user.school_id, user.teacher_id),
+    }))
+    json(res, 200, result)
+    return true
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/teacher-portal/teacher/evidence/file') {
+    if (!teacherOnly()) { json(res, 403, { error: 'forbidden' }); return true }
+    const evidenceId = String(url.searchParams.get('evidenceId') || '')
+    const slotNumber = Number(url.searchParams.get('slotNumber'))
+    if (!validId(evidenceId) || !Number.isInteger(slotNumber) || slotNumber < 1 || slotNumber > EVIDENCE_SLOT_COUNT) { json(res, 400, { error: 'invalid_evidence_file' }); return true }
+    const image = await scoped(user.school_id, async client => (await client.query(`SELECT image.image_data AS "imageData"
+      FROM teacher_evidence_images image
+      JOIN teacher_evidence_records evidence ON evidence.id=image.evidence_id AND evidence.school_id=image.school_id
+      WHERE image.school_id=$1 AND image.evidence_id=$2 AND image.slot_number=$3 AND evidence.teacher_id=$4`, [user.school_id, evidenceId, slotNumber, user.teacher_id])).rows[0] || null)
+    if (!image || !sendEvidenceImage(res, image)) { json(res, 404, { error: 'evidence_file_not_found' }); return true }
+    return true
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/teacher-portal/teacher/evidence') {
+    if (!teacherOnly()) { json(res, 403, { error: 'forbidden' }); return true }
+    const input = await body(req, 6_500_000)
+    const slotNumber = Number(input.slotNumber)
+    const grade = clean(input.grade, 160)
+    const classroom = clean(input.classroom, 160)
+    const title = clean(input.title, 240)
+    const strategy = clean(input.strategy, 1200)
+    const visitTeacherId = clean(input.visitTeacherId, 80)
+    const vicePrincipalId = clean(input.vicePrincipalId, 80)
+    const activityLeaderName = clean(input.activityLeaderName, 200)
+    const notes = clean(input.notes, 4000)
+    if (!Number.isInteger(slotNumber) || slotNumber < 1 || slotNumber > EVIDENCE_SLOT_COUNT || !grade || !classroom || !title) { json(res, 400, { error: 'invalid_evidence_record' }); return true }
+    const uploaded = new Map()
+    if (!Array.isArray(input.images) || input.images.length > EVIDENCE_SLOT_COUNT) { json(res, 400, { error: 'invalid_evidence_images' }); return true }
+    for (const item of input.images) {
+      const imageSlot = Number(item?.slotNumber)
+      const image = evidenceImage(item?.image)
+      if (!Number.isInteger(imageSlot) || imageSlot < 1 || imageSlot > EVIDENCE_SLOT_COUNT || !image || uploaded.has(imageSlot)) { json(res, 400, { error: 'invalid_evidence_image' }); return true }
+      uploaded.set(imageSlot, image)
+    }
+    const deleteSlots = [...new Set(Array.isArray(input.deleteSlots) ? input.deleteSlots.map(Number).filter(value => Number.isInteger(value) && value >= 1 && value <= EVIDENCE_SLOT_COUNT) : [])]
+    const result = await scoped(user.school_id, async client => {
+      const allowedClass = await client.query(`SELECT 1 FROM lesson_schedule_assignments assignment
+        JOIN lesson_schedule_imports imported ON imported.id=assignment.import_id AND imported.school_id=assignment.school_id AND imported.is_active=true
+        JOIN teacher_classroom_student_maps mapped ON mapped.school_id=assignment.school_id AND mapped.classroom_id=assignment.classroom_id
+        WHERE assignment.school_id=$1 AND assignment.teacher_id=$2 AND mapped.grade_value=$3 AND mapped.classroom_value=$4 LIMIT 1`, [user.school_id, user.teacher_id, grade, classroom])
+      if (!allowedClass.rowCount) return { error: 'evidence_class_not_assigned' }
+      let visitTeacherName = ''
+      if (visitTeacherId) {
+        if (!validId(visitTeacherId)) return { error: 'invalid_visit_teacher' }
+        const teacher = await client.query(`SELECT full_name AS name FROM lesson_teachers
+          WHERE school_id=$1 AND id=$2 AND active=true AND id<>$3`, [user.school_id, visitTeacherId, user.teacher_id])
+        if (!teacher.rowCount) return { error: 'invalid_visit_teacher' }
+        visitTeacherName = teacher.rows[0].name
+      }
+      let vicePrincipalName = ''
+      if (vicePrincipalId) {
+        if (!validId(vicePrincipalId)) return { error: 'invalid_vice_principal' }
+        const vicePrincipal = await client.query(`SELECT full_name AS name FROM school_vice_principals
+          WHERE school_id=$1 AND id=$2 AND active=true`, [user.school_id, vicePrincipalId])
+        if (!vicePrincipal.rowCount) return { error: 'invalid_vice_principal' }
+        vicePrincipalName = vicePrincipal.rows[0].name
+      }
+      const saved = await client.query(`INSERT INTO teacher_evidence_records(
+          school_id,teacher_id,slot_number,grade_value,classroom_value,title,strategy,visit_teacher_id,visit_teacher_name,
+          vice_principal_id,vice_principal_name,activity_leader_name,notes,updated_at)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,now())
+        ON CONFLICT(school_id,teacher_id,slot_number) DO UPDATE SET
+          grade_value=EXCLUDED.grade_value,classroom_value=EXCLUDED.classroom_value,title=EXCLUDED.title,strategy=EXCLUDED.strategy,
+          visit_teacher_id=EXCLUDED.visit_teacher_id,visit_teacher_name=EXCLUDED.visit_teacher_name,
+          vice_principal_id=EXCLUDED.vice_principal_id,vice_principal_name=EXCLUDED.vice_principal_name,
+          activity_leader_name=EXCLUDED.activity_leader_name,notes=EXCLUDED.notes,updated_at=now()
+        RETURNING id`, [user.school_id, user.teacher_id, slotNumber, grade, classroom, title, strategy,
+        visitTeacherId || null, visitTeacherName, vicePrincipalId || null, vicePrincipalName, activityLeaderName, notes])
+      const evidenceId = saved.rows[0].id
+      if (deleteSlots.length) await client.query(`DELETE FROM teacher_evidence_images
+        WHERE school_id=$1 AND evidence_id=$2 AND slot_number=ANY($3::smallint[])`, [user.school_id, evidenceId, deleteSlots])
+      for (const [imageSlot, image] of uploaded) await client.query(`INSERT INTO teacher_evidence_images(school_id,evidence_id,slot_number,image_data,image_type,updated_at)
+        VALUES($1,$2,$3,$4,$5,now())
+        ON CONFLICT(school_id,evidence_id,slot_number) DO UPDATE SET image_data=EXCLUDED.image_data,image_type=EXCLUDED.image_type,updated_at=now()`, [user.school_id, evidenceId, imageSlot, image.data, image.type])
+      const records = await teacherEvidenceRecords(client, user.school_id, user.teacher_id)
+      return { record: records.find(record => record.id === evidenceId) || null }
+    })
+    if (result.error || !result.record) { json(res, result.error === 'evidence_class_not_assigned' ? 403 : 400, { error: result.error || 'evidence_save_failed' }); return true }
+    json(res, 200, { ok: true, record: result.record })
     return true
   }
 

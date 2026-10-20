@@ -37,7 +37,7 @@ const SCHOOL_STORAGE_TABLES = [
   'students', 'attendance_logs', 'almadar_accounts', 'student_excuses', 'message_logs', 'absence_records', 'absence_corrections',
   'lesson_teachers', 'lesson_classrooms', 'lesson_schedule_imports', 'lesson_name_mappings', 'lesson_time_slots', 'lesson_schedule_assignments',
   'teacher_incidents', 'teacher_day_absences', 'teacher_classroom_student_maps', 'teacher_lesson_sessions', 'teacher_lesson_student_records',
-  'teacher_sheet_configs', 'teacher_sheet_entries', 'behavior_incidents', 'behavior_student_records', 'behavior_action_steps',
+  'teacher_sheet_configs', 'teacher_sheet_entries', 'teacher_evidence_records', 'teacher_evidence_images', 'behavior_incidents', 'behavior_student_records', 'behavior_action_steps',
   'behavior_score_movements', 'behavior_audit_logs', 'student_referrals', 'student_referral_events', 'teacher_attendance_contributions',
   'administrative_staff', 'student_counselors', 'student_counselor_grade_assignments', 'school_vice_principals', 'vice_principal_grade_assignments',
 ]
@@ -310,7 +310,7 @@ async function configureDatabaseRoles() {
     message_logs, absence_records, absence_corrections, lesson_teachers, lesson_classrooms, lesson_schedule_imports,
     lesson_name_mappings, lesson_time_slots, lesson_schedule_assignments, teacher_incidents, teacher_day_absences,
     teacher_classroom_student_maps, teacher_lesson_sessions, teacher_lesson_student_records,
-    teacher_sheet_configs, teacher_sheet_entries, behavior_incidents, behavior_student_records,
+    teacher_sheet_configs, teacher_sheet_entries, teacher_evidence_records, teacher_evidence_images, behavior_incidents, behavior_student_records,
     behavior_action_steps, behavior_score_movements, behavior_audit_logs, student_referrals, administrative_staff,
     student_referral_events, teacher_attendance_contributions, student_portfolio_files, student_counselors, student_counselor_grade_assignments,
     school_vice_principals, vice_principal_grade_assignments TO attendance_app`)
@@ -350,6 +350,8 @@ async function enforceTenantRowSecurity() {
     ['teacher_lesson_student_records', 'school_id', 'teacher_lesson_student_records_school_scope'],
     ['teacher_sheet_configs', 'school_id', 'teacher_sheet_configs_school_scope'],
     ['teacher_sheet_entries', 'school_id', 'teacher_sheet_entries_school_scope'],
+    ['teacher_evidence_records', 'school_id', 'teacher_evidence_records_school_scope'],
+    ['teacher_evidence_images', 'school_id', 'teacher_evidence_images_school_scope'],
     ['behavior_incidents', 'school_id', 'behavior_incidents_school_scope'],
     ['behavior_student_records', 'school_id', 'behavior_student_records_school_scope'],
     ['behavior_action_steps', 'school_id', 'behavior_action_steps_school_scope'],
