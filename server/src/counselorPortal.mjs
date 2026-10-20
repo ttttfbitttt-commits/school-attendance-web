@@ -40,16 +40,59 @@ export async function migrateCounselorPortal(adminPool) {
       FOREIGN KEY (school_id, counselor_id) REFERENCES student_counselors(school_id, id) ON DELETE CASCADE
     );
     CREATE INDEX IF NOT EXISTS counselor_login_accounts_identity ON counselor_login_accounts(identity_number) WHERE active=true;
+
+    CREATE TABLE IF NOT EXISTS student_counselor_grade_assignments (
+      school_id uuid NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+      counselor_id uuid NOT NULL,
+      grade text NOT NULL CHECK (btrim(grade) <> ''),
+      created_at timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (school_id, counselor_id, grade),
+      UNIQUE (school_id, grade),
+      FOREIGN KEY (school_id, counselor_id) REFERENCES student_counselors(school_id, id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS student_counselor_grade_assignments_counselor
+      ON student_counselor_grade_assignments(school_id, counselor_id, grade);
   `)
 }
 
+const selectedGrades = value => [...new Set((Array.isArray(value) ? value : []).map(grade => clean(grade, 120)).filter(Boolean))]
+
+async function gradeOptions(client, schoolId) {
+  const rows = (await client.query(`SELECT grade, counselor_id AS "counselorId" FROM student_counselor_grade_assignments WHERE school_id=$1
+    UNION
+    SELECT grade, NULL::uuid AS "counselorId" FROM students WHERE school_id=$1 AND active=true AND btrim(grade)<>''
+    ORDER BY grade`, [schoolId])).rows
+  return rows.reduce((options, row) => {
+    const current = options.get(row.grade)
+    if (!current || row.counselorId) options.set(row.grade, { grade: row.grade, counselorId: row.counselorId || null })
+    return options
+  }, new Map())
+}
+
+async function validateGrades(client, schoolId, grades, counselorId = '') {
+  if (!grades.length) return { error: 'counselor_grades_required' }
+  const valid = await client.query(`SELECT DISTINCT grade FROM students
+    WHERE school_id=$1 AND active=true AND grade=ANY($2::text[])`, [schoolId, grades])
+  if (valid.rowCount !== grades.length) return { error: 'invalid_counselor_grades' }
+  const used = await client.query(`SELECT grade FROM student_counselor_grade_assignments
+    WHERE school_id=$1 AND grade=ANY($2::text[])${counselorId ? ' AND counselor_id<>$3' : ''}`, counselorId ? [schoolId, grades, counselorId] : [schoolId, grades])
+  if (used.rowCount) return { error: 'counselor_grade_taken', grades: used.rows.map(row => row.grade) }
+  return { grades }
+}
+
 async function overview(user, scoped, authPool) {
-  const counselors = await scoped(user.school_id, async client => (await client.query(`SELECT id AS "counselorId",full_name AS name,identity_number AS "identityNumber",phone,active
-    FROM student_counselors WHERE school_id=$1 ORDER BY active DESC,full_name`, [user.school_id])).rows)
+  const data = await scoped(user.school_id, async client => {
+    const counselors = (await client.query(`SELECT c.id AS "counselorId",c.full_name AS name,c.identity_number AS "identityNumber",c.phone,c.active,
+      COALESCE(array_agg(g.grade ORDER BY g.grade) FILTER (WHERE g.grade IS NOT NULL),'{}'::text[]) AS "assignedGrades"
+      FROM student_counselors c LEFT JOIN student_counselor_grade_assignments g ON g.school_id=c.school_id AND g.counselor_id=c.id
+      WHERE c.school_id=$1 GROUP BY c.id ORDER BY c.active DESC,c.full_name`, [user.school_id])).rows
+    const grades = [...(await gradeOptions(client, user.school_id)).values()]
+    return { counselors, grades }
+  })
   const accounts = await authPool.query(`SELECT counselor_id AS "counselorId",active AS "accountActive",must_change_password AS "mustChangePassword"
     FROM counselor_login_accounts WHERE school_id=$1`, [user.school_id])
   const byCounselor = new Map(accounts.rows.map(row => [row.counselorId, row]))
-  return { defaultPassword: DEFAULT_COUNSELOR_PASSWORD, counselors: counselors.map(counselor => {
+  return { defaultPassword: DEFAULT_COUNSELOR_PASSWORD, grades: data.grades, counselors: data.counselors.map(counselor => {
     const account = byCounselor.get(counselor.counselorId)
     return { ...counselor, active: Boolean(counselor.active), accountCreated: Boolean(account), accountActive: Boolean(account?.accountActive), mustChangePassword: Boolean(account?.mustChangePassword) }
   }) }
@@ -73,12 +116,44 @@ export async function handleCounselorPortalRequest(context) {
     const name = clean(input.name, 180)
     const identity = identityNumber(input.identityNumber)
     const phone = clean(input.phone, 48)
+    const grades = selectedGrades(input.grades)
     if (!name || identity.length < 6 || !phone) { json(res, 400, { error: 'invalid_counselor' }); return true }
-    const result = await scoped(user.school_id, async client => client.query(`INSERT INTO student_counselors(school_id,full_name,identity_number,phone)
-      VALUES($1,$2,$3,$4) ON CONFLICT(school_id,identity_number) DO NOTHING
-      RETURNING id AS "counselorId",full_name AS name,identity_number AS "identityNumber",phone,active`, [user.school_id, name, identity, phone]))
-    if (!result.rowCount) { json(res, 409, { error: 'counselor_identity_exists' }); return true }
-    json(res, 201, { ok: true, counselor: { ...result.rows[0], active: true, accountCreated: false, accountActive: false, mustChangePassword: false } })
+    const result = await scoped(user.school_id, async client => {
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [user.school_id])
+      const checked = await validateGrades(client, user.school_id, grades)
+      if (checked.error) return checked
+      const inserted = await client.query(`INSERT INTO student_counselors(school_id,full_name,identity_number,phone)
+        VALUES($1,$2,$3,$4) ON CONFLICT(school_id,identity_number) DO NOTHING
+        RETURNING id AS "counselorId",full_name AS name,identity_number AS "identityNumber",phone,active`, [user.school_id, name, identity, phone])
+      if (!inserted.rowCount) return { error: 'counselor_identity_exists' }
+      await client.query(`INSERT INTO student_counselor_grade_assignments(school_id,counselor_id,grade)
+        SELECT $1,$2,grade FROM unnest($3::text[]) AS grade`, [user.school_id, inserted.rows[0].counselorId, grades])
+      return { counselor: { ...inserted.rows[0], assignedGrades: grades } }
+    })
+    if (result.error) { json(res, result.error === 'counselor_identity_exists' || result.error === 'counselor_grade_taken' ? 409 : 400, result); return true }
+    json(res, 201, { ok: true, counselor: { ...result.counselor, active: true, accountCreated: false, accountActive: false, mustChangePassword: false } })
+    return true
+  }
+
+  if (req.method === 'PUT' && url.pathname === '/api/counselor-portal/admin/counselors/grades') {
+    if (!adminOnly()) { json(res, 403, { error: 'forbidden' }); return true }
+    const input = await body(req)
+    const counselorId = String(input.counselorId || '')
+    const grades = selectedGrades(input.grades)
+    if (!validUuid(counselorId)) { json(res, 400, { error: 'invalid_counselor' }); return true }
+    const result = await scoped(user.school_id, async client => {
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [user.school_id])
+      const counselor = await client.query('SELECT 1 FROM student_counselors WHERE school_id=$1 AND id=$2', [user.school_id, counselorId])
+      if (!counselor.rowCount) return { error: 'counselor_not_found' }
+      const checked = await validateGrades(client, user.school_id, grades, counselorId)
+      if (checked.error) return checked
+      await client.query('DELETE FROM student_counselor_grade_assignments WHERE school_id=$1 AND counselor_id=$2', [user.school_id, counselorId])
+      await client.query(`INSERT INTO student_counselor_grade_assignments(school_id,counselor_id,grade)
+        SELECT $1,$2,grade FROM unnest($3::text[]) AS grade`, [user.school_id, counselorId, grades])
+      return { assignedGrades: grades }
+    })
+    if (result.error) { json(res, result.error === 'counselor_grade_taken' ? 409 : result.error === 'counselor_not_found' ? 404 : 400, result); return true }
+    json(res, 200, { ok: true, ...result })
     return true
   }
 
@@ -141,14 +216,19 @@ export async function handleCounselorPortalRequest(context) {
   if (req.method === 'GET' && url.pathname === '/api/counselor-portal/counselor/dashboard') {
     if (!counselorOnly()) { json(res, 403, { error: 'forbidden' }); return true }
     const dashboard = await scoped(user.school_id, async client => {
+      const grades = (await client.query(`SELECT grade FROM student_counselor_grade_assignments
+        WHERE school_id=$1 AND counselor_id=$2 ORDER BY grade`, [user.school_id, user.counselor_id])).rows.map(row => row.grade)
       const [school, counselor, students, teachers] = await Promise.all([
         client.query('SELECT name FROM schools WHERE id=$1', [user.school_id]),
         client.query(`SELECT full_name AS name,identity_number AS "identityNumber",phone FROM student_counselors WHERE school_id=$1 AND id=$2 AND active=true`, [user.school_id, user.counselor_id]),
-        client.query(`SELECT id,name,phone,grade,classroom FROM students WHERE school_id=$1 AND active=true ORDER BY grade,classroom,name`, [user.school_id]),
-        client.query(`SELECT id AS "teacherId",full_name AS name,identity_number AS "identityNumber",phone FROM lesson_teachers WHERE school_id=$1 AND active=true ORDER BY full_name`, [user.school_id]),
+        client.query(`SELECT id,name,phone,grade,classroom FROM students WHERE school_id=$1 AND active=true AND grade=ANY($2::text[]) ORDER BY grade,classroom,name`, [user.school_id, grades]),
+        client.query(`SELECT DISTINCT t.id AS "teacherId",t.full_name AS name,t.identity_number AS "identityNumber",t.phone
+          FROM lesson_teachers t JOIN lesson_schedule_assignments a ON a.school_id=t.school_id AND a.teacher_id=t.id
+          JOIN teacher_classroom_student_maps m ON m.school_id=a.school_id AND m.classroom_id=a.classroom_id
+          WHERE t.school_id=$1 AND t.active=true AND m.grade_value=ANY($2::text[]) ORDER BY name`, [user.school_id, grades]),
       ])
       if (!counselor.rowCount) return null
-      return { schoolName: school.rows[0]?.name || 'المدرسة', counselor: counselor.rows[0], students: students.rows, teachers: teachers.rows }
+      return { schoolName: school.rows[0]?.name || '', counselor: counselor.rows[0], assignedGrades: grades, students: students.rows, teachers: teachers.rows }
     })
     if (!dashboard) { json(res, 404, { error: 'counselor_not_found' }); return true }
     json(res, 200, { ...dashboard, mustChangePassword: Boolean(user.must_change_password) })

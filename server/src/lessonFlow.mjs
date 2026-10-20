@@ -1,4 +1,5 @@
 import crypto from 'node:crypto'
+import { studentGuideGrades } from './counselorScope.mjs'
 
 const RIYADH_TIME_ZONE = 'Asia/Riyadh'
 const VALID_WEEKDAYS = new Set([1, 2, 3, 4, 5, 6, 7])
@@ -323,6 +324,9 @@ export async function handleLessonFlowRequest(context) {
 
   if (!url.pathname.startsWith('/api/lesson-flow')) return false
   if (!adminOnly()) { json(res, 403, { error: 'forbidden' }); return true }
+  if (user.role === 'counselor' && url.pathname !== '/api/lesson-flow/incidents/report' && !/^\/api\/lesson-flow\/incidents\/[0-9a-f-]{36}\/school-response$/i.test(url.pathname)) {
+    json(res, 403, { error: 'forbidden' }); return true
+  }
 
   if (req.method === 'GET' && url.pathname === '/api/lesson-flow/overview') {
     const result = await scoped(user.school_id, client => overview(client, user.school_id))
@@ -373,12 +377,17 @@ export async function handleLessonFlowRequest(context) {
   }
 
   if (req.method === 'GET' && url.pathname === '/api/lesson-flow/incidents/report') {
-    const incidents = await scoped(user.school_id, async client => (await client.query(`SELECT i.id,i.teacher_name AS "teacherName",i.incident_date AS "incidentDate",
+    const incidents = await scoped(user.school_id, async client => {
+      const grades = await studentGuideGrades(client, user)
+      const values = grades === null ? [user.school_id] : [user.school_id, grades]
+      const scope = grades === null ? '' : ` AND EXISTS(SELECT 1 FROM teacher_classroom_student_maps m WHERE m.school_id=i.school_id AND m.classroom_id=i.classroom_id AND m.grade_value=ANY($2::text[]))`
+      return (await client.query(`SELECT i.id,i.teacher_name AS "teacherName",i.incident_date AS "incidentDate",
         i.weekday,i.classroom_id AS "classroomId",c.name AS classroom,i.period_number AS "periodNumber",
         i.school_response_status AS "schoolResponseStatus",i.school_response_updated_at AS "schoolResponseUpdatedAt"
       FROM teacher_incidents i JOIN lesson_classrooms c ON c.id=i.classroom_id
-      WHERE i.school_id=$1 AND i.status IN ('draft','confirmed')
-      ORDER BY i.incident_date DESC,i.detected_at DESC`, [user.school_id])).rows)
+      WHERE i.school_id=$1 AND i.status IN ('draft','confirmed')${scope}
+      ORDER BY i.incident_date DESC,i.detected_at DESC`, values)).rows
+    })
     json(res, 200, { incidents: incidents.map(incident => ({ ...incident, weekday: Number(incident.weekday) })) })
     return true
   }
@@ -387,9 +396,14 @@ export async function handleLessonFlowRequest(context) {
   if (req.method === 'PUT' && incidentResponse) {
     const status = (await body(req)).status
     if (status !== 'replied' && status !== 'not_replied' && status !== 'unrecorded') { json(res, 400, { error: 'invalid_school_response_status' }); return true }
-    const result = await scoped(user.school_id, async client => client.query(`UPDATE teacher_incidents
+    const result = await scoped(user.school_id, async client => {
+      const grades = await studentGuideGrades(client, user)
+      const values = [status, user.user_id, user.school_id, incidentResponse[1]]
+      const scope = grades === null ? '' : (values.push(grades), ` AND EXISTS(SELECT 1 FROM teacher_classroom_student_maps m WHERE m.school_id=teacher_incidents.school_id AND m.classroom_id=teacher_incidents.classroom_id AND m.grade_value=ANY($5::text[]))`)
+      return client.query(`UPDATE teacher_incidents
       SET school_response_status=$1,school_response_updated_by=$2,school_response_updated_at=now()
-      WHERE school_id=$3 AND id=$4 AND status IN ('draft','confirmed') RETURNING id`, [status, user.user_id, user.school_id, incidentResponse[1]]))
+      WHERE school_id=$3 AND id=$4 AND status IN ('draft','confirmed')${scope} RETURNING id`, values)
+    })
     if (!result.rowCount) { json(res, 404, { error: 'incident_not_found_or_locked' }); return true }
     json(res, 200, { ok: true })
     return true

@@ -3,6 +3,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { spawn } from 'node:child_process'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { gradeScope, studentGuideGrades } from './counselorScope.mjs'
 
 const NOTE_OPTIONS = new Set(['هروب من الحصة', 'نائم أثناء الدرس', 'لم يحل الواجب', 'عدم التفاعل والمشاركة', 'مشارك فعال', 'لم يحضر الكتاب أو أوراق العمل', 'استخدام الجوال أثناء الحصة', 'الحديث مع زملائه أثناء الدرس'])
 const ATTENDANCE_OPTIONS = new Set(['present', 'absent', 'late', 'excused'])
@@ -990,8 +991,11 @@ export async function handleTeacherPortalRequest(context) {
   if (req.method === 'GET' && url.pathname === '/api/teacher-portal/school/comprehensive-report/options') {
     if (!schoolReportAccess()) { json(res, 403, { error: 'forbidden' }); return true }
     const options = await scoped(user.school_id, async client => {
+      const guideGrades = await studentGuideGrades(client, user)
+      const values = [user.school_id]
+      const scope = gradeScope(values, guideGrades, 'grade')
       const rows = (await client.query(`SELECT DISTINCT btrim(grade) AS grade,btrim(classroom) AS classroom
-        FROM students WHERE school_id=$1 AND active=true AND btrim(grade) <> '' AND btrim(classroom) <> ''`, [user.school_id])).rows
+        FROM students WHERE school_id=$1 AND active=true AND btrim(grade) <> '' AND btrim(classroom) <> ''${scope}`, values)).rows
       return schoolClassOptions(rows)
     })
     json(res, 200, { grades: options })
@@ -1005,8 +1009,11 @@ export async function handleTeacherPortalRequest(context) {
     const classroom = clean(url.searchParams.get('classroom'), 160)
     if (!['absence', 'late'].includes(type) || !grade || !classroom) { json(res, 400, { error: 'invalid_comprehensive_report' }); return true }
     const result = await scoped(user.school_id, async client => {
+      const guideGrades = await studentGuideGrades(client, user)
+      const values = [user.school_id]
+      const scope = gradeScope(values, guideGrades, 'grade')
       const rosterRows = (await client.query(`SELECT id,name,phone,btrim(grade) AS grade,btrim(classroom) AS classroom FROM students
-        WHERE school_id=$1 AND active=true`, [user.school_id])).rows
+        WHERE school_id=$1 AND active=true${scope}`, values)).rows
       const rawGrades = [...new Set(rosterRows.map(student => clean(student.grade, 160)).filter(Boolean))]
       const roster = rosterRows.map(student => ({ ...student, grade: canonicalSchoolGrade(student.grade, rawGrades) }))
         .filter(student => student.grade === grade && student.classroom === classroom)

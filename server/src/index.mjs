@@ -13,6 +13,7 @@ import { handleAdministratorPortalRequest, migrateAdministratorPortal } from './
 import { handleBackupRestoreRequest, migrateBackupRestore } from './backupRestore.mjs'
 import { handleStudentPortalRequest, migrateStudentPortal } from './studentPortal.mjs'
 import { handleCounselorPortalRequest, migrateCounselorPortal } from './counselorPortal.mjs'
+import { guideCanAccessStudent, gradeScope, studentGuideGrades } from './counselorScope.mjs'
 
 const { Pool } = pg
 if (!process.env.DATABASE_URL || !process.env.RUNTIME_DATABASE_URL || !process.env.AUTH_DATABASE_URL) {
@@ -37,7 +38,7 @@ const SCHOOL_STORAGE_TABLES = [
   'teacher_incidents', 'teacher_day_absences', 'teacher_classroom_student_maps', 'teacher_lesson_sessions', 'teacher_lesson_student_records',
   'teacher_sheet_configs', 'teacher_sheet_entries', 'behavior_incidents', 'behavior_student_records', 'behavior_action_steps',
   'behavior_score_movements', 'behavior_audit_logs', 'student_referrals', 'student_referral_events', 'teacher_attendance_contributions',
-  'administrative_staff', 'student_counselors',
+  'administrative_staff', 'student_counselors', 'student_counselor_grade_assignments',
 ]
 
 function json(res, status, body) {
@@ -252,7 +253,7 @@ async function configureDatabaseRoles() {
     teacher_classroom_student_maps, teacher_lesson_sessions, teacher_lesson_student_records,
     teacher_sheet_configs, teacher_sheet_entries, behavior_incidents, behavior_student_records,
     behavior_action_steps, behavior_score_movements, behavior_audit_logs, student_referrals, administrative_staff,
-    student_referral_events, teacher_attendance_contributions, student_portfolio_files, student_counselors TO attendance_app`)
+    student_referral_events, teacher_attendance_contributions, student_portfolio_files, student_counselors, student_counselor_grade_assignments TO attendance_app`)
   await adminPool.query('GRANT SELECT ON behavior_catalog_rules TO attendance_app')
   await adminPool.query('GRANT USAGE, SELECT ON SEQUENCE behavior_audit_logs_id_seq TO attendance_app')
   await adminPool.query('GRANT USAGE, SELECT ON SEQUENCE student_referral_events_id_seq TO attendance_app')
@@ -299,6 +300,7 @@ async function enforceTenantRowSecurity() {
     ['administrative_staff', 'school_id', 'administrative_staff_school_scope'],
     ['student_portfolio_files', 'school_id', 'student_portfolio_files_school_scope'],
     ['student_counselors', 'school_id', 'student_counselors_school_scope'],
+    ['student_counselor_grade_assignments', 'school_id', 'student_counselor_grade_assignments_school_scope'],
   ]
   for (const [table, schoolColumn, policy] of tables) {
     await adminPool.query(`ALTER TABLE ${table} ENABLE ROW LEVEL SECURITY`)
@@ -475,7 +477,12 @@ const server = http.createServer(async (req, res) => {
       if (!['admin', 'staff'].includes(user.role)) return json(res, 403, { error: 'forbidden' })
       return json(res, 200, { usage: await schoolStorageUsage(user.school_id) })
     }
-    if (req.method === 'GET' && url.pathname === '/api/students') return json(res, 200, await scoped(user.school_id, async c => ({ students: (await c.query('SELECT id,name,phone,grade,classroom,sheet,row_number AS row FROM students WHERE school_id=$1 AND active=true ORDER BY name', [user.school_id])).rows })))
+    if (req.method === 'GET' && url.pathname === '/api/students') return json(res, 200, await scoped(user.school_id, async c => {
+      const grades = await studentGuideGrades(c, user)
+      const values = [user.school_id]
+      const scope = gradeScope(values, grades, 'grade')
+      return { students: (await c.query(`SELECT id,name,phone,grade,classroom,sheet,row_number AS row FROM students WHERE school_id=$1 AND active=true${scope} ORDER BY grade,classroom,name`, values)).rows }
+    }))
     if (req.method === 'POST' && url.pathname === '/api/students') {
       if (user.role !== 'admin') return json(res, 403, { error: 'forbidden' })
       const student = normalizedStudentInput(await body(req))
@@ -521,15 +528,22 @@ const server = http.createServer(async (req, res) => {
       })
       return json(res,200,{ok:true,students:normalizedStudents.length})
     }
-    if (req.method === 'GET' && url.pathname === '/api/attendance') return json(res,200, await scoped(user.school_id, async c => ({ records:(await c.query(`SELECT a.student_id AS "studentId", to_char(a.attendance_date,'YYYY-MM-DD') AS date, to_char(a.recorded_at AT TIME ZONE 'Asia/Riyadh','HH24:MI:SS') AS time, s.name,s.grade,s.classroom,s.phone,a.status FROM attendance_logs a JOIN students s ON s.school_id=a.school_id AND s.id=a.student_id WHERE a.school_id=$1 AND a.attendance_date=$2 ORDER BY a.recorded_at DESC`,[user.school_id,url.searchParams.get('date') || todayRiyadh()])).rows })))
+    if (req.method === 'GET' && url.pathname === '/api/attendance') return json(res,200, await scoped(user.school_id, async c => {
+      const grades = await studentGuideGrades(c, user)
+      const values = [user.school_id, url.searchParams.get('date') || todayRiyadh()]
+      const scope = gradeScope(values, grades, 's.grade')
+      return { records: (await c.query(`SELECT a.student_id AS "studentId", to_char(a.attendance_date,'YYYY-MM-DD') AS date, to_char(a.recorded_at AT TIME ZONE 'Asia/Riyadh','HH24:MI:SS') AS time, s.name,s.grade,s.classroom,s.phone,a.status FROM attendance_logs a JOIN students s ON s.school_id=a.school_id AND s.id=a.student_id WHERE a.school_id=$1 AND a.attendance_date=$2${scope} ORDER BY a.recorded_at DESC`, values)).rows }
+    }))
     if (req.method === 'PATCH' && url.pathname === '/api/attendance') {
       const { studentId, status } = await body(req)
       if (!studentId || !['present', 'late'].includes(status)) return json(res, 400, { error: 'invalid_attendance' })
       const attendanceDate = todayRiyadh()
-      const result = await scoped(user.school_id, async c => c.query(`UPDATE attendance_logs
-        SET status=$4,excuse_status=CASE WHEN $4='late' THEN 'unexcused' ELSE excuse_status END
-        WHERE school_id=$1 AND student_id=$2 AND attendance_date=$3
-        RETURNING status,to_char(recorded_at AT TIME ZONE 'Asia/Riyadh','HH24:MI:SS') AS time`, [user.school_id, String(studentId), attendanceDate, status]))
+      const result = await scoped(user.school_id, async c => {
+        if (!await guideCanAccessStudent(c, user, String(studentId))) return { rowCount: 0, rows: [] }
+        return c.query(`UPDATE attendance_logs SET status=$4,excuse_status=CASE WHEN $4='late' THEN 'unexcused' ELSE excuse_status END
+          WHERE school_id=$1 AND student_id=$2 AND attendance_date=$3
+          RETURNING status,to_char(recorded_at AT TIME ZONE 'Asia/Riyadh','HH24:MI:SS') AS time`, [user.school_id, String(studentId), attendanceDate, status])
+      })
       if (!result.rowCount) return json(res, 404, { error: 'attendance_not_found' })
       return json(res, 200, { ok: true, studentId: String(studentId), status: result.rows[0].status, time: result.rows[0].time })
     }
@@ -537,7 +551,8 @@ const server = http.createServer(async (req, res) => {
       const { studentId, status } = await body(req); if (!studentId || !['present','late'].includes(status)) return json(res,400,{error:'invalid_attendance'})
       const attendanceDate = todayRiyadh()
       const result = await scoped(user.school_id, async c => {
-        const student = await c.query('SELECT 1 FROM students WHERE school_id=$1 AND id=$2 AND active=true', [user.school_id, studentId])
+        const allowed = await guideCanAccessStudent(c, user, String(studentId))
+        const student = allowed ? await c.query('SELECT 1 FROM students WHERE school_id=$1 AND id=$2 AND active=true', [user.school_id, studentId]) : { rowCount: 0 }
         if (!student.rowCount) return null
         // Attendance always wins: a student marked present or late cannot remain absent for the same day.
         await c.query('DELETE FROM absence_records WHERE school_id=$1 AND student_id=$2 AND absence_date=$3', [user.school_id, studentId, attendanceDate])

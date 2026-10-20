@@ -1,4 +1,5 @@
 import crypto from 'node:crypto'
+import { gradeScope, guideCanAccessStudent, studentGuideGrades } from './counselorScope.mjs'
 
 const RIYADH_TIME_ZONE = 'Asia/Riyadh'
 
@@ -110,6 +111,15 @@ async function accountForSchool(schoolId, scoped) {
 const ABSENCE_STATUSES = new Set(['unexcused', 'excused', 'special'])
 const ATTENDANCE_STATUSES = new Set(['present', 'late'])
 
+async function guideStudentIds(client, user, ids = null) {
+  const grades = await studentGuideGrades(client, user)
+  if (grades === null) return ids
+  if (!grades.length) return []
+  const result = await client.query(`SELECT id FROM students WHERE school_id=$1 AND active=true AND grade=ANY($2::text[])${ids === null ? '' : ' AND id=ANY($3::text[])'}`,
+    ids === null ? [user.school_id, grades] : [user.school_id, grades, ids])
+  return result.rows.map(row => row.id)
+}
+
 function absenceStatus(value) {
   const status = String(value || '').trim()
   return ABSENCE_STATUSES.has(status) ? status : null
@@ -164,11 +174,12 @@ function selectedAbsenceDates(input, range) {
   return { dates }
 }
 
-async function absenceData({ schoolId, from, to, studentId, scoped }) {
+async function absenceData({ schoolId, from, to, studentId, scoped, user = null }) {
   return scoped(schoolId, async client => {
     const parameters = [schoolId, from, to]
     const studentFilter = studentId ? ` AND a.student_id=$4` : ''
     if (studentId) parameters.push(studentId)
+    const scope = gradeScope(parameters, await studentGuideGrades(client, user), 's.grade')
     const result = await client.query(`SELECT
         a.student_id AS "studentId", s.name,s.phone,s.grade,s.classroom,
         COUNT(*)::int AS "absenceDays",
@@ -177,7 +188,7 @@ async function absenceData({ schoolId, from, to, studentId, scoped }) {
         COUNT(*) FILTER (WHERE a.status='special')::int AS "specialDays"
       FROM absence_records a
       JOIN students s ON s.school_id=a.school_id AND s.id=a.student_id
-      WHERE a.school_id=$1 AND a.absence_date BETWEEN $2 AND $3${studentFilter}
+      WHERE a.school_id=$1 AND a.absence_date BETWEEN $2 AND $3${studentFilter}${scope}
       GROUP BY a.student_id,s.name,s.phone,s.grade,s.classroom
       ORDER BY "absenceDays" DESC,s.name`, parameters)
     const rows = result.rows.map(row => ({
@@ -370,10 +381,13 @@ export async function handleFeatureRequest(context) {
     const input = await body(req)
     const date = validDate(input.date)
     if (!date || date > todayRiyadh()) { json(res, 400, { error: 'invalid_absence_date' }); return true }
-    const deleted = await scoped(user.school_id, async client => client.query(
-      'DELETE FROM absence_records WHERE school_id=$1 AND absence_date=$2 RETURNING student_id',
-      [user.school_id, date],
-    ))
+    const deleted = await scoped(user.school_id, async client => {
+      const grades = await studentGuideGrades(client, user)
+      const values = [user.school_id, date]
+      const scope = gradeScope(values, grades, 's.grade')
+      return client.query(`DELETE FROM absence_records r USING students s
+        WHERE r.school_id=$1 AND r.absence_date=$2 AND s.school_id=r.school_id AND s.id=r.student_id${scope} RETURNING r.student_id`, values)
+    })
     json(res, 200, { ok: true, date, deleted: deleted.rowCount })
     return true
   }
@@ -390,6 +404,8 @@ export async function handleFeatureRequest(context) {
     if (!date || date > today) { json(res, 400, { error: 'invalid_absence_date' }); return true }
     if (day === 5 || day === 6) { json(res, 400, { error: 'not_school_day' }); return true }
     const result = await scoped(user.school_id, async client => {
+      const scopedIds = await guideStudentIds(client, user, studentIds)
+      const targetIds = scopedIds === null ? studentIds : scopedIds
       // A later present/late mark always wins over a previously confirmed absence.
       const removedForAttendance = await client.query(`DELETE FROM absence_records absence
         USING attendance_logs attendance
@@ -398,13 +414,14 @@ export async function handleFeatureRequest(context) {
           AND absence.absence_date=attendance.attendance_date
           AND absence.absence_date=$1
           AND absence.school_id=$2
-          AND attendance.status IN ('present','late')`, [date, user.school_id])
+          AND attendance.status IN ('present','late')
+          AND ($3::text[] IS NULL OR absence.student_id=ANY($3::text[]))`, [date, user.school_id, targetIds])
       const totalActive = await client.query(`SELECT COUNT(*)::int AS count FROM students
-        WHERE school_id=$1 AND active=true AND ($2::text[] IS NULL OR id=ANY($2::text[]))`, [user.school_id, studentIds])
+        WHERE school_id=$1 AND active=true AND ($2::text[] IS NULL OR id=ANY($2::text[]))`, [user.school_id, targetIds])
       const attended = await client.query(`SELECT COUNT(DISTINCT attendance.student_id)::int AS count
         FROM attendance_logs attendance JOIN students student ON student.school_id=attendance.school_id AND student.id=attendance.student_id
         WHERE student.school_id=$1 AND student.active=true AND attendance.school_id=$1 AND attendance.attendance_date=$2
-          AND attendance.status IN ('present','late') AND ($3::text[] IS NULL OR student.id=ANY($3::text[]))`, [user.school_id, date, studentIds])
+          AND attendance.status IN ('present','late') AND ($3::text[] IS NULL OR student.id=ANY($3::text[]))`, [user.school_id, date, targetIds])
       const created = await client.query(`INSERT INTO absence_records(school_id,student_id,absence_date,status,calculated_by,updated_by)
         SELECT $1,student.id,$2,'unexcused',$3,$3
         FROM students student
@@ -417,8 +434,8 @@ export async function handleFeatureRequest(context) {
               AND attendance.status IN ('present','late')
           )
         ON CONFLICT(school_id,student_id,absence_date) DO NOTHING
-        RETURNING student_id`, [user.school_id, date, user.user_id, studentIds])
-      const confirmed = await client.query('SELECT COUNT(*)::int AS count FROM absence_records WHERE school_id=$1 AND absence_date=$2', [user.school_id, date])
+        RETURNING student_id`, [user.school_id, date, user.user_id, targetIds])
+      const confirmed = await client.query('SELECT COUNT(*)::int AS count FROM absence_records WHERE school_id=$1 AND absence_date=$2 AND ($3::text[] IS NULL OR student_id=ANY($3::text[]))', [user.school_id, date, targetIds])
       return {
         totalActive: totalActive.rows[0].count,
         attended: attended.rows[0].count,
@@ -435,11 +452,16 @@ export async function handleFeatureRequest(context) {
   if (req.method === 'GET' && url.pathname === '/api/reports/missing-attendance') {
     const date = validDate(url.searchParams.get('date')) || todayRiyadh()
     if (date !== todayRiyadh()) { json(res, 400, { error: 'missing_attendance_is_today_only' }); return true }
-    const result = await scoped(user.school_id, async client => client.query(`SELECT COUNT(*)::int AS count
+    const result = await scoped(user.school_id, async client => {
+      const grades = await studentGuideGrades(client, user)
+      const values = [user.school_id, date]
+      const scope = gradeScope(values, grades, 's.grade')
+      return client.query(`SELECT COUNT(*)::int AS count
       FROM students s
       WHERE s.school_id=$1 AND s.active=true
         AND NOT EXISTS (SELECT 1 FROM attendance_logs a WHERE a.school_id=s.school_id AND a.student_id=s.id AND a.attendance_date=$2)
-        AND NOT EXISTS (SELECT 1 FROM absence_records r WHERE r.school_id=s.school_id AND r.student_id=s.id AND r.absence_date=$2)`, [user.school_id, date]))
+        AND NOT EXISTS (SELECT 1 FROM absence_records r WHERE r.school_id=s.school_id AND r.student_id=s.id AND r.absence_date=$2)${scope}`, values)
+    })
     json(res, 200, { date, count: result.rows[0].count })
     return true
   }
@@ -447,13 +469,18 @@ export async function handleFeatureRequest(context) {
   if (req.method === 'GET' && url.pathname === '/api/reports/pending-absences') {
     const date = validDate(url.searchParams.get('date')) || todayRiyadh()
     if (date !== todayRiyadh()) { json(res, 400, { error: 'pending_absences_are_today_only' }); return true }
-    const rows = await scoped(user.school_id, async client => (await client.query(`SELECT
+    const rows = await scoped(user.school_id, async client => {
+      const grades = await studentGuideGrades(client, user)
+      const values = [user.school_id, date]
+      const scope = gradeScope(values, grades, 's.grade')
+      return (await client.query(`SELECT
         s.id AS "studentId",s.name,s.grade,s.classroom,s.phone
       FROM students s
       WHERE s.school_id=$1 AND s.active=true
         AND NOT EXISTS (SELECT 1 FROM attendance_logs a WHERE a.school_id=s.school_id AND a.student_id=s.id AND a.attendance_date=$2)
         AND NOT EXISTS (SELECT 1 FROM absence_records r WHERE r.school_id=s.school_id AND r.student_id=s.id AND r.absence_date=$2)
-      ORDER BY s.grade,s.classroom,s.name`, [user.school_id, date])).rows)
+        ${scope} ORDER BY s.grade,s.classroom,s.name`, values)).rows
+    })
     json(res, 200, { date, rows })
     return true
   }
@@ -461,12 +488,17 @@ export async function handleFeatureRequest(context) {
   if (req.method === 'GET' && url.pathname === '/api/reports/daily-absences') {
     const date = validDate(url.searchParams.get('date')) || todayRiyadh()
     if (date > todayRiyadh()) { json(res, 400, { error: 'invalid_report_date' }); return true }
-    const rows = await scoped(user.school_id, async client => (await client.query(`SELECT
+    const rows = await scoped(user.school_id, async client => {
+      const grades = await studentGuideGrades(client, user)
+      const values = [user.school_id, date]
+      const scope = gradeScope(values, grades, 's.grade')
+      return (await client.query(`SELECT
         r.id,r.student_id AS "studentId",s.name,s.grade,s.classroom,s.phone,r.status,r.note,
         to_char(r.absence_date,'YYYY-MM-DD') AS date
       FROM absence_records r JOIN students s ON s.school_id=r.school_id AND s.id=r.student_id
       WHERE r.school_id=$1 AND r.absence_date=$2
-      ORDER BY s.name`, [user.school_id, date])).rows)
+        ${scope} ORDER BY s.name`, values)).rows
+    })
     json(res, 200, { date, rows })
     return true
   }
@@ -478,13 +510,18 @@ export async function handleFeatureRequest(context) {
   if (req.method === 'GET' && url.pathname === '/api/reports/absence-log') {
     const date = validDate(url.searchParams.get('date')) || todayRiyadh()
     if (date > todayRiyadh()) { json(res, 400, { error: 'invalid_report_date' }); return true }
-    const rows = await scoped(user.school_id, async client => (await client.query(`WITH approved AS (
+    const rows = await scoped(user.school_id, async client => {
+      const grades = await studentGuideGrades(client, user)
+      const values = [user.school_id, date]
+      const approvedScope = gradeScope(values, grades, 's.grade')
+      const pendingScope = grades === null ? '' : ` AND s.grade=ANY($3::text[])`
+      return (await client.query(`WITH approved AS (
         SELECT r.id,r.student_id AS "studentId",s.name,s.grade,s.classroom,s.phone,
           r.status,r.note,to_char(r.absence_date,'YYYY-MM-DD') AS date,
           'approved'::text AS "recordState"
         FROM absence_records r
         JOIN students s ON s.school_id=r.school_id AND s.id=r.student_id
-        WHERE r.school_id=$1 AND r.absence_date=$2
+        WHERE r.school_id=$1 AND r.absence_date=$2${approvedScope}
       ), pending AS (
         SELECT NULL::uuid AS id,s.id AS "studentId",s.name,s.grade,s.classroom,s.phone,
           'unexcused'::text AS status,''::text AS note,$2::text AS date,
@@ -494,7 +531,7 @@ export async function handleFeatureRequest(context) {
           AND NOT EXISTS (
             SELECT 1 FROM attendance_logs a
             WHERE a.school_id=s.school_id AND a.student_id=s.id AND a.attendance_date=$2
-          )
+          )${pendingScope}
           AND NOT EXISTS (
             SELECT 1 FROM absence_records r
             WHERE r.school_id=s.school_id AND r.student_id=s.id AND r.absence_date=$2
@@ -503,7 +540,8 @@ export async function handleFeatureRequest(context) {
       SELECT * FROM approved
       UNION ALL
       SELECT * FROM pending
-      ORDER BY grade,classroom,name`, [user.school_id, date])).rows)
+      ORDER BY grade,classroom,name`, values)).rows
+    })
     json(res, 200, { date, rows })
     return true
   }
@@ -520,6 +558,7 @@ export async function handleFeatureRequest(context) {
     const time = validTime(input.time || '08:00')
     if (!date || date > todayRiyadh() || !studentIds || !status || !time) { json(res, 400, { error: 'invalid_absence_log_attendance' }); return true }
     const result = await scoped(user.school_id, async client => {
+      const allowedIds = await guideStudentIds(client, user, studentIds)
       const saved = await client.query(`WITH active AS (
           SELECT id FROM students
           WHERE school_id=$1 AND active=true AND id=ANY($2::text[])
@@ -536,7 +575,7 @@ export async function handleFeatureRequest(context) {
               recorded_by=EXCLUDED.recorded_by,
               status=EXCLUDED.status,
               excuse_status=EXCLUDED.excuse_status
-        RETURNING student_id`, [user.school_id, studentIds, date, time, RIYADH_TIME_ZONE, user.user_id, status])
+        RETURNING student_id`, [user.school_id, allowedIds, date, time, RIYADH_TIME_ZONE, user.user_id, status])
       return { saved: saved.rows.map(row => row.student_id) }
     })
     json(res, 200, { ok: true, date, status, time, updated: result.saved.length, studentIds: result.saved })
@@ -546,12 +585,17 @@ export async function handleFeatureRequest(context) {
   if (req.method === 'GET' && url.pathname === '/api/reports/daily-lates') {
     const date = validDate(url.searchParams.get('date')) || todayRiyadh()
     if (date > todayRiyadh()) { json(res, 400, { error: 'invalid_report_date' }); return true }
-    const rows = await scoped(user.school_id, async client => (await client.query(`SELECT
+    const rows = await scoped(user.school_id, async client => {
+      const grades = await studentGuideGrades(client, user)
+      const values = [user.school_id, date, RIYADH_TIME_ZONE]
+      const scope = gradeScope(values, grades, 's.grade')
+      return (await client.query(`SELECT
         a.id,a.student_id AS "studentId",s.name,s.grade,s.classroom,s.phone,a.excuse_status AS status,
         to_char(a.attendance_date,'YYYY-MM-DD') AS date,to_char(a.recorded_at AT TIME ZONE $3,'HH24:MI') AS time
       FROM attendance_logs a JOIN students s ON s.school_id=a.school_id AND s.id=a.student_id
-      WHERE a.school_id=$1 AND a.attendance_date=$2 AND a.status='late'
-      ORDER BY a.recorded_at,s.name`, [user.school_id, date, RIYADH_TIME_ZONE])).rows)
+      WHERE a.school_id=$1 AND a.attendance_date=$2 AND a.status='late'${scope}
+      ORDER BY a.recorded_at,s.name`, values)).rows
+    })
     json(res, 200, { date, rows })
     return true
   }
@@ -563,10 +607,13 @@ export async function handleFeatureRequest(context) {
     const studentIds = selectedStudentIds(input, 5000)
     const status = ['unexcused', 'excused'].includes(String(input.status)) ? String(input.status) : null
     if (!date || date > todayRiyadh() || !studentIds || !status) { json(res, 400, { error: 'invalid_late_status_update' }); return true }
-    const updated = await scoped(user.school_id, async client => (await client.query(`UPDATE attendance_logs
+    const updated = await scoped(user.school_id, async client => {
+      const allowedIds = await guideStudentIds(client, user, studentIds)
+      return (await client.query(`UPDATE attendance_logs
       SET excuse_status=$1
       WHERE school_id=$2 AND attendance_date=$3 AND status='late' AND student_id=ANY($4::text[])
-      RETURNING student_id`, [status, user.school_id, date, studentIds])).rowCount)
+      RETURNING student_id`, [status, user.school_id, date, allowedIds])).rowCount
+    })
     json(res, 200, { ok: true, updated })
     return true
   }
@@ -580,10 +627,13 @@ export async function handleFeatureRequest(context) {
     const date = validDate(input.date)
     const studentIds = selectedStudentIds(input, 5000)
     if (!date || date > todayRiyadh() || !studentIds) { json(res, 400, { error: 'invalid_late_attendance_update' }); return true }
-    const updated = await scoped(user.school_id, async client => (await client.query(`UPDATE attendance_logs
+    const updated = await scoped(user.school_id, async client => {
+      const allowedIds = await guideStudentIds(client, user, studentIds)
+      return (await client.query(`UPDATE attendance_logs
       SET status='present', excuse_status='unexcused'
       WHERE school_id=$1 AND attendance_date=$2 AND status='late' AND student_id=ANY($3::text[])
-      RETURNING student_id`, [user.school_id, date, studentIds])).rowCount)
+      RETURNING student_id`, [user.school_id, date, allowedIds])).rowCount
+    })
     json(res, 200, { ok: true, date, updated })
     return true
   }
@@ -592,16 +642,21 @@ export async function handleFeatureRequest(context) {
     const isLate = url.pathname.endsWith('late-summary')
     const rawIds = String(url.searchParams.get('studentIds') || '').split(',').map(value => value.trim()).filter(Boolean)
     const studentIds = [...new Set(rawIds)].slice(0, 100)
-    const rows = await scoped(user.school_id, async client => (await client.query(`SELECT
+    const rows = await scoped(user.school_id, async client => {
+      const guideGrades = await studentGuideGrades(client, user)
+      const values = studentIds.length ? [user.school_id, studentIds] : [user.school_id]
+      const scope = gradeScope(values, guideGrades, 's.grade')
+      return (await client.query(`SELECT
         a.student_id AS "studentId",s.name,s.grade,s.classroom,s.phone,
         COUNT(*)::int AS "days",
         COUNT(*) FILTER (WHERE ${isLate ? 'a.excuse_status' : 'a.status'}='excused')::int AS "excusedDays",
         COUNT(*) FILTER (WHERE ${isLate ? 'a.excuse_status' : 'a.status'}='unexcused')::int AS "unexcusedDays"
       FROM ${isLate ? 'attendance_logs' : 'absence_records'} a
       JOIN students s ON s.school_id=a.school_id AND s.id=a.student_id
-      WHERE a.school_id=$1 ${isLate ? "AND a.status='late'" : ''} ${studentIds.length ? 'AND a.student_id=ANY($2::text[])' : ''}
+      WHERE a.school_id=$1 ${isLate ? "AND a.status='late'" : ''} ${studentIds.length ? 'AND a.student_id=ANY($2::text[])' : ''}${scope}
       GROUP BY a.student_id,s.name,s.grade,s.classroom,s.phone
-      ORDER BY "days" DESC,s.name`, studentIds.length ? [user.school_id, studentIds] : [user.school_id])).rows)
+      ORDER BY "days" DESC,s.name`, values)).rows
+    })
     json(res, 200, { type: isLate ? 'late' : 'absence', rows })
     return true
   }
@@ -611,6 +666,7 @@ export async function handleFeatureRequest(context) {
     const studentId = String(url.searchParams.get('studentId') || '').trim()
     if (!type || !studentId) { json(res, 400, { error: 'invalid_student_history' }); return true }
     const result = await scoped(user.school_id, async client => {
+      if (!await guideCanAccessStudent(client, user, studentId)) return null
       const student = await client.query('SELECT id AS "studentId",name,grade,classroom,phone FROM students WHERE school_id=$1 AND id=$2', [user.school_id, studentId])
       if (!student.rowCount) return null
       const source = type === 'late' ? `SELECT to_char(attendance_date,'YYYY-MM-DD') AS date,excuse_status AS status,to_char(recorded_at AT TIME ZONE $3,'HH24:MI') AS time FROM attendance_logs WHERE school_id=$1 AND student_id=$2 AND status='late' ORDER BY attendance_date DESC` : `SELECT to_char(absence_date,'YYYY-MM-DD') AS date,status,''::text AS time FROM absence_records WHERE school_id=$1 AND student_id=$2 ORDER BY absence_date DESC`
@@ -629,6 +685,7 @@ export async function handleFeatureRequest(context) {
     if (!range) { json(res, 400, { error: 'invalid_report_range' }); return true }
     if (!studentId) { json(res, 400, { error: 'student_required' }); return true }
     const result = await scoped(user.school_id, async client => {
+      if (!await guideCanAccessStudent(client, user, studentId)) return null
       const student = await client.query(`SELECT id AS "studentId",name,phone,grade,classroom
         FROM students WHERE school_id=$1 AND id=$2`, [user.school_id, studentId])
       if (!student.rowCount) return null
@@ -654,12 +711,13 @@ export async function handleFeatureRequest(context) {
     const note = hasNote ? String(input.note || '').trim().slice(0, 1000) : null
     if (!range || !studentIds || !status || (hasNote && String(input.note || '').trim().length > 1000)) { json(res, 400, { error: 'invalid_absence_status_update' }); return true }
     const result = await scoped(user.school_id, async client => {
+      const allowedIds = await guideStudentIds(client, user, studentIds)
       const updated = await client.query(`UPDATE absence_records
         SET status=$1,
             note=CASE WHEN $1='unexcused' THEN '' WHEN $2::text IS NULL THEN note ELSE $2 END,
             updated_at=now(),updated_by=$3
         WHERE school_id=$4 AND student_id=ANY($5::text[]) AND absence_date BETWEEN $6 AND $7
-        RETURNING student_id`, [status, note, user.user_id, user.school_id, studentIds, range.from, range.to])
+        RETURNING student_id`, [status, note, user.user_id, user.school_id, allowedIds, range.from, range.to])
       return { updatedDays: updated.rowCount, affectedStudents: new Set(updated.rows.map(row => row.student_id)).size }
     })
     if (!result.updatedDays) { json(res, 404, { error: 'absence_records_not_found' }); return true }
@@ -678,6 +736,7 @@ export async function handleFeatureRequest(context) {
     if (!range || !studentIds || dateSelection.invalid || !time || !status) { json(res, 400, { error: 'invalid_absence_correction' }); return true }
     const correctionScope = studentIds.length === 1 && range.from === range.to && (!dateSelection.dates || dateSelection.dates.length === 1) ? 'single' : 'bulk'
     const result = await scoped(user.school_id, async client => {
+      const allowedIds = await guideStudentIds(client, user, studentIds)
       const corrected = await client.query(`WITH removed AS (
           DELETE FROM absence_records
           WHERE school_id=$1 AND absence_date BETWEEN $2 AND $3
@@ -695,7 +754,7 @@ export async function handleFeatureRequest(context) {
           SELECT school_id,student_id,absence_date,status,note,$9,$6::time,$10,$8 FROM removed
         )
         SELECT COUNT(*)::int AS "correctedDays",COUNT(DISTINCT student_id)::int AS "affectedStudents" FROM removed`,
-      [user.school_id, range.from, range.to, studentIds, dateSelection.dates, time, RIYADH_TIME_ZONE, user.user_id, status, correctionScope])
+      [user.school_id, range.from, range.to, allowedIds, dateSelection.dates, time, RIYADH_TIME_ZONE, user.user_id, status, correctionScope])
       return corrected.rows[0]
     })
     if (!result.correctedDays) { json(res, 404, { error: 'absence_records_not_found' }); return true }
@@ -709,7 +768,8 @@ export async function handleFeatureRequest(context) {
     if (!studentIds.length || !['present', 'late'].includes(input.status)) { json(res, 400, { error: 'invalid_attendance' }); return true }
     const attendanceDate = todayRiyadh()
     const result = await scoped(user.school_id, async client => {
-      const active = (await client.query('SELECT id FROM students WHERE school_id=$1 AND active=true AND id=ANY($2::text[])', [user.school_id, studentIds])).rows.map(row => row.id)
+      const allowedIds = await guideStudentIds(client, user, studentIds)
+      const active = (await client.query('SELECT id FROM students WHERE school_id=$1 AND active=true AND id=ANY($2::text[])', [user.school_id, allowedIds])).rows.map(row => row.id)
       const removedAbsences = active.length
         ? await client.query(`DELETE FROM absence_records WHERE school_id=$1 AND absence_date=$2 AND student_id=ANY($3::text[])`, [user.school_id, attendanceDate, active])
         : { rowCount: 0 }
@@ -850,7 +910,7 @@ export async function handleFeatureRequest(context) {
   if (req.method === 'GET' && url.pathname === '/api/reports/absences') {
     const range = reportRange(url, todayRiyadh)
     if (!range) { json(res, 400, { error: 'invalid_report_range' }); return true }
-    const report = await absenceData({ schoolId: user.school_id, from: range.from, to: range.to, studentId: String(url.searchParams.get('studentId') || '').trim(), scoped })
+    const report = await absenceData({ schoolId: user.school_id, from: range.from, to: range.to, studentId: String(url.searchParams.get('studentId') || '').trim(), scoped, user })
     json(res, 200, report)
     return true
   }
@@ -860,6 +920,7 @@ export async function handleFeatureRequest(context) {
     const studentId = String(url.searchParams.get('studentId') || '').trim()
     if (!range || !studentId) { json(res, 400, { error: 'invalid_student_report_range' }); return true }
     const result = await scoped(user.school_id, async client => {
+      if (!await guideCanAccessStudent(client, user, studentId)) return null
       const student = await client.query(`SELECT id AS "studentId",name,grade,classroom,phone
         FROM students WHERE school_id=$1 AND id=$2`, [user.school_id, studentId])
       if (!student.rowCount) return null
@@ -919,18 +980,31 @@ export async function handleFeatureRequest(context) {
     const messageType = ['late', 'absence', 'general', 'teacher', 'test'].includes(requestedType) ? requestedType : ''
     const requestedLimit = Number.parseInt(String(url.searchParams.get('limit') || ''), 10)
     const limit = Number.isInteger(requestedLimit) ? Math.max(1, Math.min(requestedLimit, 5000)) : 5000
-    const params = messageType ? [user.school_id, messageType] : [user.school_id]
-    const result = await scoped(user.school_id, async client => client.query(`SELECT id,student_id AS "studentId",student_name AS "studentName",recipient,sender_name AS "senderName",message_type AS type,message_body AS body,status,error_detail AS "errorDetail",created_at AS "createdAt"
-      FROM message_logs WHERE school_id=$1${messageType ? ' AND message_type=$2' : ''} ORDER BY created_at DESC LIMIT $${params.length + 1}`, [...params, limit]))
+    const result = await scoped(user.school_id, async client => {
+      const params = messageType ? [user.school_id, messageType] : [user.school_id]
+      const guideGrades = await studentGuideGrades(client, user)
+      let scope = ''
+      if (guideGrades !== null) {
+        params.push(guideGrades)
+        scope = ` AND message_type<>'teacher' AND EXISTS(SELECT 1 FROM students s WHERE s.school_id=message_logs.school_id AND s.id=message_logs.student_id AND s.grade=ANY($${params.length}::text[]))`
+      }
+      params.push(limit)
+      return client.query(`SELECT id,student_id AS "studentId",student_name AS "studentName",recipient,sender_name AS "senderName",message_type AS type,message_body AS body,status,error_detail AS "errorDetail",created_at AS "createdAt"
+        FROM message_logs WHERE school_id=$1${messageType ? ' AND message_type=$2' : ''}${scope} ORDER BY created_at DESC LIMIT $${params.length}`, params)
+    })
     json(res, 200, { messages: result.rows })
     return true
   }
 
   if (req.method === 'GET' && url.pathname === '/api/messages/teachers') {
     if (!adminOnly()) { json(res, 403, { error: 'forbidden' }); return true }
-    const result = await scoped(user.school_id, async client => client.query(`SELECT id,full_name AS name,
-      identity_number AS "identityNumber",phone FROM lesson_teachers
-      WHERE school_id=$1 AND active=true ORDER BY full_name`, [user.school_id]))
+    const result = await scoped(user.school_id, async client => {
+      const guideGrades = await studentGuideGrades(client, user)
+      const values = guideGrades === null ? [user.school_id] : [user.school_id, guideGrades]
+      const scope = guideGrades === null ? '' : ` AND EXISTS(SELECT 1 FROM lesson_schedule_assignments a JOIN teacher_classroom_student_maps m ON m.school_id=a.school_id AND m.classroom_id=a.classroom_id WHERE a.school_id=lesson_teachers.school_id AND a.teacher_id=lesson_teachers.id AND m.grade_value=ANY($2::text[]))`
+      return client.query(`SELECT id,full_name AS name,identity_number AS "identityNumber",phone FROM lesson_teachers
+        WHERE school_id=$1 AND active=true${scope} ORDER BY full_name`, values)
+    })
     json(res, 200, { teachers: result.rows })
     return true
   }
@@ -948,9 +1022,10 @@ export async function handleFeatureRequest(context) {
     if (!account) { json(res, 400, { error: 'almadar_not_configured' }); return true }
     const school = await scoped(user.school_id, async client => client.query('SELECT name FROM schools WHERE id=$1', [user.school_id]))
     const result = await scoped(user.school_id, async client => {
+      const guideGrades = await studentGuideGrades(client, user)
       if (type === 'teacher') {
         const teachers = (await client.query(`SELECT id,full_name AS name,phone FROM lesson_teachers
-          WHERE school_id=$1 AND active=true AND id=ANY($2::uuid[]) ORDER BY full_name`, [user.school_id, teacherIds])).rows
+          WHERE school_id=$1 AND active=true AND id=ANY($2::uuid[])${guideGrades === null ? '' : ' AND EXISTS(SELECT 1 FROM lesson_schedule_assignments a JOIN teacher_classroom_student_maps m ON m.school_id=a.school_id AND m.classroom_id=a.classroom_id WHERE a.school_id=lesson_teachers.school_id AND a.teacher_id=lesson_teachers.id AND m.grade_value=ANY($3::text[]))'} ORDER BY full_name`, guideGrades === null ? [user.school_id, teacherIds] : [user.school_id, teacherIds, guideGrades])).rows
         const apiKey = decrypt(account.api_key_encrypted)
         const rows = []
         for (const teacher of teachers) {
@@ -964,8 +1039,9 @@ export async function handleFeatureRequest(context) {
         }
         return rows
       }
-      const students = (await client.query('SELECT id,name,phone,grade,classroom FROM students WHERE school_id=$1 AND active=true AND id=ANY($2::text[]) ORDER BY name', [user.school_id, studentIds])).rows
-      const late = type === 'late' ? (await client.query(`SELECT student_id,to_char(recorded_at AT TIME ZONE $3,'HH24:MI:SS') AS time FROM attendance_logs WHERE school_id=$1 AND attendance_date=$2 AND status='late' AND student_id=ANY($4::text[])`, [user.school_id, todayRiyadh(), RIYADH_TIME_ZONE, studentIds])).rows : []
+      const allowedStudentIds = await guideStudentIds(client, user, studentIds)
+      const students = (await client.query('SELECT id,name,phone,grade,classroom FROM students WHERE school_id=$1 AND active=true AND id=ANY($2::text[]) ORDER BY name', [user.school_id, allowedStudentIds])).rows
+      const late = type === 'late' ? (await client.query(`SELECT student_id,to_char(recorded_at AT TIME ZONE $3,'HH24:MI:SS') AS time FROM attendance_logs WHERE school_id=$1 AND attendance_date=$2 AND status='late' AND student_id=ANY($4::text[])`, [user.school_id, todayRiyadh(), RIYADH_TIME_ZONE, allowedStudentIds])).rows : []
       const confirmedAbsences = type === 'absence' ? (await client.query(`SELECT absence.student_id
         FROM absence_records absence
         WHERE absence.school_id=$1 AND absence.absence_date=$2 AND absence.student_id=ANY($3::text[])
@@ -973,7 +1049,7 @@ export async function handleFeatureRequest(context) {
             SELECT 1 FROM attendance_logs attendance
             WHERE attendance.school_id=absence.school_id AND attendance.student_id=absence.student_id
               AND attendance.attendance_date=absence.absence_date AND attendance.status IN ('present','late')
-          )`, [user.school_id, todayRiyadh(), studentIds])).rows : []
+          )`, [user.school_id, todayRiyadh(), allowedStudentIds])).rows : []
       const lateTimes = new Map(late.map(row => [row.student_id, row.time]))
       const confirmedAbsenceIds = new Set(confirmedAbsences.map(row => row.student_id))
       const apiKey = decrypt(account.api_key_encrypted)

@@ -1,4 +1,5 @@
 import crypto from 'node:crypto'
+import { studentGuideGrades } from './counselorScope.mjs'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const DATE = /^\d{4}-\d{2}-\d{2}$/
@@ -104,7 +105,11 @@ export async function handleStudentReferralRequest({ req, res, url, user, body, 
       const where = ["r.school_id=$1", "r.status<>'cancelled'"]
       const add = value => { values.push(value); return `$${values.length}` }
       if (isTeacher) where.push(`r.teacher_id=${add(user.teacher_id)}`)
-      if (isCounselor) where.push("r.referred_to_counselor=true")
+      if (isCounselor) {
+        const grades = await studentGuideGrades(client, user)
+        values.push(grades)
+        where.push("r.referred_to_counselor=true", `r.grade_value=ANY($${values.length}::text[])`)
+      }
       if (filters.status && STATUSES.has(filters.status)) where.push(`r.status=${add(filters.status)}`)
       if (DATE.test(filters.from || '')) where.push(`r.referral_date>=${add(filters.from)}`)
       if (DATE.test(filters.to || '')) where.push(`r.referral_date<=${add(filters.to)}`)
@@ -219,10 +224,12 @@ export async function handleStudentReferralRequest({ req, res, url, user, body, 
         const counselor = (await client.query(`SELECT full_name FROM student_counselors
           WHERE school_id=$1 AND id=$2 AND active=true`, [user.school_id, user.counselor_id])).rows[0]
         if (!counselor) return { state: 'counselor_not_found' }
+        const grades = await studentGuideGrades(client, user)
         const result = await client.query(`UPDATE student_referrals SET status='completed',counselor_action=$1,counselor_name=$2,
           counselor_action_by=$3,counselor_action_at=now(),completed_at=now(),updated_at=now()
           WHERE school_id=$4 AND id=$5 AND referred_to_counselor=true AND status='referred_to_counselor' AND counselor_action=''
-          RETURNING id`, [counselorAction, counselor.full_name, user.user_id, user.school_id, updateMatch[1]])
+            AND grade_value=ANY($6::text[])
+          RETURNING id`, [counselorAction, counselor.full_name, user.user_id, user.school_id, updateMatch[1], grades])
         if (!result.rowCount) return { state: 'referral_not_available' }
         await addEvent(client, user.school_id, updateMatch[1], user, 'completed')
         return { state: 'saved' }
