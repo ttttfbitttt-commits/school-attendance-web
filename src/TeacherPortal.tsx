@@ -773,7 +773,7 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
         <button type="button" className={activeTab === 'referrals' ? 'active' : ''} onClick={() => navigate('referrals')}><Send size={18} /> إحالة طالب</button>
         <button type="button" className={activeTab === 'sheets' ? 'active' : ''} onClick={() => navigate('sheets')}><FileSpreadsheet size={18} /> الكشوف</button>
         <button type="button" className={activeTab === 'portfolio' ? 'active' : ''} onClick={() => navigate('portfolio')}><FolderOpen size={18} /> ملف الإنجاز</button>
-        <button type="button" className={activeTab === 'evidence' ? 'active' : ''} onClick={() => navigate('evidence')}><BookOpenCheck size={18} /> شواهد</button>
+        <button type="button" className={activeTab === 'evidence' ? 'active' : ''} onClick={() => navigate('evidence')}><BookOpenCheck size={18} /> شواهد {dashboard?.activityEvidenceCount ? <span>هام</span> : null}</button>
         <button type="button" className={activeTab === 'reports' ? 'active' : ''} onClick={() => navigate('reports')}><BarChart3 size={18} /> التقارير</button>
         <button type="button" className={activeTab === 'password' ? 'active' : ''} onClick={() => navigate('password')}><KeyRound size={18} /> كلمة المرور</button>
       </nav>
@@ -825,7 +825,7 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
       {sheetMode !== 'setup' && sheetMode !== 'noorGuide' && sheetMode !== 'noorMapping' && sheetOnlyView && lesson && selected && <TeacherSheetRoster lesson={lesson} selected={selected} states={states} updateSheetValue={updateSheetValue} exportSheet={exportSheet} printSheet={printSheet} saveLesson={saveLesson} busy={busy} noorCalculated={Boolean(lesson.noorCalculated)} />}
     </section>}
     {activeTab === 'portfolio' && <StudentPortfolioBoard scope="teacher" />}
-    {activeTab === 'evidence' && <TeacherEvidence schoolName={dashboard?.schoolName || 'المدرسة'} teacherName={dashboard?.teacher.name || account.displayName} onPrint={setPrintPreview} />}
+    {activeTab === 'evidence' && <TeacherEvidence schoolName={dashboard?.schoolName || 'المدرسة'} teacherName={dashboard?.teacher.name || account.displayName} onPrint={setPrintPreview} onActivitiesViewed={() => setDashboard(current => current ? { ...current, activityEvidenceCount: 0 } : current)} />}
     {activeTab === 'reports' && <TeacherReportsTab key={reportsKey} schedule={dashboard?.weekSchedule || []} schoolName={dashboard?.schoolName || 'المدرسة'} teacherName={dashboard?.teacher.name || account.displayName} />}
     {printPreview && <div className="teacher-print-overlay" role="dialog" aria-modal="true" aria-label="معاينة الطباعة"><div className="teacher-print-actions"><button type="button" className="outline-button" onClick={() => setPrintPreview('')}>إغلاق والعودة</button><button type="button" className="primary-button" onClick={() => window.print()}><Printer size={16} /> طباعة / حفظ PDF</button></div><div className="teacher-print-preview" dangerouslySetInnerHTML={{ __html: printPreview }} /></div>}
     </div>

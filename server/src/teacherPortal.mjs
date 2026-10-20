@@ -375,7 +375,7 @@ async function teacherEvidenceOptions(client, schoolId, teacherId) {
 export async function teacherEvidenceRecords(client, schoolId, teacherId, access = 'teacher') {
   const records = (await client.query(`SELECT id,slot_number AS "slotNumber",grade_value AS grade,classroom_value AS classroom,title,strategy,
       visit_teacher_id AS "visitTeacherId",visit_teacher_name AS "visitTeacherName",vice_principal_id AS "vicePrincipalId",
-      vice_principal_name AS "vicePrincipalName",activity_leader_name AS "activityLeaderName",notes,
+      vice_principal_name AS "vicePrincipalName",activity_leader_name AS "activityLeaderName",activity_id AS "activityId",notes,
       created_at AS "createdAt",updated_at AS "updatedAt"
     FROM teacher_evidence_records WHERE school_id=$1 AND teacher_id=$2 ORDER BY slot_number`, [schoolId, teacherId])).rows
   if (!records.length) return []
@@ -387,7 +387,7 @@ export async function teacherEvidenceRecords(client, schoolId, teacherId, access
     list.push({ slotNumber: Number(image.slotNumber), fileUrl: teacherEvidenceFileUrl(image.evidenceId, image.slotNumber, access), updatedAt: image.updatedAt })
     imagesByEvidence.set(image.evidenceId, list)
   }
-  return records.map(record => ({ ...record, slotNumber: Number(record.slotNumber), images: imagesByEvidence.get(record.id) || [] }))
+  return records.map(record => ({ ...record, slotNumber: Number(record.slotNumber), activityId: record.activityId || null, images: imagesByEvidence.get(record.id) || [] }))
 }
 
 export async function teacherEvidenceTeachers(client, schoolId) {
@@ -745,11 +745,45 @@ export async function handleTeacherPortalRequest(context) {
 
   if (req.method === 'GET' && url.pathname === '/api/teacher-portal/teacher/evidence') {
     if (!teacherOnly()) { json(res, 403, { error: 'forbidden' }); return true }
-    const result = await scoped(user.school_id, async client => ({
-      options: await teacherEvidenceOptions(client, user.school_id, user.teacher_id),
-      records: await teacherEvidenceRecords(client, user.school_id, user.teacher_id),
-    }))
+    const result = await scoped(user.school_id, async client => {
+      const pending = await client.query(`SELECT activity.id,activity.slot_number AS "slotNumber",activity.title,activity.description,
+        activity.attachment_name AS "attachmentName",activity.attachment_type AS "attachmentType",recipient.seen_at AS "seenAt"
+        FROM activity_leader_activity_recipients recipient
+        JOIN activity_leader_activities activity ON activity.id=recipient.activity_id AND activity.school_id=recipient.school_id
+        WHERE recipient.school_id=$1 AND recipient.teacher_id=$2 ORDER BY activity.slot_number`, [user.school_id, user.teacher_id])
+      const unseenActivityCount = pending.rows.filter(row => !row.seenAt).length
+      await client.query(`UPDATE activity_leader_activity_recipients SET seen_at=now()
+        WHERE school_id=$1 AND teacher_id=$2 AND seen_at IS NULL`, [user.school_id, user.teacher_id])
+      const records = await teacherEvidenceRecords(client, user.school_id, user.teacher_id)
+      const activityRecords = new Map(records.filter(record => record.activityId).map(record => [record.activityId, record]))
+      return {
+        options: await teacherEvidenceOptions(client, user.school_id, user.teacher_id),
+        records,
+        unseenActivityCount,
+        requiredActivities: pending.rows.map(row => ({
+          activityId: row.id, slotNumber: Number(row.slotNumber), title: row.title, description: row.description,
+          attachmentName: row.attachmentName, attachmentType: row.attachmentType,
+          attachmentUrl: row.attachmentName ? `/api/teacher-portal/teacher/activity-file?activityId=${encodeURIComponent(row.id)}` : '',
+          record: activityRecords.get(row.id) || null,
+        })),
+      }
+    })
     json(res, 200, result)
+    return true
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/teacher-portal/teacher/activity-file') {
+    if (!teacherOnly()) { json(res, 403, { error: 'forbidden' }); return true }
+    const activityId = String(url.searchParams.get('activityId') || '')
+    if (!validId(activityId)) { json(res, 400, { error: 'invalid_activity' }); return true }
+    const activity = await scoped(user.school_id, async client => (await client.query(`SELECT activity.attachment_data AS "attachmentData"
+      FROM activity_leader_activity_recipients recipient JOIN activity_leader_activities activity ON activity.id=recipient.activity_id AND activity.school_id=recipient.school_id
+      WHERE recipient.school_id=$1 AND recipient.teacher_id=$2 AND recipient.activity_id=$3`, [user.school_id, user.teacher_id, activityId])).rows[0] || null)
+    const match = /^data:(application\/pdf|image\/(?:jpeg|png|webp));base64,([A-Za-z0-9+/=]+)$/.exec(String(activity?.attachmentData || ''))
+    if (!match) { json(res, 404, { error: 'activity_file_not_found' }); return true }
+    const data = Buffer.from(match[2], 'base64')
+    res.writeHead(200, { 'content-type': match[1], 'content-length': data.length, 'content-disposition': 'inline', 'cache-control': 'private, no-store', 'x-content-type-options': 'nosniff' })
+    res.end(data)
     return true
   }
 
@@ -777,8 +811,9 @@ export async function handleTeacherPortalRequest(context) {
     const visitTeacherId = clean(input.visitTeacherId, 80)
     const vicePrincipalId = clean(input.vicePrincipalId, 80)
     const activityLeaderName = clean(input.activityLeaderName, 200)
+    const activityId = clean(input.activityId, 80)
     const notes = clean(input.notes, 4000)
-    if (!Number.isInteger(slotNumber) || slotNumber < 1 || slotNumber > EVIDENCE_SLOT_COUNT || !grade || !classroom || !title) { json(res, 400, { error: 'invalid_evidence_record' }); return true }
+    if (!Number.isInteger(slotNumber) || slotNumber < 1 || slotNumber > 12 || !grade || !classroom || !title) { json(res, 400, { error: 'invalid_evidence_record' }); return true }
     const uploaded = new Map()
     if (!Array.isArray(input.images) || input.images.length > EVIDENCE_SLOT_COUNT) { json(res, 400, { error: 'invalid_evidence_images' }); return true }
     for (const item of input.images) {
@@ -789,6 +824,14 @@ export async function handleTeacherPortalRequest(context) {
     }
     const deleteSlots = [...new Set(Array.isArray(input.deleteSlots) ? input.deleteSlots.map(Number).filter(value => Number.isInteger(value) && value >= 1 && value <= EVIDENCE_SLOT_COUNT) : [])]
     const result = await scoped(user.school_id, async client => {
+      let requiredActivity = null
+      if (activityId) {
+        if (!validId(activityId)) return { error: 'invalid_activity' }
+        requiredActivity = (await client.query(`SELECT activity.id,activity.slot_number AS "slotNumber",activity.title
+          FROM activity_leader_activity_recipients recipient JOIN activity_leader_activities activity ON activity.id=recipient.activity_id AND activity.school_id=recipient.school_id
+          WHERE recipient.school_id=$1 AND recipient.teacher_id=$2 AND recipient.activity_id=$3`, [user.school_id, user.teacher_id, activityId])).rows[0] || null
+        if (!requiredActivity || slotNumber !== Number(requiredActivity.slotNumber) + EVIDENCE_SLOT_COUNT) return { error: 'invalid_activity' }
+      } else if (slotNumber > EVIDENCE_SLOT_COUNT) return { error: 'invalid_evidence_record' }
       const allowedClass = await client.query(`SELECT 1 FROM lesson_schedule_assignments assignment
         JOIN lesson_schedule_imports imported ON imported.id=assignment.import_id AND imported.school_id=assignment.school_id AND imported.is_active=true
         JOIN teacher_classroom_student_maps mapped ON mapped.school_id=assignment.school_id AND mapped.classroom_id=assignment.classroom_id
@@ -810,17 +853,18 @@ export async function handleTeacherPortalRequest(context) {
         if (!vicePrincipal.rowCount) return { error: 'invalid_vice_principal' }
         vicePrincipalName = vicePrincipal.rows[0].name
       }
+      const saveValues = [user.school_id, user.teacher_id, slotNumber, grade, classroom, requiredActivity?.title || title, strategy,
+        visitTeacherId || null, visitTeacherName, vicePrincipalId || null, vicePrincipalName, activityLeaderName, requiredActivity?.id || null, notes]
       const saved = await client.query(`INSERT INTO teacher_evidence_records(
           school_id,teacher_id,slot_number,grade_value,classroom_value,title,strategy,visit_teacher_id,visit_teacher_name,
-          vice_principal_id,vice_principal_name,activity_leader_name,notes,updated_at)
-        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,now())
-        ON CONFLICT(school_id,teacher_id,slot_number) DO UPDATE SET
+          vice_principal_id,vice_principal_name,activity_leader_name,activity_id,notes,updated_at)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,now())
+        ON CONFLICT ${requiredActivity ? '(school_id,teacher_id,activity_id) WHERE activity_id IS NOT NULL' : '(school_id,teacher_id,slot_number) WHERE activity_id IS NULL'} DO UPDATE SET
           grade_value=EXCLUDED.grade_value,classroom_value=EXCLUDED.classroom_value,title=EXCLUDED.title,strategy=EXCLUDED.strategy,
           visit_teacher_id=EXCLUDED.visit_teacher_id,visit_teacher_name=EXCLUDED.visit_teacher_name,
           vice_principal_id=EXCLUDED.vice_principal_id,vice_principal_name=EXCLUDED.vice_principal_name,
           activity_leader_name=EXCLUDED.activity_leader_name,notes=EXCLUDED.notes,updated_at=now()
-        RETURNING id`, [user.school_id, user.teacher_id, slotNumber, grade, classroom, title, strategy,
-        visitTeacherId || null, visitTeacherName, vicePrincipalId || null, vicePrincipalName, activityLeaderName, notes])
+        RETURNING id`, saveValues)
       const evidenceId = saved.rows[0].id
       if (deleteSlots.length) await client.query(`DELETE FROM teacher_evidence_images
         WHERE school_id=$1 AND evidence_id=$2 AND slot_number=ANY($3::smallint[])`, [user.school_id, evidenceId, deleteSlots])
@@ -828,6 +872,7 @@ export async function handleTeacherPortalRequest(context) {
         VALUES($1,$2,$3,$4,$5,now())
         ON CONFLICT(school_id,evidence_id,slot_number) DO UPDATE SET image_data=EXCLUDED.image_data,image_type=EXCLUDED.image_type,updated_at=now()`, [user.school_id, evidenceId, imageSlot, image.data, image.type])
       const records = await teacherEvidenceRecords(client, user.school_id, user.teacher_id)
+      if (requiredActivity) await client.query(`UPDATE activity_leader_activity_recipients SET completed_at=now() WHERE school_id=$1 AND activity_id=$2 AND teacher_id=$3`, [user.school_id, requiredActivity.id, user.teacher_id])
       return { record: records.find(record => record.id === evidenceId) || null }
     })
     if (result.error || !result.record) { json(res, result.error === 'evidence_class_not_assigned' ? 403 : 400, { error: result.error || 'evidence_save_failed' }); return true }
@@ -1024,7 +1069,9 @@ export async function handleTeacherPortalRequest(context) {
       const configuredPeriods = periodRows.rows.map(row => Number(row.periodNumber)).filter(Number.isInteger)
       const lastScheduledPeriod = Math.max(0, ...weekSchedule.map(row => row.periodNumber))
       const periodNumbers = configuredPeriods.length ? configuredPeriods : Array.from({ length: lastScheduledPeriod }, (_, index) => index + 1)
-      return { schoolName: school.rows[0].name, teacher: teacher.rows[0], date, weekday, schedule: weekSchedule.filter(row => row.weekday === weekday), weekSchedule, periodNumbers }
+      const activityEvidenceCount = Number((await client.query(`SELECT COUNT(*)::int AS count FROM activity_leader_activity_recipients
+        WHERE school_id=$1 AND teacher_id=$2 AND seen_at IS NULL`, [user.school_id, user.teacher_id])).rows[0]?.count || 0)
+      return { schoolName: school.rows[0].name, teacher: teacher.rows[0], date, weekday, schedule: weekSchedule.filter(row => row.weekday === weekday), weekSchedule, periodNumbers, activityEvidenceCount }
     })
     if (result.missing) { json(res, 404, { error: 'teacher_account_not_ready' }); return true }
     json(res, 200, result)

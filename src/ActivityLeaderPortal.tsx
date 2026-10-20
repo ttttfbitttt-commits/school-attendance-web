@@ -1,15 +1,16 @@
 import { type FormEvent, useEffect, useState } from 'react'
-import { FileImage, FolderOpen, KeyRound, LogOut, Sparkles } from 'lucide-react'
+import { FileImage, FolderOpen, KeyRound, LogOut, Send, Sparkles, ClipboardList } from 'lucide-react'
 import { api, type Account } from './api'
 import { StudentPortfolioBoard } from './StudentPortfolio'
 import { TeacherEvidenceAdmin } from './TeacherEvidenceAdmin'
+import { ActivityLeaderActivities } from './ActivityLeaderActivities'
 
 export function ActivityLeaderPortal({ account, onLogout }: { account: Account; onLogout: () => void }) {
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
   const [changed, setChanged] = useState(!account.mustChangePassword)
   const [error, setError] = useState('')
-  const [tab, setTab] = useState<'home' | 'portfolio' | 'evidence' | 'password'>('home')
+  const [tab, setTab] = useState<'home' | 'portfolio' | 'evidence' | 'activities' | 'activityReport' | 'password'>('home')
   const [schoolName, setSchoolName] = useState('المدرسة')
 
   useEffect(() => {
@@ -45,11 +46,15 @@ export function ActivityLeaderPortal({ account, onLogout }: { account: Account; 
         <button type="button" className={tab === 'home' ? 'active' : ''} onClick={() => setTab('home')}><Sparkles size={17} />الرئيسية</button>
         <button type="button" className={tab === 'portfolio' ? 'active' : ''} onClick={() => setTab('portfolio')}><FolderOpen size={17} />ملفات إنجاز الطلاب</button>
         <button type="button" className={tab === 'evidence' ? 'active' : ''} onClick={() => setTab('evidence')}><FileImage size={17} />شواهد المعلمين</button>
+        <button type="button" className={tab === 'activities' ? 'active' : ''} onClick={() => setTab('activities')}><Send size={17} />إرسال نشاط</button>
+        <button type="button" className={tab === 'activityReport' ? 'active' : ''} onClick={() => setTab('activityReport')}><ClipboardList size={17} />تقرير النشاط</button>
         <button type="button" className={tab === 'password' ? 'active' : ''} onClick={() => setTab('password')}><KeyRound size={17} />كلمة المرور</button>
       </nav>
-      {tab === 'home' && <section className="teacher-card teacher-evidence"><div className="teacher-section-head"><div><span>مرحباً {account.displayName}</span><h2>بوابة رائد النشاط</h2><p>يمكنك مراجعة ملفات إنجاز الطلاب وشواهد المعلمين.</p></div><Sparkles size={31} /></div><div className="teacher-report-actions"><button type="button" className="outline-button" onClick={() => setTab('portfolio')}><FolderOpen size={16} />فتح ملفات الإنجاز</button><button type="button" className="outline-button" onClick={() => setTab('evidence')}><FileImage size={16} />شواهد المعلمين</button></div></section>}
+      {tab === 'home' && <section className="teacher-card teacher-evidence"><div className="teacher-section-head"><div><span>مرحباً {account.displayName}</span><h2>بوابة رائد النشاط</h2><p>يمكنك مراجعة ملفات إنجاز الطلاب وشواهد المعلمين وإرسال الأنشطة ومتابعة تنفيذها.</p></div><Sparkles size={31} /></div><div className="teacher-report-actions"><button type="button" className="outline-button" onClick={() => setTab('portfolio')}><FolderOpen size={16} />فتح ملفات الإنجاز</button><button type="button" className="outline-button" onClick={() => setTab('evidence')}><FileImage size={16} />شواهد المعلمين</button><button type="button" className="outline-button" onClick={() => setTab('activities')}><Send size={16} />إرسال نشاط</button></div></section>}
       {tab === 'portfolio' && <StudentPortfolioBoard scope="activityLeader" schoolName={schoolName} />}
       {tab === 'evidence' && <TeacherEvidenceAdmin schoolName={schoolName} loadTeachers={api.activityLeaderEvidence} loadRecords={api.activityLeaderEvidenceRecords} />}
+      {tab === 'activities' && <ActivityLeaderActivities schoolName={schoolName} mode="send" />}
+      {tab === 'activityReport' && <ActivityLeaderActivities schoolName={schoolName} mode="report" />}
       {tab === 'password' && passwordForm}
       <button type="button" className="outline-button" onClick={onLogout}><LogOut size={16} />تسجيل الخروج</button>
     </>}
