@@ -3,7 +3,9 @@ const validUuid = value => /^[0-9a-f-]{36}$/i.test(String(value || ''))
 const identityNumber = value => String(value ?? '').trim().replace(/\s/g, '').replace(/[^0-9]/g, '')
 const clean = (value, max = 200) => String(value ?? '').replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max)
 const portfolioGenerationJobs = new Map()
-const portfolioFileTypes = new Set(['image/png', 'image/jpeg', 'image/webp', 'application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'])
+const storedPortfolioFileTypes = new Set(['image/png', 'image/jpeg', 'image/webp', 'application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'])
+const portfolioUploadImageTypes = new Set(['image/png', 'image/jpeg', 'image/webp'])
+const MAX_PORTFOLIO_IMAGE_BYTES = 1_000_000
 const classroomKey = value => clean(value, 260).normalize('NFKC').replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه').replace(/[\u064B-\u065F\u0670ـ]/g, '').replace(/[^\p{L}\p{N}]+/gu, ' ').replace(/\s+/g, ' ').trim()
 const portfolioFileUrl = (assignmentId, studentId, slotNumber) => `/api/student-portal/portfolio/file?assignmentId=${encodeURIComponent(assignmentId)}&studentId=${encodeURIComponent(studentId)}&slotNumber=${encodeURIComponent(slotNumber)}`
 
@@ -63,9 +65,9 @@ function portfolioSlots(files = []) {
 function portfolioFile(value, fileName) {
   const data = String(value || '')
   const match = /^data:([^;]+);base64,([A-Za-z0-9+/=]+)$/.exec(data)
-  if (!match || !portfolioFileTypes.has(match[1])) return null
+  if (!match || !portfolioUploadImageTypes.has(match[1])) return null
   const bytes = Buffer.byteLength(match[2], 'base64')
-  if (!bytes || bytes > 4_000_000) return null
+  if (!bytes || bytes > MAX_PORTFOLIO_IMAGE_BYTES) return null
   const name = clean(fileName, 160).replace(/[^\p{L}\p{N}._() -]/gu, '') || 'ملف مرفوع'
   return { data, name, type: match[1] }
 }
@@ -76,9 +78,9 @@ function storedPortfolioFile(file, studentId = '') {
 
 function sendPortfolioFile(res, file) {
   const match = /^data:([^;]+);base64,([A-Za-z0-9+/=]+)$/.exec(String(file.fileData || ''))
-  if (!match || !portfolioFileTypes.has(match[1])) return false
+  if (!match || !storedPortfolioFileTypes.has(match[1])) return false
   const data = Buffer.from(match[2], 'base64')
-  const type = portfolioFileTypes.has(file.fileType) ? file.fileType : match[1]
+  const type = storedPortfolioFileTypes.has(file.fileType) ? file.fileType : match[1]
   const name = clean(file.fileName, 160).replace(/["\\\r\n]/g, '') || 'ملف-إنجاز'
   const inline = type === 'application/pdf' || type.startsWith('image/')
   res.writeHead(200, {

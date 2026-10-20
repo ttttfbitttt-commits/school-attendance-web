@@ -7,18 +7,60 @@ import { PortfolioFilePreview, type PortfolioPreviewFile } from './PortfolioFile
 
 type StudentTab = 'home' | 'portfolio' | 'schedule' | 'cooperation' | 'password'
 const days = ['', 'الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت']
-const portfolioFileTypes = new Set(['image/png', 'image/jpeg', 'image/webp', 'application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'])
-const portfolioTypeFromName = (file: File) => {
-  if (portfolioFileTypes.has(file.type)) return file.type
+const portfolioImageTypes = new Set(['image/png', 'image/jpeg', 'image/webp'])
+const MAX_PORTFOLIO_SOURCE_BYTES = 12_000_000
+const MAX_PORTFOLIO_IMAGE_BYTES = 1_000_000
+const MAX_PORTFOLIO_IMAGE_DIMENSION = 1600
+
+const portfolioImageTypeFromName = (file: File) => {
+  if (portfolioImageTypes.has(file.type)) return file.type
   const extension = file.name.split('.').pop()?.toLowerCase()
-  if (extension === 'pdf') return 'application/pdf'
-  if (extension === 'doc') return 'application/msword'
-  if (extension === 'docx') return 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
   if (extension === 'png') return 'image/png'
   if (extension === 'jpg' || extension === 'jpeg') return 'image/jpeg'
   if (extension === 'webp') return 'image/webp'
   return ''
 }
+
+const canvasToWebp = (canvas: HTMLCanvasElement, quality: number) => new Promise<Blob>((resolve, reject) => {
+  canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('تعذر تجهيز الصورة.')), 'image/webp', quality)
+})
+
+const readImage = (file: File) => new Promise<HTMLImageElement>((resolve, reject) => {
+  const url = URL.createObjectURL(file)
+  const image = new Image()
+  image.onload = () => { URL.revokeObjectURL(url); resolve(image) }
+  image.onerror = () => { URL.revokeObjectURL(url); reject(new Error('تعذر قراءة الصورة. اختر صورة بصيغة JPG أو PNG أو WEBP.')) }
+  image.src = url
+})
+
+const optimizePortfolioImage = async (file: File) => {
+  const image = await readImage(file)
+  const largestSide = Math.max(image.naturalWidth, image.naturalHeight)
+  let scale = Math.min(1, MAX_PORTFOLIO_IMAGE_DIMENSION / Math.max(1, largestSide))
+  let quality = 0.82
+  for (let attempt = 0; attempt < 6; attempt += 1) {
+    const canvas = document.createElement('canvas')
+    canvas.width = Math.max(1, Math.round(image.naturalWidth * scale))
+    canvas.height = Math.max(1, Math.round(image.naturalHeight * scale))
+    const context = canvas.getContext('2d')
+    if (!context) throw new Error('تعذر تجهيز الصورة.')
+    context.drawImage(image, 0, 0, canvas.width, canvas.height)
+    const result = await canvasToWebp(canvas, quality)
+    if (result.size <= MAX_PORTFOLIO_IMAGE_BYTES) return result
+    scale *= 0.8
+    quality = Math.max(0.5, quality - 0.07)
+  }
+  throw new Error('تعذر ضغط الصورة إلى الحجم المسموح. اختر صورة أصغر.')
+}
+
+const readAsDataUrl = (file: Blob) => new Promise<string>((resolve, reject) => {
+  const reader = new FileReader()
+  reader.onload = () => resolve(String(reader.result || ''))
+  reader.onerror = () => reject(new Error('تعذر قراءة الصورة.'))
+  reader.readAsDataURL(file)
+})
+
+const portfolioImageName = (fileName: string) => `${fileName.replace(/\.[^.]+$/, '').trim() || 'صورة-إنجاز'}.webp`
 
 export function StudentPortal({ account, onLogout }: { account: Account; onLogout: () => void }) {
   const [dashboard, setDashboard] = useState<StudentPortalDashboard | null>(null)
@@ -74,20 +116,17 @@ export function StudentPortal({ account, onLogout }: { account: Account; onLogou
   }
   const upload = async (subject: StudentPortfolioSubject, slotNumber: number, file?: File) => {
     if (!file) return
-    const fileType = portfolioTypeFromName(file)
-    if (!fileType || file.size > 4_000_000) { setError('اختر صورة PNG أو JPG أو WEBP، أو ملف PDF أو Word، بحجم لا يتجاوز 4 ميجابايت.'); return }
+    if (!portfolioImageTypeFromName(file)) { setError('ملف الإنجاز يستقبل الصور فقط: JPG أو PNG أو WEBP.'); return }
+    if (file.size > MAX_PORTFOLIO_SOURCE_BYTES) { setError('اختر صورة لا يتجاوز حجمها الأصلي 12 ميغابايت.'); return }
     setUploading(`${subject.assignmentId}:${slotNumber}`); setError(''); setNotice('')
-    const reader = new FileReader()
-    reader.onload = async () => {
-      try {
-        const fileData = String(reader.result || '').replace(/^data:[^;]+;/, `data:${fileType};`)
-        const result = await api.uploadStudentPortfolioFile(subject.assignmentId, slotNumber, fileData, file.name)
-        setDashboard(current => current ? { ...current, subjects: current.subjects.map(item => item.assignmentId !== subject.assignmentId ? item : { ...item, slots: item.slots.map(slot => slot.slotNumber === slotNumber ? result.file : slot) }) } : current)
-        setNotice(`تم حفظ ملف المربع ${slotNumber} في مادة ${subject.subject}.`)
-      } catch { setError('تعذر رفع الملف. تأكد من اتصالك ثم حاول مرة أخرى.') } finally { setUploading('') }
-    }
-    reader.onerror = () => { setError('تعذر قراءة الملف.'); setUploading('') }
-    reader.readAsDataURL(file)
+    try {
+      const optimized = await optimizePortfolioImage(file)
+      const result = await api.uploadStudentPortfolioFile(subject.assignmentId, slotNumber, await readAsDataUrl(optimized), portfolioImageName(file.name))
+      setDashboard(current => current ? { ...current, subjects: current.subjects.map(item => item.assignmentId !== subject.assignmentId ? item : { ...item, slots: item.slots.map(slot => slot.slotNumber === slotNumber ? result.file : slot) }) } : current)
+      setNotice(`تم ضغط الصورة وحفظها في المربع ${slotNumber} لمادة ${subject.subject}.`)
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'تعذر رفع الصورة. تأكد من اتصالك ثم حاول مرة أخرى.')
+    } finally { setUploading('') }
   }
   const remove = async (subject: StudentPortfolioSubject, slotNumber: number) => {
     setUploading(`${subject.assignmentId}:${slotNumber}`); setError('')
@@ -117,7 +156,7 @@ export function StudentPortal({ account, onLogout }: { account: Account; onLogou
         {activeTab === 'password' && <section className="student-password-card"><div><KeyRound size={23} /><div><span>حماية الحساب</span><h2>تغيير كلمة المرور</h2><p>استخدم كلمة مرور لا تقل عن 8 أحرف ولا تشاركها مع أي شخص.</p></div></div><label>كلمة المرور الجديدة<input type="password" autoComplete="new-password" value={password} onChange={event => setPassword(event.target.value)} /></label><label>تأكيد كلمة المرور<input type="password" autoComplete="new-password" value={confirmPassword} onChange={event => setConfirmPassword(event.target.value)} /></label><button type="button" className="primary-button" onClick={() => void changePassword()} disabled={busy === 'password'}>{busy === 'password' ? 'جارٍ الحفظ…' : 'حفظ كلمة المرور'}</button></section>}
         {activeTab === 'portfolio' && dashboard && (
           <section className="student-portfolio-page">
-            <header><BookOpenCheck size={28} /><div><span>ملف إنجازي</span><h2>موادي الدراسية</h2><p>لكل مادة 10 مربعات؛ يرفع الطالب في كل مربع صورة أو ملف PDF أو Word.</p></div></header>
+            <header><BookOpenCheck size={28} /><div><span>ملف إنجازي</span><h2>موادي الدراسية</h2><p>لكل مادة 10 مربعات للصور فقط. تُضغط الصورة وتُحفظ بصيغة WebP قبل رفعها.</p></div></header>
             {!dashboard.subjects.length ? <p className="teacher-empty">لا توجد مواد مرتبطة بفصلك حتى الآن.</p> : (
               <div className="student-subject-grid">
                 {dashboard.subjects.map(subject => (
@@ -130,7 +169,7 @@ export function StudentPortal({ account, onLogout }: { account: Account; onLogou
                             {slot.fileType.startsWith('image/') ? <button type="button" className="student-upload-image-button" onClick={() => setPreview(slot)}><img src={slot.fileUrl} alt={`${subject.subject} المهمة ${slot.slotNumber}`} /></button> : <button type="button" className="student-upload-file-link" onClick={() => setPreview(slot)}><FileText size={26} /><span>{slot.fileName || 'فتح الملف'}</span></button>}
                             <button type="button" onClick={() => void remove(subject, slot.slotNumber)} disabled={uploading !== ''}>حذف</button>
                           </> : (
-                            <label><Camera size={22} /><strong>المربع {slot.slotNumber}</strong><span>{uploading === `${subject.assignmentId}:${slot.slotNumber}` ? 'جارٍ الرفع…' : 'رفع ملف'}</span><input type="file" accept="image/png,image/jpeg,image/webp,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,.doc,.docx" onChange={event => void upload(subject, slot.slotNumber, event.target.files?.[0])} disabled={uploading !== ''} /></label>
+                            <label><Camera size={22} /><strong>المربع {slot.slotNumber}</strong><span>{uploading === `${subject.assignmentId}:${slot.slotNumber}` ? 'جارٍ تجهيز الصورة…' : 'رفع صورة'}</span><input type="file" accept="image/png,image/jpeg,image/webp" onChange={event => void upload(subject, slot.slotNumber, event.target.files?.[0])} disabled={uploading !== ''} /></label>
                           )}
                         </div>
                       ))}
