@@ -3,5 +3,5 @@
   "private": true,
   "type": "module",
   "scripts": { "start": "node src/index.mjs" },
-  "dependencies": { "pg": "^8.13.1" }
+  "dependencies": { "pg": "^8.13.1", "sharp": "^0.34.5" }
 }
