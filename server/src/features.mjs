@@ -291,6 +291,7 @@ export async function migrateFeatures(pool) {
       contact_method text NOT NULL DEFAULT '' CHECK (contact_method IN ('','phone','sms','whatsapp','visit','other')),
       contact_note text NOT NULL DEFAULT '' CHECK (length(contact_note) <= 2000),
       contacted_by uuid REFERENCES users(id) ON DELETE SET NULL,
+      contacted_by_name text NOT NULL DEFAULT '' CHECK (length(contacted_by_name) <= 180),
       contacted_at timestamptz,
       created_at timestamptz NOT NULL DEFAULT now(),
       updated_at timestamptz NOT NULL DEFAULT now(),
@@ -303,6 +304,7 @@ export async function migrateFeatures(pool) {
       applied_at timestamptz NOT NULL DEFAULT now()
     );
     ALTER TABLE attendance_logs ADD COLUMN IF NOT EXISTS excuse_status text NOT NULL DEFAULT 'unexcused';
+    ALTER TABLE absence_follow_up_cases ADD COLUMN IF NOT EXISTS contacted_by_name text NOT NULL DEFAULT '';
     ALTER TABLE attendance_logs DROP CONSTRAINT IF EXISTS attendance_logs_excuse_status_check;
     ALTER TABLE attendance_logs ADD CONSTRAINT attendance_logs_excuse_status_check CHECK (excuse_status IN ('unexcused','excused'));
     ALTER TABLE message_logs DROP CONSTRAINT IF EXISTS message_logs_message_type_check;
@@ -407,7 +409,7 @@ export async function handleFeatureRequest(context) {
           a.student_id AS "studentId",s.name,s.grade,s.classroom,s.phone,a.status,
           totals."absenceDays",totals."unexcusedDays",totals."excusedDays",totals."specialDays",
           COALESCE(follow_up.contact_outcome,'') AS "contactOutcome",COALESCE(follow_up.contact_method,'') AS "contactMethod",
-          COALESCE(follow_up.contact_note,'') AS "contactNote",follow_up.contacted_at AS "contactedAt"
+          COALESCE(follow_up.contact_note,'') AS "contactNote",COALESCE(follow_up.contacted_by_name,'') AS "contactedByName",follow_up.contacted_at AS "contactedAt"
         FROM absence_records a
         JOIN students s ON s.school_id=a.school_id AND s.id=a.student_id AND s.active=true
         JOIN LATERAL (
@@ -453,6 +455,7 @@ export async function handleFeatureRequest(context) {
     const outcome = String(input.outcome || '')
     const method = String(input.method || '')
     const note = String(input.note || '').replace(/\s+/g, ' ').trim().slice(0, 2000)
+    const vicePrincipalName = String(user.display_name || '').replace(/\s+/g, ' ').trim().slice(0, 180) || 'وكيل المدرسة'
     if (!studentId || !date || date > todayRiyadh() || !['contacted','no_answer'].includes(outcome) || !['phone','sms','whatsapp','visit','other'].includes(method) || note.length < 3) {
       json(res, 400, { error: 'invalid_contact_documentation' }); return true
     }
@@ -470,13 +473,13 @@ export async function handleFeatureRequest(context) {
           )`, [user.school_id, studentId, date, grades])
       if (!approved.rowCount) return null
       return client.query(`INSERT INTO absence_follow_up_cases(
-          school_id,student_id,absence_date,contact_outcome,contact_method,contact_note,contacted_by,contacted_at
-        ) VALUES($1,$2,$3::date,$4,$5,$6,$7,now())
+          school_id,student_id,absence_date,contact_outcome,contact_method,contact_note,contacted_by,contacted_by_name,contacted_at
+        ) VALUES($1,$2,$3::date,$4,$5,$6,$7,$8,now())
         ON CONFLICT(school_id,student_id,absence_date) DO UPDATE SET
           contact_outcome=EXCLUDED.contact_outcome,contact_method=EXCLUDED.contact_method,contact_note=EXCLUDED.contact_note,
-          contacted_by=EXCLUDED.contacted_by,contacted_at=now(),updated_at=now()
-        RETURNING contact_outcome AS "contactOutcome",contact_method AS "contactMethod",contact_note AS "contactNote",contacted_at AS "contactedAt"`,
-      [user.school_id, studentId, date, outcome, method, note, user.user_id])
+          contacted_by=EXCLUDED.contacted_by,contacted_by_name=EXCLUDED.contacted_by_name,contacted_at=now(),updated_at=now()
+        RETURNING contact_outcome AS "contactOutcome",contact_method AS "contactMethod",contact_note AS "contactNote",contacted_by_name AS "contactedByName",contacted_at AS "contactedAt"`,
+      [user.school_id, studentId, date, outcome, method, note, user.user_id, vicePrincipalName])
     })
     if (!result) { json(res, 404, { error: 'approved_absence_not_found' }); return true }
     json(res, 200, { ok: true, contact: result.rows[0] })
