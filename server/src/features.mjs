@@ -532,6 +532,33 @@ export async function handleFeatureRequest(context) {
     return true
   }
 
+  if (req.method === 'GET' && url.pathname === '/api/absence-procedures/counselor/referred') {
+    if (user.role !== 'counselor' || !user.counselor_id) { json(res, 403, { error: 'forbidden' }); return true }
+    const result = await scoped(user.school_id, async client => {
+      const grades = await studentGuideGrades(client, user)
+      if (!grades?.length) return []
+      return (await client.query(`SELECT
+          follow_up.student_id AS "studentId",student.name,student.grade,student.classroom,student.phone,absence.absence_date AS "absenceDate",absence.status,
+          follow_up.contact_outcome AS "contactOutcome",follow_up.contact_method AS "contactMethod",follow_up.contact_note AS "contactNote",
+          COALESCE(follow_up.contacted_by_name,'') AS "contactedByName",follow_up.contacted_at AS "contactedAt",
+          follow_up.referral_note AS "referralNote",COALESCE(follow_up.referred_by_name,'') AS "referredByName",follow_up.referred_at AS "referredAt"
+        FROM absence_follow_up_cases follow_up
+        JOIN absence_records absence ON absence.school_id=follow_up.school_id AND absence.student_id=follow_up.student_id
+          AND absence.absence_date=follow_up.absence_date
+        JOIN students student ON student.school_id=follow_up.school_id AND student.id=follow_up.student_id AND student.active=true
+        WHERE follow_up.school_id=$1 AND follow_up.referred_counselor_id=$2 AND follow_up.referred_at IS NOT NULL
+          AND student.grade=ANY($3::text[]) AND absence.status IN ('unexcused','excused','special')
+          AND NOT EXISTS (
+            SELECT 1 FROM attendance_logs attendance
+            WHERE attendance.school_id=absence.school_id AND attendance.student_id=absence.student_id
+              AND attendance.attendance_date=absence.absence_date AND attendance.status IN ('present','late')
+          )
+        ORDER BY follow_up.referred_at DESC,student.grade,student.classroom,student.name`, [user.school_id, user.counselor_id, grades])).rows
+    })
+    json(res, 200, { rows: result })
+    return true
+  }
+
   if (req.method === 'POST' && url.pathname === '/api/absences/cancel') {
     if (!adminOnly()) { json(res, 403, { error: 'forbidden' }); return true }
     const input = await body(req)

@@ -4,7 +4,7 @@ import { api, type Account, type CounselorPortalDashboard } from './api'
 import { BehaviorCenter } from './BehaviorCenter'
 import { CounselorReferralCenter } from './StudentReferrals'
 import { MessageCenter, ReportsCenter } from './SchoolFeatures'
-import { AbsenceProcedureGuide } from './AbsenceProcedureGuide'
+import { AbsenceProcedureGuide, CounselorAbsenceReferralQueue } from './AbsenceProcedureGuide'
 
 type CounselorView = 'home' | 'behavior' | 'referrals' | 'absenceProcedures' | 'reports' | 'teachers' | 'students' | 'messages' | 'password'
 
@@ -87,7 +87,7 @@ export function CounselorPortal({ account, onLogout }: { account: Account; onLog
       {view === 'home' && <section className="counselor-home"><section className="counselor-welcome"><div><span>مرحبًا بك</span><h2>{dashboard.counselor.name}</h2><p>تابع السلوك والإحالات وبيانات الطلاب والمعلمين من بوابة واحدة.</p></div><ShieldAlert size={42} /></section><div className="counselor-home-grid"><article><GraduationCap size={23} /><span>الطلاب</span><strong>{dashboard.students.length}</strong><button type="button" onClick={() => go('students')}>عرض الطلاب</button></article><article><Users size={23} /><span>المعلمون</span><strong>{dashboard.teachers.length}</strong><button type="button" onClick={() => go('teachers')}>عرض المعلمين</button></article><article><ShieldAlert size={23} /><span>متابعة الحالات</span><strong>السلوك والإحالات</strong><button type="button" onClick={() => go('behavior')}>فتح السلوك</button></article></div><section className="counselor-profile-card"><h3>بيانات الموجّه</h3><dl><div><dt>الاسم</dt><dd>{dashboard.counselor.name}</dd></div><div><dt>رقم الهوية</dt><dd dir="ltr">{dashboard.counselor.identityNumber}</dd></div><div><dt>رقم الجوال</dt><dd dir="ltr">{dashboard.counselor.phone || '—'}</dd></div></dl></section></section>}
       {view === 'behavior' && <BehaviorCenter school={{ schoolName: dashboard.schoolName, principalName: '', academicYear: '', semester: '' }} role="counselor" />}
       {view === 'referrals' && <CounselorReferralCenter schoolName={dashboard.schoolName} />}
-      {view === 'absenceProcedures' && <AbsenceProcedureGuide role="counselor" />}
+      {view === 'absenceProcedures' && <><AbsenceProcedureGuide role="counselor" /><CounselorAbsenceReferralQueue /></>}
       {view === 'reports' && <ReportsCenter students={dashboard.students} schoolName={dashboard.schoolName} viewer="counselor" />}
       {view === 'messages' && <MessageCenter students={dashboard.students} attendance={attendance as never[]} schoolName={dashboard.schoolName} />}
       {view === 'teachers' && <section className="counselor-directory"><header><div><span>بيانات المدرسة</span><h2>المعلمون</h2><p>عرض قائمة المعلمين ووسائل التواصل.</p></div><Users size={30} /></header><input value={search} onChange={event => setSearch(event.target.value)} placeholder="ابحث باسم المعلم أو رقم الهوية أو الجوال" /> <div className="counselor-directory-grid">{teachers.map(teacher => <article key={teacher.teacherId}><strong>{teacher.name}</strong><span>رقم الهوية <b dir="ltr">{teacher.identityNumber || '—'}</b></span><small dir="ltr">{teacher.phone || 'لا يوجد رقم جوال'}</small></article>)}</div>{!teachers.length && <p className="teacher-empty">لا يوجد معلمون مطابقون للبحث.</p>}</section>}

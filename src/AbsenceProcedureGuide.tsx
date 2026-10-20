@@ -72,6 +72,7 @@ export function AbsenceProcedureGuide({ role }: { role: GuideRole }) {
 
 type ViceApprovedAbsenceQueue = Awaited<ReturnType<typeof api.viceApprovedAbsenceProcedureQueue>>
 type ViceApprovedAbsenceRow = ViceApprovedAbsenceQueue['rows'][number]
+type CounselorAbsenceReferralResponse = Awaited<ReturnType<typeof api.counselorAbsenceReferralQueue>>
 type ContactForm = { outcome: 'contacted' | 'no_answer'; method: 'phone' | 'sms' | 'whatsapp' | 'visit' | 'other'; note: string }
 type ReferralForm = { note: string }
 
@@ -177,5 +178,27 @@ export function ViceApprovedAbsenceProcedureQueue() {
     </>}
     {editing && <div className="counselor-dialog-backdrop" role="dialog" aria-modal="true" aria-labelledby="absence-contact-title" onMouseDown={() => !savingContact && setEditing(null)}><form className="counselor-dialog absence-contact-dialog" onSubmit={saveContact} onMouseDown={event => event.stopPropagation()}><button type="button" className="counselor-dialog-close" onClick={() => setEditing(null)} disabled={savingContact}><X size={18} /></button><span>ملف متابعة الغياب</span><h3 id="absence-contact-title">توثيق التواصل مع ولي الأمر</h3><p><strong>{editing.name}</strong> · {editing.grade} · الفصل {editing.classroom || '—'}</p><label>نتيجة التواصل<select value={contactForm.outcome} onChange={event => setContactForm(current => ({ ...current, outcome: event.target.value as ContactForm['outcome'] }))}><option value="contacted">تم التواصل مع ولي الأمر</option><option value="no_answer">لم يتم الرد</option></select></label><label>طريقة التواصل<select value={contactForm.method} onChange={event => setContactForm(current => ({ ...current, method: event.target.value as ContactForm['method'] }))}><option value="phone">مكالمة هاتفية</option><option value="sms">رسالة نصية</option><option value="whatsapp">واتساب</option><option value="visit">زيارة</option><option value="other">طريقة أخرى</option></select></label><label>ملخص التواصل أو المحاولة<textarea value={contactForm.note} maxLength={2000} minLength={3} onChange={event => setContactForm(current => ({ ...current, note: event.target.value }))} placeholder="اكتب ما تم مع ولي الأمر أو نتيجة محاولة التواصل" required /></label>{contactError && <p className="teacher-notice error">{contactError}</p>}<div className="counselor-dialog-actions"><button type="button" className="outline-button" onClick={() => setEditing(null)} disabled={savingContact}>إلغاء</button><button className="primary-button" disabled={savingContact}>{savingContact ? 'جارٍ الحفظ…' : 'حفظ التوثيق'}</button></div></form></div>}
     {referring && <div className="counselor-dialog-backdrop" role="dialog" aria-modal="true" aria-labelledby="absence-referral-title" onMouseDown={() => !savingReferral && setReferring(null)}><form className="counselor-dialog absence-contact-dialog" onSubmit={saveReferral} onMouseDown={event => event.stopPropagation()}><button type="button" className="counselor-dialog-close" onClick={() => setReferring(null)} disabled={savingReferral}><X size={18} /></button><span>إحالة إلكترونية</span><h3 id="absence-referral-title">إحالة الحالة إلى الموجّه الطلابي</h3><p><strong>{referring.name}</strong> · {referring.grade} · الفصل {referring.classroom || '—'}</p><p>سيصل للموجّه المكلّف بهذه المرحلة توثيق التواصل المسجل مع سبب الإحالة.</p><label>سبب الإحالة للموجّه الطلابي<textarea value={referralForm.note} maxLength={2000} minLength={3} onChange={event => setReferralForm({ note: event.target.value })} placeholder="اكتب سبب الإحالة أو المطلوب من الموجّه" required /></label>{referralError && <p className="teacher-notice error">{referralError}</p>}<div className="counselor-dialog-actions"><button type="button" className="outline-button" onClick={() => setReferring(null)} disabled={savingReferral}>إلغاء</button><button className="primary-button" disabled={savingReferral}>{savingReferral ? 'جارٍ إرسال الإحالة…' : 'تحويل إلى الموجّه'}</button></div></form></div>}
+  </section>
+}
+
+export function CounselorAbsenceReferralQueue() {
+  const [queue, setQueue] = useState<CounselorAbsenceReferralResponse | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  const load = async () => {
+    setLoading(true)
+    setError('')
+    try { setQueue(await api.counselorAbsenceReferralQueue()) }
+    catch { setError('تعذر تحميل الحالات المحالة. حدّث القائمة أو حاول مرة أخرى.') }
+    finally { setLoading(false) }
+  }
+
+  useEffect(() => { void load() }, [])
+
+  return <section className="counselor-absence-referrals" aria-labelledby="counselor-absence-referrals-title">
+    <header><div><span>متابعة الموجّه</span><h3 id="counselor-absence-referrals-title">الحالات المحالة إليك</h3><p>تظهر الحالات المحالة إلى حسابك فقط، ضمن المراحل المكلّف بها.</p></div><button type="button" className="outline-button" onClick={() => void load()} disabled={loading}><RefreshCw size={16} />تحديث القائمة</button></header>
+    {error && <p className="teacher-notice error">{error}</p>}
+    {loading ? <p className="teacher-empty">جارٍ تحميل الحالات المحالة…</p> : <><div className="counselor-absence-referral-count"><strong>{queue?.rows.length || 0}</strong><span>حالة بانتظار دراسة الموجّه</span></div><div className="counselor-absence-referral-list">{queue?.rows.map(row => <article key={`${row.studentId}:${row.absenceDate}`}><header><div><strong>{row.name}</strong><small>{row.grade} · الفصل {row.classroom || '—'} · <bdi>{row.studentId}</bdi></small></div><span className={`vice-absence-status ${row.status}`}>{absenceStatusLabel(row.status)}</span></header><dl><div><dt>سبب الإحالة من الوكيل</dt><dd>{row.referralNote}</dd></div><div><dt>توثيق التواصل</dt><dd>{row.contactOutcome === 'contacted' ? 'تم التواصل مع ولي الأمر' : 'لم يتم الرد'} · {contactMethodLabel(row.contactMethod)}<br /><small>وثّقه الوكيل: {row.contactedByName || 'وكيل المدرسة'} · {contactStamp(row.contactedAt)}</small><br />{row.contactNote}</dd></div><div><dt>وقت الإحالة</dt><dd>{contactStamp(row.referredAt)}<br /><small>أحالها الوكيل: {row.referredByName || 'وكيل المدرسة'}</small></dd></div></dl></article>)}{!queue?.rows.length && <p className="teacher-empty">لا توجد حالات غياب محالة إليك حالياً.</p>}</div></>}
   </section>
 }
