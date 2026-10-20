@@ -4,6 +4,7 @@ import { api, type TeacherAdminOverview, type TeacherLessonReport, type TeacherN
 import { downloadWorkbook, openPrintDocument } from './SchoolFeatures'
 import { HijriDatePicker } from './HijriDatePicker'
 import { formatHijriDate } from './dateUtils'
+import { TeacherEvidenceAdmin } from './TeacherEvidenceAdmin'
 
 const notes: TeacherNote[] = ['هروب من الحصة', 'نائم أثناء الدرس', 'لم يحل الواجب', 'عدم التفاعل والمشاركة', 'مشارك فعال', 'لم يحضر الكتاب أو أوراق العمل', 'استخدام الجوال أثناء الحصة', 'الحديث مع زملائه أثناء الدرس']
 const dayNames = ['', 'الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت']
@@ -27,7 +28,7 @@ function credentialsHtml(credentials: Array<{ name: string; identityNumber: stri
 }
 
 export function TeacherAdminCenter({ schoolName }: { schoolName: string }) {
-  const [tab, setTab] = useState<'accounts' | 'reports'>('accounts')
+  const [tab, setTab] = useState<'accounts' | 'reports' | 'evidence'>('accounts')
   const [overview, setOverview] = useState<TeacherAdminOverview | null>(null)
   const [search, setSearch] = useState('')
   const [selected, setSelected] = useState<string[]>([])
@@ -149,7 +150,7 @@ export function TeacherAdminCenter({ schoolName }: { schoolName: string }) {
 
   return <section className="teacher-admin" dir="rtl">
     <div className="teacher-admin-head"><div><span>إدارة المدرسة / المعلمون</span><h2>المعلمون</h2><p>الحسابات مرتبطة ببيانات المعلمين والجداول التي استوردتها في «سير الحصص».</p></div><UsersRound size={31} /></div>
-    <div className="teacher-admin-tabs"><button className={tab === 'accounts' ? 'active' : ''} onClick={() => setTab('accounts')}>حسابات الدخول</button><button className={tab === 'reports' ? 'active' : ''} onClick={() => setTab('reports')}>تقارير المعلمين</button></div>
+    <div className="teacher-admin-tabs"><button className={tab === 'accounts' ? 'active' : ''} onClick={() => setTab('accounts')}>حسابات الدخول</button><button className={tab === 'reports' ? 'active' : ''} onClick={() => setTab('reports')}>تقارير المعلمين</button><button className={tab === 'evidence' ? 'active' : ''} onClick={() => setTab('evidence')}>شواهد المعلمين</button></div>
     {notice && <div className="teacher-notice success">{notice}</div>}{error && <div className="teacher-notice error">{error}</div>}
 
     {tab === 'accounts' && <>
@@ -181,5 +182,7 @@ export function TeacherAdminCenter({ schoolName }: { schoolName: string }) {
       <div className="teacher-report-filters"><HijriDatePicker label="التاريخ الهجري" value={reportDate} max={today()} onChange={setReportDate} /><label>المعلم<select value={reportTeacher} onChange={event => setReportTeacher(event.target.value)}><option value="">كل المعلمين</option>{(overview?.teachers || []).map(teacher => <option key={teacher.teacherId} value={teacher.teacherId}>{teacher.name}</option>)}</select></label><label>الملاحظة<select value={reportNote} onChange={event => setReportNote(event.target.value)}><option value="">كل الملاحظات</option>{notes.map(note => <option key={note} value={note}>{note}</option>)}</select></label><button className="primary-button" onClick={() => void loadReports()} disabled={busy === 'reports'}>{busy === 'reports' ? 'جارٍ العرض…' : 'عرض التقارير'}</button></div>
       {!reports.length ? <p className="teacher-empty">اختر عوامل التقرير ثم اضغط «عرض التقارير».</p> : <div className="teacher-report-list">{reports.slice(0, 50).map(report => <article key={report.id}><div><strong>{report.teacherName} · {periodLabel(report.periodNumber)} · {report.classroom}</strong><span>{formatHijriDate(report.date)} · {report.presentCount} حاضر · {report.lateCount} تأخر عن الحصة · {report.excusedCount} مستأذن · {report.absentCount} غائب</span></div><button onClick={() => openPrintDocument('كشف متابعة طلاب الفصل', reportsHtml([report]), schoolName)} title="طباعة التقرير"><Printer size={17} /></button></article>)}</div>}
     </section>}
+
+    {tab === 'evidence' && <TeacherEvidenceAdmin schoolName={schoolName} />}
   </section>
 }

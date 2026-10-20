@@ -151,6 +151,8 @@ export type TeacherEvidenceClass = { grade: string; classrooms: string[] }
 export type TeacherEvidenceImage = { slotNumber: number; fileUrl: string; updatedAt: string }
 export type TeacherEvidenceRecord = { id: string; slotNumber: number; grade: string; classroom: string; title: string; strategy: string; visitTeacherId: string | null; visitTeacherName: string; vicePrincipalId: string | null; vicePrincipalName: string; activityLeaderName: string; notes: string; createdAt: string; updatedAt: string; images: TeacherEvidenceImage[] }
 export type TeacherEvidenceOverview = { options: { classes: TeacherEvidenceClass[]; teachers: Array<{ teacherId: string; name: string }>; vicePrincipals: Array<{ vicePrincipalId: string; name: string }> }; records: TeacherEvidenceRecord[] }
+export type TeacherEvidenceAdminTeacher = { teacherId: string; name: string; identityNumber: string; evidenceCount: number }
+export type TeacherEvidenceAdminRecords = { teacher: { teacherId: string; name: string; identityNumber: string }; records: TeacherEvidenceRecord[] }
 export type TeacherCooperationContributor = { teacherId: string; name: string; count: number; firstTime: string; lastTime: string }
 export type TeacherCooperationScan = { id: string; studentId: string; studentName: string; grade: string; classroom: string; periodNumber: number; status: 'present' | 'late'; time: string }
 export type TeacherCooperationStudent = { id: string; name: string; grade: string; classroom: string }
@@ -453,6 +455,8 @@ export const api = {
   deleteTeacherSheetConfig: (subjectName: string, sheetType: TeacherSheetType, assessmentPeriod: TeacherAssessmentPeriod = 'period1') => request<{ ok: boolean }>(`/teacher-portal/teacher/sheets/config?subjectName=${encodeURIComponent(subjectName)}&sheetType=${sheetType}&assessmentPeriod=${assessmentPeriod}`, { method: 'DELETE' }),
   teacherSheetReport: (subjectName: string, classroomId: string, sheetType: TeacherSheetOpenType, assessmentPeriod: TeacherAssessmentPeriod = 'period1') => request<TeacherSheetReport>(`/teacher-portal/teacher/sheet-report?subjectName=${encodeURIComponent(subjectName)}&classroomId=${encodeURIComponent(classroomId)}&sheetType=${sheetType}&assessmentPeriod=${assessmentPeriod}`),
   teacherAdminOverview: () => request<TeacherAdminOverview>('/teacher-portal/admin/overview'),
+  teacherAdminEvidence: () => request<{ teachers: TeacherEvidenceAdminTeacher[] }>('/teacher-portal/admin/evidence'),
+  teacherAdminEvidenceRecords: (teacherId: string) => request<TeacherEvidenceAdminRecords>(`/teacher-portal/admin/evidence/records?teacherId=${encodeURIComponent(teacherId)}`),
   teacherAdminCredentials: () => request<{ credentials: Array<{ teacherId: string; name: string; identityNumber: string; temporaryPassword: string }> }>('/teacher-portal/admin/credentials'),
   teacherMappingOptions: () => request<{ options: Array<{ grade: string; classroom: string; count: number }> }>('/teacher-portal/admin/mapping-options'),
   saveTeacherClassroomMapping: (payload: { classroomId: string; grade: string; classroom: string }) => request<{ ok: boolean }>('/teacher-portal/admin/classroom-mapping', { method: 'PUT', body: JSON.stringify(payload) }),
