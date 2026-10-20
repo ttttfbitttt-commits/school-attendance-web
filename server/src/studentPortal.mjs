@@ -218,7 +218,7 @@ async function runStudentAccountGeneration(job, students, authPool, passwordHash
 export async function migrateStudentPortal(adminPool) {
   await adminPool.query(`
     ALTER TABLE memberships DROP CONSTRAINT IF EXISTS memberships_role_check;
-    ALTER TABLE memberships ADD CONSTRAINT memberships_role_check CHECK (role IN ('admin','staff','teacher','administrator','student','counselor','vice_principal'));
+    ALTER TABLE memberships ADD CONSTRAINT memberships_role_check CHECK (role IN ('admin','staff','teacher','administrator','student','counselor','vice_principal','activity_leader'));
     CREATE TABLE IF NOT EXISTS student_login_accounts (
       school_id uuid NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
       student_id text NOT NULL,
