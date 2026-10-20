@@ -11,6 +11,7 @@ import {
   CheckCircle2,
   ChevronDown,
   Clock3,
+  Database,
   Download,
   ExternalLink,
   Eye,
@@ -27,6 +28,7 @@ import {
   Pencil,
   Printer,
   QrCode,
+  RefreshCw,
   Save,
   Search,
   Send,
@@ -44,7 +46,7 @@ import {
 import './App.css'
 import { AuthGate } from './AuthGate'
 import { formatHijriDate, formatHijriDateWithWeekday } from './dateUtils'
-import { api, type Account, type SchoolProfile } from './api'
+import { api, type Account, type SchoolProfile, type SchoolStorageUsage } from './api'
 import { LessonFlowCenter } from './LessonFlow'
 import { AlmadarSettings, downloadWorkbook, MessageCenter, reportBrandHeader, ReportsCenter } from './SchoolFeatures'
 import { TeacherAdminCenter } from './TeacherAdmin'
@@ -146,6 +148,15 @@ const getBarcodeIdCandidates = (rawCode: string) => {
 const normalizeImportedStudentId = (studentId: string) =>
   normalize(studentId).replace(/^([+-]?\d+)\.0+$/, '$1')
 
+const formatStorageSize = (value: number) => {
+  const bytes = Math.max(0, Number(value) || 0)
+  const formatter = new Intl.NumberFormat('ar-SA', { maximumFractionDigits: bytes < 10 * 1024 * 1024 ? 2 : 1 })
+  if (bytes < 1024) return `${formatter.format(Math.round(bytes))} بايت`
+  if (bytes < 1024 * 1024) return `${formatter.format(bytes / 1024)} كيلوبايت`
+  if (bytes < 1024 * 1024 * 1024) return `${formatter.format(bytes / (1024 * 1024))} ميغابايت`
+  return `${formatter.format(bytes / (1024 * 1024 * 1024))} غيغابايت`
+}
+
 const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (char) => ({
   '&': '&amp;',
   '<': '&lt;',
@@ -189,6 +200,9 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
   const [schoolPasswordConfirmation, setSchoolPasswordConfirmation] = useState('')
   const [schoolPasswordNotice, setSchoolPasswordNotice] = useState('')
   const [schoolPasswordSubmitting, setSchoolPasswordSubmitting] = useState(false)
+  const [schoolStorageUsage, setSchoolStorageUsage] = useState<SchoolStorageUsage | null>(null)
+  const [schoolStorageLoading, setSchoolStorageLoading] = useState(false)
+  const [schoolStorageLoaded, setSchoolStorageLoaded] = useState(false)
   const [students, setStudents] = useState<Student[]>([])
   const [fileName, setFileName] = useState<string>(() => {
     return 'لم يتم رفع ملف بعد'
@@ -274,6 +288,24 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
       })
       .catch(() => setNotice('تعذر تحميل بيانات الخادم. تحقق من الاتصال ثم أعد المحاولة.'))
   }, [])
+
+  const loadSchoolStorageUsage = async () => {
+    setSchoolStorageLoading(true)
+    try {
+      const result = await api.schoolStorageUsage()
+      setSchoolStorageUsage(result.usage)
+    } catch {
+      setSchoolStorageUsage(null)
+    } finally {
+      setSchoolStorageLoading(false)
+      setSchoolStorageLoaded(true)
+    }
+  }
+
+  useEffect(() => {
+    if (activeNav !== 'dashboard') return
+    void loadSchoolStorageUsage()
+  }, [activeNav])
 
   // مرجع لتخزين أحدث حالة من السجل لتجنب مشكلة الـ Stale Closure داخل حلقة الكاميرا
   const scanLogRef = useRef<ScanRecord[]>(scanLog)
@@ -1879,6 +1911,28 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
                 <CheckCircle2 size={16} />
                 تُحفظ الإعدادات في الخادم الآمن
               </div>
+            </section>
+
+            <section className="panel school-storage-panel" aria-live="polite">
+              <div className="panel-header">
+                <div>
+                  <span className="panel-kicker">استخدام التخزين</span>
+                  <h3>حجم بيانات المدرسة</h3>
+                  <p>يُحسب من سجلات المدرسة وملفات الإنجاز المحفوظة في الخادم.</p>
+                </div>
+                <button className="secondary-button" type="button" onClick={() => void loadSchoolStorageUsage()} disabled={schoolStorageLoading}>
+                  <RefreshCw size={17} className={schoolStorageLoading ? 'storage-refreshing' : ''} />
+                  {schoolStorageLoading ? 'جارٍ الحساب...' : 'تحديث الحجم'}
+                </button>
+              </div>
+              {schoolStorageUsage ? <div className="school-storage-grid">
+                <div className="school-storage-total">
+                  <span className="storage-icon"><Database size={24} /></span>
+                  <div><span>إجمالي البيانات المحفوظة</span><strong>{formatStorageSize(schoolStorageUsage.totalBytes)}</strong></div>
+                </div>
+                <div className="school-storage-detail"><span>ملفات الإنجاز</span><strong>{formatStorageSize(schoolStorageUsage.portfolioBytes)}</strong><small>{schoolStorageUsage.portfolioFiles.toLocaleString('ar-SA')} ملف مرفوع</small></div>
+                <div className="school-storage-detail"><span>سجلات النظام</span><strong>{formatStorageSize(schoolStorageUsage.recordsBytes)}</strong><small>{schoolStorageUsage.records.toLocaleString('ar-SA')} سجل محفوظ</small></div>
+              </div> : <p className="school-storage-empty">{schoolStorageLoading || !schoolStorageLoaded ? 'جارٍ حساب حجم البيانات...' : 'تعذر تحميل حجم البيانات. اضغط «تحديث الحجم» للمحاولة مرة أخرى.'}</p>}
             </section>
 
             <section className="panel school-settings-panel">

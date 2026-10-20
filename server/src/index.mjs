@@ -31,6 +31,14 @@ const LOGIN_WINDOW_MS = 15 * 60 * 1000
 const LOGIN_IP_LIMIT = 20
 const LOGIN_IDENTITY_LIMIT = 10
 const loginAttempts = new Map()
+const SCHOOL_STORAGE_TABLES = [
+  'students', 'attendance_logs', 'almadar_accounts', 'student_excuses', 'message_logs', 'absence_records', 'absence_corrections',
+  'lesson_teachers', 'lesson_classrooms', 'lesson_schedule_imports', 'lesson_name_mappings', 'lesson_time_slots', 'lesson_schedule_assignments',
+  'teacher_incidents', 'teacher_day_absences', 'teacher_classroom_student_maps', 'teacher_lesson_sessions', 'teacher_lesson_student_records',
+  'teacher_sheet_configs', 'teacher_sheet_entries', 'behavior_incidents', 'behavior_student_records', 'behavior_action_steps',
+  'behavior_score_movements', 'behavior_audit_logs', 'student_referrals', 'student_referral_events', 'teacher_attendance_contributions',
+  'administrative_staff', 'student_counselors',
+]
 
 function json(res, status, body) {
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
@@ -190,6 +198,34 @@ async function scopedOn(databasePool, schoolId, work) {
 }
 async function scoped(schoolId, work) { return scopedOn(pool, schoolId, work) }
 function todayRiyadh() { return new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Riyadh' }).format(new Date()) }
+
+async function schoolStorageUsage(schoolId) {
+  return scoped(schoolId, async client => {
+    const tableUsageSql = SCHOOL_STORAGE_TABLES.map(table => `SELECT
+      COUNT(*)::int AS row_count,
+      COALESCE(SUM(octet_length(row_to_json(item)::text)),0)::bigint AS byte_count
+      FROM public."${table}" AS item WHERE item.school_id=$1`).join('\nUNION ALL\n')
+    const [records, school, portfolio] = await Promise.all([
+      client.query(`SELECT COALESCE(SUM(row_count),0)::int AS records,
+          COALESCE(SUM(byte_count),0)::bigint AS bytes
+        FROM (${tableUsageSql}) AS usage`, [schoolId]),
+      client.query(`SELECT COALESCE(octet_length(row_to_json(item)::text),0)::bigint AS bytes
+        FROM public.schools AS item WHERE item.id=$1`, [schoolId]),
+      client.query(`SELECT COUNT(*)::int AS files,
+          COALESCE(SUM(octet_length(row_to_json(item)::text)),0)::bigint AS bytes
+        FROM student_portfolio_files AS item WHERE school_id=$1`, [schoolId]),
+    ])
+    const recordsBytes = Number(records.rows[0]?.bytes || 0)
+    const schoolBytes = Number(school.rows[0]?.bytes || 0)
+    return {
+      totalBytes: recordsBytes + schoolBytes + Number(portfolio.rows[0]?.bytes || 0),
+      recordsBytes,
+      portfolioBytes: Number(portfolio.rows[0]?.bytes || 0),
+      portfolioFiles: Number(portfolio.rows[0]?.files || 0),
+      records: Number(records.rows[0]?.records || 0) + Number(portfolio.rows[0]?.files || 0) + (school.rowCount ? 1 : 0),
+    }
+  })
+}
 
 function sqlStringLiteral(value) { return `'${String(value).replaceAll("'", "''")}'` }
 
@@ -434,6 +470,10 @@ const server = http.createServer(async (req, res) => {
       if (!profile) return json(res, 400, { error: 'invalid_school_profile' })
       const result = await scoped(user.school_id, async c => c.query('UPDATE schools SET name=$1,principal_name=$2,academic_year=$3,semester=$4,preferences=$5::jsonb WHERE id=$6 RETURNING name,principal_name,academic_year,semester,preferences', [profile.schoolName, profile.principalName, profile.academicYear, profile.semester, JSON.stringify(profile.preferences), user.school_id]))
       return json(res, 200, { school: schoolProfile(result.rows[0]) })
+    }
+    if (req.method === 'GET' && url.pathname === '/api/school/storage-usage') {
+      if (!['admin', 'staff'].includes(user.role)) return json(res, 403, { error: 'forbidden' })
+      return json(res, 200, { usage: await schoolStorageUsage(user.school_id) })
     }
     if (req.method === 'GET' && url.pathname === '/api/students') return json(res, 200, await scoped(user.school_id, async c => ({ students: (await c.query('SELECT id,name,phone,grade,classroom,sheet,row_number AS row FROM students WHERE school_id=$1 AND active=true ORDER BY name', [user.school_id])).rows })))
     if (req.method === 'POST' && url.pathname === '/api/students') {
