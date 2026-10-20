@@ -282,6 +282,22 @@ export async function migrateFeatures(pool) {
       corrected_at timestamptz NOT NULL DEFAULT now(),
       FOREIGN KEY (school_id,student_id) REFERENCES students(school_id,id) ON DELETE RESTRICT
     );
+    CREATE TABLE IF NOT EXISTS absence_follow_up_cases (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      school_id uuid NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+      student_id text NOT NULL,
+      absence_date date NOT NULL,
+      contact_outcome text NOT NULL DEFAULT '' CHECK (contact_outcome IN ('','contacted','no_answer')),
+      contact_method text NOT NULL DEFAULT '' CHECK (contact_method IN ('','phone','sms','whatsapp','visit','other')),
+      contact_note text NOT NULL DEFAULT '' CHECK (length(contact_note) <= 2000),
+      contacted_by uuid REFERENCES users(id) ON DELETE SET NULL,
+      contacted_at timestamptz,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      updated_at timestamptz NOT NULL DEFAULT now(),
+      UNIQUE (school_id,student_id,absence_date),
+      FOREIGN KEY (school_id,student_id) REFERENCES students(school_id,id) ON DELETE RESTRICT,
+      CHECK ((contact_outcome='' AND contact_method='' AND contact_note='') OR (contact_outcome IN ('contacted','no_answer') AND contact_method<>'' AND length(btrim(contact_note))>=3))
+    );
     CREATE TABLE IF NOT EXISTS application_migrations (
       name text PRIMARY KEY,
       applied_at timestamptz NOT NULL DEFAULT now()
@@ -297,6 +313,8 @@ export async function migrateFeatures(pool) {
     CREATE INDEX IF NOT EXISTS absence_records_school_day ON absence_records(school_id,absence_date DESC);
     CREATE INDEX IF NOT EXISTS absence_records_school_student ON absence_records(school_id,student_id,absence_date DESC);
     CREATE INDEX IF NOT EXISTS absence_corrections_school_student ON absence_corrections(school_id,student_id,absence_date DESC);
+    CREATE INDEX IF NOT EXISTS absence_follow_up_cases_school_day ON absence_follow_up_cases(school_id,absence_date DESC);
+    CREATE INDEX IF NOT EXISTS absence_follow_up_cases_school_student ON absence_follow_up_cases(school_id,student_id,absence_date DESC);
     CREATE INDEX IF NOT EXISTS attendance_logs_late_history ON attendance_logs(school_id,student_id,attendance_date DESC) WHERE status='late';
     ALTER TABLE almadar_accounts ENABLE ROW LEVEL SECURITY;
     ALTER TABLE almadar_accounts FORCE ROW LEVEL SECURITY;
@@ -387,7 +405,9 @@ export async function handleFeatureRequest(context) {
       if (!grades?.length) return { grade: '', rows: [], summary: { students: 0, unexcused: 0, excused: 0, special: 0 } }
       const rows = (await client.query(`SELECT
           a.student_id AS "studentId",s.name,s.grade,s.classroom,s.phone,a.status,
-          totals."absenceDays",totals."unexcusedDays",totals."excusedDays",totals."specialDays"
+          totals."absenceDays",totals."unexcusedDays",totals."excusedDays",totals."specialDays",
+          COALESCE(follow_up.contact_outcome,'') AS "contactOutcome",COALESCE(follow_up.contact_method,'') AS "contactMethod",
+          COALESCE(follow_up.contact_note,'') AS "contactNote",follow_up.contacted_at AS "contactedAt"
         FROM absence_records a
         JOIN students s ON s.school_id=a.school_id AND s.id=a.student_id AND s.active=true
         JOIN LATERAL (
@@ -403,6 +423,8 @@ export async function handleFeatureRequest(context) {
                 AND history_attendance.attendance_date=history.absence_date AND history_attendance.status IN ('present','late')
             )
         ) totals ON true
+        LEFT JOIN absence_follow_up_cases follow_up ON follow_up.school_id=a.school_id
+          AND follow_up.student_id=a.student_id AND follow_up.absence_date=a.absence_date
         WHERE a.school_id=$1 AND a.absence_date=$2::date AND a.status IN ('unexcused','excused','special')
           AND s.grade=ANY($3::text[])
           AND NOT EXISTS (
@@ -420,6 +442,44 @@ export async function handleFeatureRequest(context) {
       return { grade: grades.join('، '), rows, summary }
     })
     json(res, 200, { date, ...result })
+    return true
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/absence-procedures/vice/contact') {
+    if (user.role !== 'vice_principal') { json(res, 403, { error: 'forbidden' }); return true }
+    const input = await body(req)
+    const studentId = String(input.studentId || '').trim()
+    const date = validDate(input.date)
+    const outcome = String(input.outcome || '')
+    const method = String(input.method || '')
+    const note = String(input.note || '').replace(/\s+/g, ' ').trim().slice(0, 2000)
+    if (!studentId || !date || date > todayRiyadh() || !['contacted','no_answer'].includes(outcome) || !['phone','sms','whatsapp','visit','other'].includes(method) || note.length < 3) {
+      json(res, 400, { error: 'invalid_contact_documentation' }); return true
+    }
+    const result = await scoped(user.school_id, async client => {
+      const grades = await studentWellbeingGrades(client, user)
+      if (!grades?.length) return null
+      const approved = await client.query(`SELECT 1
+        FROM absence_records absence JOIN students student ON student.school_id=absence.school_id AND student.id=absence.student_id
+        WHERE absence.school_id=$1 AND absence.student_id=$2 AND absence.absence_date=$3::date
+          AND absence.status IN ('unexcused','excused','special') AND student.active=true AND student.grade=ANY($4::text[])
+          AND NOT EXISTS (
+            SELECT 1 FROM attendance_logs attendance
+            WHERE attendance.school_id=absence.school_id AND attendance.student_id=absence.student_id
+              AND attendance.attendance_date=absence.absence_date AND attendance.status IN ('present','late')
+          )`, [user.school_id, studentId, date, grades])
+      if (!approved.rowCount) return null
+      return client.query(`INSERT INTO absence_follow_up_cases(
+          school_id,student_id,absence_date,contact_outcome,contact_method,contact_note,contacted_by,contacted_at
+        ) VALUES($1,$2,$3::date,$4,$5,$6,$7,now())
+        ON CONFLICT(school_id,student_id,absence_date) DO UPDATE SET
+          contact_outcome=EXCLUDED.contact_outcome,contact_method=EXCLUDED.contact_method,contact_note=EXCLUDED.contact_note,
+          contacted_by=EXCLUDED.contacted_by,contacted_at=now(),updated_at=now()
+        RETURNING contact_outcome AS "contactOutcome",contact_method AS "contactMethod",contact_note AS "contactNote",contacted_at AS "contactedAt"`,
+      [user.school_id, studentId, date, outcome, method, note, user.user_id])
+    })
+    if (!result) { json(res, 404, { error: 'approved_absence_not_found' }); return true }
+    json(res, 200, { ok: true, contact: result.rows[0] })
     return true
   }
 

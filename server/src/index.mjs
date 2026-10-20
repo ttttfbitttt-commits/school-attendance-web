@@ -35,7 +35,7 @@ const LOGIN_IP_LIMIT = 20
 const LOGIN_IDENTITY_LIMIT = 10
 const loginAttempts = new Map()
 const SCHOOL_STORAGE_TABLES = [
-  'students', 'attendance_logs', 'almadar_accounts', 'student_excuses', 'message_logs', 'absence_records', 'absence_corrections',
+  'students', 'attendance_logs', 'almadar_accounts', 'student_excuses', 'message_logs', 'absence_records', 'absence_corrections', 'absence_follow_up_cases',
   'lesson_teachers', 'lesson_classrooms', 'lesson_schedule_imports', 'lesson_name_mappings', 'lesson_time_slots', 'lesson_schedule_assignments',
   'teacher_incidents', 'teacher_day_absences', 'teacher_classroom_student_maps', 'teacher_lesson_sessions', 'teacher_lesson_student_records',
   'teacher_sheet_configs', 'teacher_sheet_entries', 'teacher_evidence_records', 'teacher_evidence_images', 'behavior_incidents', 'behavior_student_records', 'behavior_action_steps',
@@ -316,7 +316,7 @@ async function configureDatabaseRoles() {
 
   await adminPool.query('GRANT USAGE ON SCHEMA public TO attendance_app, attendance_auth')
   await adminPool.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON schools, students, attendance_logs, almadar_accounts, student_excuses,
-    message_logs, absence_records, absence_corrections, lesson_teachers, lesson_classrooms, lesson_schedule_imports,
+    message_logs, absence_records, absence_corrections, absence_follow_up_cases, lesson_teachers, lesson_classrooms, lesson_schedule_imports,
     lesson_name_mappings, lesson_time_slots, lesson_schedule_assignments, teacher_incidents, teacher_day_absences,
     teacher_classroom_student_maps, teacher_lesson_sessions, teacher_lesson_student_records,
     teacher_sheet_configs, teacher_sheet_entries, teacher_evidence_records, teacher_evidence_images, behavior_incidents, behavior_student_records,
@@ -347,6 +347,7 @@ async function enforceTenantRowSecurity() {
     ['message_logs', 'school_id', 'message_logs_school_scope'],
     ['absence_records', 'school_id', 'absence_records_school_scope'],
     ['absence_corrections', 'school_id', 'absence_corrections_school_scope'],
+    ['absence_follow_up_cases', 'school_id', 'absence_follow_up_cases_school_scope'],
     ['lesson_teachers', 'school_id', 'lesson_teachers_school_scope'],
     ['lesson_classrooms', 'school_id', 'lesson_classrooms_school_scope'],
     ['lesson_schedule_imports', 'school_id', 'lesson_schedule_imports_school_scope'],
