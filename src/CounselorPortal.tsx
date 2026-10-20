@@ -1,16 +1,18 @@
 import { useEffect, useMemo, useState } from 'react'
-import { FileText, GraduationCap, Home, KeyRound, LockKeyhole, LogOut, Menu, MessageSquare, RefreshCw, Send, ShieldAlert, UserRound, Users, X } from 'lucide-react'
+import { ClipboardList, FileText, GraduationCap, Home, KeyRound, LockKeyhole, LogOut, Menu, MessageSquare, RefreshCw, Send, ShieldAlert, UserRound, Users, X } from 'lucide-react'
 import { api, type Account, type CounselorPortalDashboard } from './api'
 import { BehaviorCenter } from './BehaviorCenter'
 import { CounselorReferralCenter } from './StudentReferrals'
 import { MessageCenter, ReportsCenter } from './SchoolFeatures'
+import { AbsenceProcedureGuide } from './AbsenceProcedureGuide'
 
-type CounselorView = 'home' | 'behavior' | 'referrals' | 'reports' | 'teachers' | 'students' | 'messages' | 'password'
+type CounselorView = 'home' | 'behavior' | 'referrals' | 'absenceProcedures' | 'reports' | 'teachers' | 'students' | 'messages' | 'password'
 
 const nav: Array<{ id: CounselorView; label: string; icon: typeof Home }> = [
   { id: 'home', label: 'الرئيسية', icon: Home },
   { id: 'behavior', label: 'السلوك', icon: ShieldAlert },
   { id: 'referrals', label: 'الإحالات', icon: Send },
+  { id: 'absenceProcedures', label: 'إجراءات التعامل مع الغياب', icon: ClipboardList },
   { id: 'reports', label: 'التقارير', icon: FileText },
   { id: 'teachers', label: 'المعلمون', icon: Users },
   { id: 'students', label: 'الطلاب', icon: GraduationCap },
@@ -75,7 +77,7 @@ export function CounselorPortal({ account, onLogout }: { account: Account; onLog
     <button type="button" className="student-mobile-menu" onClick={() => setMenuOpen(true)} aria-label="فتح القائمة"><Menu size={21} /></button>
     <aside className={`student-sidebar${menuOpen ? ' open' : ''}`}>
       <div className="student-brand"><UserRound size={24} /><div><strong>بوابة الموجّه الطلابي</strong><small>{dashboard.counselor.name}</small></div><button type="button" onClick={() => setMenuOpen(false)} aria-label="إغلاق القائمة"><X size={18} /></button></div>
-      <nav>{nav.map(item => { const Icon = item.icon; return <button key={item.id} type="button" className={view === item.id ? 'active' : ''} onClick={() => go(item.id)}><Icon size={18} />{item.label}</button> })}</nav>
+      <nav>{nav.map(item => { const Icon = item.icon; return <button key={item.id} type="button" className={view === item.id ? 'active' : ''} onClick={() => go(item.id)}><Icon size={18} />{item.label}{item.id === 'absenceProcedures' && <b className="absence-procedure-new-badge">جديد</b>}</button> })}</nav>
       <button type="button" className="student-logout" onClick={onLogout}><LogOut size={18} /> تسجيل الخروج</button>
     </aside>
     <section className="student-workspace counselor-workspace">
@@ -85,6 +87,7 @@ export function CounselorPortal({ account, onLogout }: { account: Account; onLog
       {view === 'home' && <section className="counselor-home"><section className="counselor-welcome"><div><span>مرحبًا بك</span><h2>{dashboard.counselor.name}</h2><p>تابع السلوك والإحالات وبيانات الطلاب والمعلمين من بوابة واحدة.</p></div><ShieldAlert size={42} /></section><div className="counselor-home-grid"><article><GraduationCap size={23} /><span>الطلاب</span><strong>{dashboard.students.length}</strong><button type="button" onClick={() => go('students')}>عرض الطلاب</button></article><article><Users size={23} /><span>المعلمون</span><strong>{dashboard.teachers.length}</strong><button type="button" onClick={() => go('teachers')}>عرض المعلمين</button></article><article><ShieldAlert size={23} /><span>متابعة الحالات</span><strong>السلوك والإحالات</strong><button type="button" onClick={() => go('behavior')}>فتح السلوك</button></article></div><section className="counselor-profile-card"><h3>بيانات الموجّه</h3><dl><div><dt>الاسم</dt><dd>{dashboard.counselor.name}</dd></div><div><dt>رقم الهوية</dt><dd dir="ltr">{dashboard.counselor.identityNumber}</dd></div><div><dt>رقم الجوال</dt><dd dir="ltr">{dashboard.counselor.phone || '—'}</dd></div></dl></section></section>}
       {view === 'behavior' && <BehaviorCenter school={{ schoolName: dashboard.schoolName, principalName: '', academicYear: '', semester: '' }} role="counselor" />}
       {view === 'referrals' && <CounselorReferralCenter schoolName={dashboard.schoolName} />}
+      {view === 'absenceProcedures' && <AbsenceProcedureGuide role="counselor" />}
       {view === 'reports' && <ReportsCenter students={dashboard.students} schoolName={dashboard.schoolName} viewer="counselor" />}
       {view === 'messages' && <MessageCenter students={dashboard.students} attendance={attendance as never[]} schoolName={dashboard.schoolName} />}
       {view === 'teachers' && <section className="counselor-directory"><header><div><span>بيانات المدرسة</span><h2>المعلمون</h2><p>عرض قائمة المعلمين ووسائل التواصل.</p></div><Users size={30} /></header><input value={search} onChange={event => setSearch(event.target.value)} placeholder="ابحث باسم المعلم أو رقم الهوية أو الجوال" /> <div className="counselor-directory-grid">{teachers.map(teacher => <article key={teacher.teacherId}><strong>{teacher.name}</strong><span>رقم الهوية <b dir="ltr">{teacher.identityNumber || '—'}</b></span><small dir="ltr">{teacher.phone || 'لا يوجد رقم جوال'}</small></article>)}</div>{!teachers.length && <p className="teacher-empty">لا يوجد معلمون مطابقون للبحث.</p>}</section>}

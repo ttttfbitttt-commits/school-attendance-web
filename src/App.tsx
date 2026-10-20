@@ -10,6 +10,7 @@ import {
   Check,
   CheckCircle2,
   ChevronDown,
+  ClipboardList,
   Clock3,
   Database,
   Download,
@@ -64,6 +65,7 @@ import { CounselorPortal } from './CounselorPortal'
 import { VicePrincipalAdminCenter } from './VicePrincipalAdmin'
 import { ActivityLeaderAdminCenter } from './ActivityLeaderAdmin'
 import { ActivityLeaderPortal } from './ActivityLeaderPortal'
+import { AbsenceProcedureGuide } from './AbsenceProcedureGuide'
 
 type Student = {
   id: string
@@ -217,7 +219,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
   const [attendanceSearch, setAttendanceSearch] = useState('')
   const [attendanceStudentSearch, setAttendanceStudentSearch] = useState('')
   const [scanInput, setScanInput] = useState('')
-  const [activeNav, setActiveNav] = useState<'dashboard' | 'students' | 'studentPortal' | 'attendance' | 'cooperation' | 'behavior' | 'lessons' | 'teachers' | 'administrators' | 'counselors' | 'vicePrincipals' | 'activityLeaders' | 'referrals' | 'reports' | 'messages' | 'backup'>('attendance')
+  const [activeNav, setActiveNav] = useState<'dashboard' | 'students' | 'studentPortal' | 'attendance' | 'absenceProcedures' | 'cooperation' | 'behavior' | 'lessons' | 'teachers' | 'administrators' | 'counselors' | 'vicePrincipals' | 'activityLeaders' | 'referrals' | 'reports' | 'messages' | 'backup'>('attendance')
   const [manualAttendanceSelection, setManualAttendanceSelection] = useState<Student[]>([])
   const [manualAttendanceSubmitting, setManualAttendanceSubmitting] = useState(false)
   const [attendanceStatusUpdating, setAttendanceStatusUpdating] = useState<Set<string>>(new Set())
@@ -1664,7 +1666,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
   }
 
   const isSchoolManager = account.role === 'admin' || account.role === 'vice_principal'
-  const pageLabel = activeNav === 'dashboard' ? 'إعدادات المدرسة' : activeNav === 'attendance' ? 'سجل الحضور' : activeNav === 'cooperation' ? 'المعلم المتعاون' : activeNav === 'behavior' ? 'سجل السلوك' : activeNav === 'lessons' ? 'سير الحصص' : activeNav === 'teachers' ? 'المعلمون' : activeNav === 'administrators' ? 'الإداريون' : activeNav === 'counselors' ? 'الموجّه الطلابي' : activeNav === 'vicePrincipals' ? 'وكلاء المدرسة' : activeNav === 'activityLeaders' ? 'رائد النشاط' : activeNav === 'studentPortal' ? 'بوابة الطالب' : activeNav === 'referrals' ? 'إحالات الطلاب' : activeNav === 'reports' ? 'التقارير' : activeNav === 'messages' ? 'الرسائل' : activeNav === 'backup' ? 'النسخ الاحتياطي والاستعادة' : 'إدارة الطلاب'
+  const pageLabel = activeNav === 'dashboard' ? 'إعدادات المدرسة' : activeNav === 'attendance' ? 'سجل الحضور' : activeNav === 'absenceProcedures' ? 'إجراءات التعامل مع الغياب' : activeNav === 'cooperation' ? 'المعلم المتعاون' : activeNav === 'behavior' ? 'سجل السلوك' : activeNav === 'lessons' ? 'سير الحصص' : activeNav === 'teachers' ? 'المعلمون' : activeNav === 'administrators' ? 'الإداريون' : activeNav === 'counselors' ? 'الموجّه الطلابي' : activeNav === 'vicePrincipals' ? 'وكلاء المدرسة' : activeNav === 'activityLeaders' ? 'رائد النشاط' : activeNav === 'studentPortal' ? 'بوابة الطالب' : activeNav === 'referrals' ? 'إحالات الطلاب' : activeNav === 'reports' ? 'التقارير' : activeNav === 'messages' ? 'الرسائل' : activeNav === 'backup' ? 'النسخ الاحتياطي والاستعادة' : 'إدارة الطلاب'
   return (
     <div className="app-shell" dir="rtl">
       {passwordChangeRequired && <div className="counselor-dialog-backdrop" role="dialog" aria-modal="true" aria-labelledby="vice-principal-password-title">
@@ -1765,6 +1767,18 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
             <BarChart3 size={18} />
             <span>سجل الحضور</span>
           </button>
+
+          {isSchoolManager && <button
+            className={activeNav === 'absenceProcedures' ? 'nav-item active' : 'nav-item'}
+            onClick={() => {
+              setActiveNav('absenceProcedures')
+              setIsMobileMenuOpen(false)
+            }}
+          >
+            <ClipboardList size={18} />
+            <span>إجراءات التعامل مع الغياب</span>
+            <b className="absence-procedure-new-badge">جديد</b>
+          </button>}
 
           <button
             className={activeNav === 'cooperation' ? 'nav-item active' : 'nav-item'}
@@ -2555,6 +2569,8 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
         )}
 
         {activeNav === 'reports' && <ReportsCenter students={students} schoolName={schoolSettings.schoolName} />}
+
+        {activeNav === 'absenceProcedures' && isSchoolManager && <AbsenceProcedureGuide role={account.role === 'vice_principal' ? 'vice' : 'school'} />}
 
         {activeNav === 'cooperation' && <TeacherCooperationAdmin schoolName={schoolSettings.schoolName} principalName={schoolSettings.principalName} />}
 
