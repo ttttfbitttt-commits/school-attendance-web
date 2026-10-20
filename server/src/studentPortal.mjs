@@ -399,6 +399,20 @@ export async function handleStudentPortalRequest(context) {
     return true
   }
 
+  if (req.method === 'GET' && url.pathname === '/api/student-portal/activity-leader/portfolio/groups') {
+    if (user.role !== 'activity_leader') { json(res, 403, { error: 'forbidden' }); return true }
+    json(res, 200, { groups: await scoped(user.school_id, client => assignmentGroups(client, user.school_id, 'school')) })
+    return true
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/student-portal/activity-leader/portfolio/entries') {
+    if (user.role !== 'activity_leader') { json(res, 403, { error: 'forbidden' }); return true }
+    const entry = await scoped(user.school_id, client => assignmentRoster(client, user.school_id, url.searchParams.get('assignmentId') || ''))
+    if (!entry) { json(res, 404, { error: 'portfolio_assignment_not_found' }); return true }
+    json(res, 200, entry)
+    return true
+  }
+
   if (req.method === 'GET' && url.pathname === '/api/student-portal/teacher/portfolio/groups') {
     if (!teacherOnly()) { json(res, 403, { error: 'forbidden' }); return true }
     json(res, 200, { groups: await scoped(user.school_id, client => assignmentGroups(client, user.school_id, 'teacher', user.teacher_id)) })
@@ -414,7 +428,7 @@ export async function handleStudentPortalRequest(context) {
   }
 
   if (req.method === 'GET' && url.pathname === '/api/student-portal/portfolio/file') {
-    if (!['admin', 'vice_principal', 'teacher', 'student'].includes(user.role)) { json(res, 403, { error: 'forbidden' }); return true }
+    if (!['admin', 'vice_principal', 'teacher', 'student', 'activity_leader'].includes(user.role)) { json(res, 403, { error: 'forbidden' }); return true }
     const assignmentId = String(url.searchParams.get('assignmentId') || '')
     const studentId = clean(url.searchParams.get('studentId'), 100)
     const slotNumber = Number(url.searchParams.get('slotNumber'))

@@ -1,9 +1,33 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ArrowRight, BookOpenCheck, FileText, FolderOpen, Image, Layers3, RefreshCw, Users } from 'lucide-react'
+import { ArrowRight, BookOpenCheck, FileText, FolderOpen, Image, Layers3, Printer, RefreshCw, Users } from 'lucide-react'
 import { api, type StudentPortfolioEntries, type StudentPortfolioGroup } from './api'
 import { PortfolioFilePreview, type PortfolioPreviewFile } from './PortfolioFilePreview'
+import { openPrintDocument } from './SchoolFeatures'
 
-export function StudentPortfolioBoard({ scope = 'school' }: { scope?: 'school' | 'teacher' }) {
+const escapeHtml = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character] || character))
+
+const gradeRank = (grade: string) => {
+  const normalized = String(grade || '').trim().replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه')
+  if (/(^|\s)(اول|الاول)(\s|$)/.test(normalized)) return 1
+  if (/(^|\s)(ثاني|الثاني)(\s|$)/.test(normalized)) return 2
+  if (/(^|\s)(ثالث|الثالث)(\s|$)/.test(normalized)) return 3
+  if (/(^|\s)(رابع|الرابع)(\s|$)/.test(normalized)) return 4
+  if (/(^|\s)(خامس|الخامس)(\s|$)/.test(normalized)) return 5
+  if (/(^|\s)(سادس|السادس)(\s|$)/.test(normalized)) return 6
+  return 99
+}
+
+const compareClassrooms = (left: { grade: string; classroom: string }, right: { grade: string; classroom: string }) =>
+  gradeRank(left.grade) - gradeRank(right.grade)
+  || left.grade.localeCompare(right.grade, 'ar', { numeric: true, sensitivity: 'base' })
+  || left.classroom.localeCompare(right.classroom, 'ar', { numeric: true, sensitivity: 'base' })
+
+function portfolioReportHtml(entries: StudentPortfolioEntries) {
+  const rows = entries.students.map((student, index) => `<tr><td>${index + 1}</td><td>${escapeHtml(student.name)}</td><td dir="ltr">${escapeHtml(student.identityNumber)}</td><td>${student.slots.filter(slot => slot.fileUrl).length} من ${student.slots.length}</td><td>${student.slots.filter(slot => slot.fileUrl).map(slot => escapeHtml(slot.fileName || `المربع ${slot.slotNumber}`)).join('<br/>') || 'لا توجد ملفات مرفوعة'}</td></tr>`).join('')
+  return `<section class="page"><h1>ملف إنجاز الطلاب</h1><p class="report-date">${escapeHtml(entries.subject)} · ${escapeHtml(entries.grade)} · الفصل ${escapeHtml(entries.classroom)}</p><p class="meta">المعلم: ${escapeHtml(entries.teacherName)} · عدد الطلاب: ${entries.students.length}</p><table><thead><tr><th>م</th><th>الطالب</th><th>رقم الهوية</th><th>الإنجازات</th><th>الملفات المرفوعة</th></tr></thead><tbody>${rows || '<tr><td colspan="5">لا يوجد طلاب في هذا الفصل.</td></tr>'}</tbody></table></section>`
+}
+
+export function StudentPortfolioBoard({ scope = 'school', schoolName = 'المدرسة' }: { scope?: 'school' | 'teacher' | 'activityLeader'; schoolName?: string }) {
   const [groups, setGroups] = useState<StudentPortfolioGroup[]>([])
   const [selectedId, setSelectedId] = useState('')
   const [selectedClassroom, setSelectedClassroom] = useState('')
@@ -16,7 +40,7 @@ export function StudentPortfolioBoard({ scope = 'school' }: { scope?: 'school' |
     setBusy(true)
     setError('')
     try {
-      const result = scope === 'teacher' ? await api.teacherPortfolioGroups() : await api.schoolPortfolioGroups()
+      const result = scope === 'teacher' ? await api.teacherPortfolioGroups() : scope === 'activityLeader' ? await api.activityLeaderPortfolioGroups() : await api.schoolPortfolioGroups()
       setGroups(result.groups)
       setSelectedClassroom(current => result.groups.some(group => `${group.grade}:${group.classroom}` === current) ? current : '')
       setSelectedId(current => result.groups.some(group => group.assignmentId === current) ? current : '')
@@ -33,7 +57,7 @@ export function StudentPortfolioBoard({ scope = 'school' }: { scope?: 'school' |
     setError('')
     const loadEntries = async () => {
       try {
-        const result = scope === 'teacher' ? await api.teacherPortfolioEntries(selectedId) : await api.schoolPortfolioEntries(selectedId)
+        const result = scope === 'teacher' ? await api.teacherPortfolioEntries(selectedId) : scope === 'activityLeader' ? await api.activityLeaderPortfolioEntries(selectedId) : await api.schoolPortfolioEntries(selectedId)
         if (active) setEntries(result)
       } catch { if (active) setError('تعذر فتح طلاب هذه المادة.') }
     }
@@ -51,9 +75,11 @@ export function StudentPortfolioBoard({ scope = 'school' }: { scope?: 'school' |
       current.subjects += 1
       byClassroom.set(key, current)
     }
-    return [...byClassroom.values()].sort((a, b) => `${a.grade} ${a.classroom}`.localeCompare(`${b.grade} ${b.classroom}`, 'ar'))
+    return [...byClassroom.values()].sort(compareClassrooms)
   }, [groups])
-  const classSubjects = useMemo(() => groups.filter(group => `${group.grade}:${group.classroom}` === selectedClassroom), [groups, selectedClassroom])
+  const classSubjects = useMemo(() => groups
+    .filter(group => `${group.grade}:${group.classroom}` === selectedClassroom)
+    .sort((left, right) => left.subject.localeCompare(right.subject, 'ar', { numeric: true, sensitivity: 'base' }) || left.teacherName.localeCompare(right.teacherName, 'ar', { numeric: true, sensitivity: 'base' })), [groups, selectedClassroom])
   const chooseClassroom = (key: string) => { setSelectedClassroom(key); setSelectedId(''); setEntries(null) }
 
   return <section className="student-portfolio-admin" dir="rtl">
@@ -73,7 +99,7 @@ export function StudentPortfolioBoard({ scope = 'school' }: { scope?: 'school' |
       </>}
       {selectedId && !entries && <p className="teacher-empty">جارٍ تحميل طلاب المادة…</p>}
       {entries && <section className="student-portfolio-entries">
-        <header><div><span>{entries.grade} · الفصل {entries.classroom}</span><h3>{entries.subject}</h3><p>المعلم: {entries.teacherName}</p></div><strong>{entries.students.length} طالبًا</strong></header>
+        <header><div><span>{entries.grade} · الفصل {entries.classroom}</span><h3>{entries.subject}</h3><p>المعلم: {entries.teacherName}</p></div><div className="teacher-report-actions"><strong>{entries.students.length} طالبًا</strong>{scope === 'activityLeader' && <button type="button" className="outline-button" onClick={() => openPrintDocument(`ملف إنجاز الطلاب - ${entries.subject}`, portfolioReportHtml(entries), schoolName, 'landscape')}><Printer size={16} />طباعة / حفظ PDF</button>}</div></header>
         <div className="student-portfolio-students">
           {entries.students.map(student => <article key={student.id}>
             <div className="student-portfolio-student-name"><b>{student.name}</b><span dir="ltr">{student.identityNumber}</span></div>

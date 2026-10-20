@@ -369,6 +369,8 @@ export const api = {
   setStudentAttendanceCooperationAccess: (studentId: string, attendanceCooperationAccess: boolean) => request<{ ok: boolean; attendanceCooperationAccess: boolean }>('/student-portal/admin/accounts/cooperation-access', { method: 'PATCH', body: JSON.stringify({ studentId, attendanceCooperationAccess }) }),
   schoolPortfolioGroups: () => request<{ groups: StudentPortfolioGroup[] }>('/student-portal/admin/portfolio/groups'),
   schoolPortfolioEntries: (assignmentId: string) => request<StudentPortfolioEntries>(`/student-portal/admin/portfolio/entries?assignmentId=${encodeURIComponent(assignmentId)}`),
+  activityLeaderPortfolioGroups: () => request<{ groups: StudentPortfolioGroup[] }>('/student-portal/activity-leader/portfolio/groups'),
+  activityLeaderPortfolioEntries: (assignmentId: string) => request<StudentPortfolioEntries>(`/student-portal/activity-leader/portfolio/entries?assignmentId=${encodeURIComponent(assignmentId)}`),
   teacherPortfolioGroups: () => request<{ groups: StudentPortfolioGroup[] }>('/student-portal/teacher/portfolio/groups'),
   teacherPortfolioEntries: (assignmentId: string) => request<StudentPortfolioEntries>(`/student-portal/teacher/portfolio/entries?assignmentId=${encodeURIComponent(assignmentId)}`),
   studentPortalDashboard: () => request<StudentPortalDashboard>('/student-portal/student/dashboard'),
