@@ -6,6 +6,7 @@ const portfolioGenerationJobs = new Map()
 const storedPortfolioFileTypes = new Set(['image/png', 'image/jpeg', 'image/webp', 'application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'])
 const portfolioUploadImageTypes = new Set(['image/png', 'image/jpeg', 'image/webp'])
 const MAX_PORTFOLIO_IMAGE_BYTES = 1_000_000
+const PORTFOLIO_SLOT_COUNT = 8
 const classroomKey = value => clean(value, 260).normalize('NFKC').replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه').replace(/[\u064B-\u065F\u0670ـ]/g, '').replace(/[^\p{L}\p{N}]+/gu, ' ').replace(/\s+/g, ' ').trim()
 const portfolioFileUrl = (assignmentId, studentId, slotNumber) => `/api/student-portal/portfolio/file?assignmentId=${encodeURIComponent(assignmentId)}&studentId=${encodeURIComponent(studentId)}&slotNumber=${encodeURIComponent(slotNumber)}`
 
@@ -56,7 +57,7 @@ async function ensureAutomaticMappings(client, schoolId) {
 
 function portfolioSlots(files = []) {
   const bySlot = new Map(files.map(file => [Number(file.slotNumber), file]))
-  return Array.from({ length: 10 }, (_, index) => {
+  return Array.from({ length: PORTFOLIO_SLOT_COUNT }, (_, index) => {
     const file = bySlot.get(index + 1)
     return { slotNumber: index + 1, fileUrl: file?.fileUrl || '', fileName: file?.fileName || '', fileType: file?.fileType || '', uploadedAt: file?.uploadedAt || null }
   })
@@ -239,7 +240,7 @@ export async function migrateStudentPortal(adminPool) {
       school_id uuid NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
       student_id text NOT NULL,
       assignment_id uuid NOT NULL REFERENCES lesson_schedule_assignments(id) ON DELETE CASCADE,
-      slot_number smallint NOT NULL CHECK (slot_number BETWEEN 1 AND 10),
+      slot_number smallint NOT NULL CHECK (slot_number BETWEEN 1 AND ${PORTFOLIO_SLOT_COUNT}),
       file_data text NOT NULL,
       file_name text NOT NULL DEFAULT '',
       file_type text NOT NULL DEFAULT '',
@@ -259,13 +260,41 @@ export async function migrateStudentPortal(adminPool) {
     END $$;
     ALTER TABLE student_portfolio_files ADD COLUMN IF NOT EXISTS file_name text NOT NULL DEFAULT '';
     ALTER TABLE student_portfolio_files ADD COLUMN IF NOT EXISTS file_type text NOT NULL DEFAULT '';
-    ALTER TABLE student_portfolio_files DROP CONSTRAINT IF EXISTS student_portfolio_files_slot_number_check;
-    ALTER TABLE student_portfolio_files ADD CONSTRAINT student_portfolio_files_slot_number_check CHECK (slot_number BETWEEN 1 AND 10);
     UPDATE student_portfolio_files
       SET file_type=COALESCE(NULLIF(file_type,''),substring(file_data from '^data:([^;]+)')),
           file_name=CASE WHEN COALESCE(file_name,'')='' THEN 'ملف مرفوع' ELSE file_name END
       WHERE COALESCE(file_type,'')='' OR COALESCE(file_name,'')='';
   `)
+  const overflow = `
+    WITH slot_overflow AS (
+      SELECT school_id,student_id,assignment_id,slot_number,
+        row_number() OVER (PARTITION BY school_id,student_id,assignment_id ORDER BY slot_number) AS target_index
+      FROM student_portfolio_files WHERE slot_number>${PORTFOLIO_SLOT_COUNT}
+    ), groups AS (
+      SELECT DISTINCT school_id,student_id,assignment_id FROM slot_overflow
+    ), free_slots AS (
+      SELECT g.school_id,g.student_id,g.assignment_id,available.slot_number,
+        row_number() OVER (PARTITION BY g.school_id,g.student_id,g.assignment_id ORDER BY available.slot_number) AS target_index
+      FROM groups g CROSS JOIN generate_series(1,${PORTFOLIO_SLOT_COUNT}) AS available(slot_number)
+      WHERE NOT EXISTS (
+        SELECT 1 FROM student_portfolio_files used
+        WHERE used.school_id=g.school_id AND used.student_id=g.student_id
+          AND used.assignment_id=g.assignment_id AND used.slot_number=available.slot_number
+      )
+    ), targets AS (
+      SELECT slot_overflow.school_id,slot_overflow.student_id,slot_overflow.assignment_id,slot_overflow.slot_number AS old_slot,free_slots.slot_number AS target_slot
+      FROM slot_overflow LEFT JOIN free_slots USING(school_id,student_id,assignment_id,target_index)
+    )`
+  const unresolved = await adminPool.query(`${overflow}
+    SELECT COUNT(*)::int AS count FROM targets WHERE target_slot IS NULL`)
+  if (Number(unresolved.rows[0]?.count || 0) > 0) throw new Error('portfolio_slot_reduction_requires_empty_destination')
+  await adminPool.query(`${overflow}
+    UPDATE student_portfolio_files files SET slot_number=targets.target_slot
+    FROM targets
+    WHERE files.school_id=targets.school_id AND files.student_id=targets.student_id
+      AND files.assignment_id=targets.assignment_id AND files.slot_number=targets.old_slot`)
+  await adminPool.query(`ALTER TABLE student_portfolio_files DROP CONSTRAINT IF EXISTS student_portfolio_files_slot_number_check;
+    ALTER TABLE student_portfolio_files ADD CONSTRAINT student_portfolio_files_slot_number_check CHECK (slot_number BETWEEN 1 AND ${PORTFOLIO_SLOT_COUNT});`)
 }
 
 export async function handleStudentPortalRequest(context) {
@@ -389,7 +418,7 @@ export async function handleStudentPortalRequest(context) {
     const assignmentId = String(url.searchParams.get('assignmentId') || '')
     const studentId = clean(url.searchParams.get('studentId'), 100)
     const slotNumber = Number(url.searchParams.get('slotNumber'))
-    if (!validUuid(assignmentId) || !studentId || !Number.isInteger(slotNumber) || slotNumber < 1 || slotNumber > 10) { json(res, 400, { error: 'invalid_portfolio_file' }); return true }
+    if (!validUuid(assignmentId) || !studentId || !Number.isInteger(slotNumber) || slotNumber < 1 || slotNumber > PORTFOLIO_SLOT_COUNT) { json(res, 400, { error: 'invalid_portfolio_file' }); return true }
     const file = await scoped(user.school_id, async client => {
       if (user.role === 'student' && studentId !== user.student_id) return null
       if (user.role === 'teacher') {
@@ -496,7 +525,7 @@ export async function handleStudentPortalRequest(context) {
     const assignmentId = String(input.assignmentId || '')
     const slotNumber = Number(input.slotNumber)
     const file = portfolioFile(input.file, input.fileName)
-    if (!validUuid(assignmentId) || !Number.isInteger(slotNumber) || slotNumber < 1 || slotNumber > 10 || !file) { json(res, 400, { error: 'invalid_portfolio_file' }); return true }
+    if (!validUuid(assignmentId) || !Number.isInteger(slotNumber) || slotNumber < 1 || slotNumber > PORTFOLIO_SLOT_COUNT || !file) { json(res, 400, { error: 'invalid_portfolio_file' }); return true }
     const saved = await scoped(user.school_id, async client => {
       const subjects = await studentSubjects(client, user.school_id, user.student_id)
       if (!subjects?.subjects.some(subject => subject.assignmentId === assignmentId)) return null
@@ -516,7 +545,7 @@ export async function handleStudentPortalRequest(context) {
     const input = await body(req)
     const assignmentId = String(input.assignmentId || '')
     const slotNumber = Number(input.slotNumber)
-    if (!validUuid(assignmentId) || !Number.isInteger(slotNumber) || slotNumber < 1 || slotNumber > 10) { json(res, 400, { error: 'invalid_portfolio_slot' }); return true }
+    if (!validUuid(assignmentId) || !Number.isInteger(slotNumber) || slotNumber < 1 || slotNumber > PORTFOLIO_SLOT_COUNT) { json(res, 400, { error: 'invalid_portfolio_slot' }); return true }
     await scoped(user.school_id, client => client.query(`DELETE FROM student_portfolio_files WHERE school_id=$1 AND student_id=$2 AND assignment_id=$3::uuid AND slot_number=$4`, [user.school_id, user.student_id, assignmentId, slotNumber]))
     json(res, 200, { ok: true })
     return true

@@ -156,7 +156,7 @@ export function StudentPortal({ account, onLogout }: { account: Account; onLogou
         {activeTab === 'password' && <section className="student-password-card"><div><KeyRound size={23} /><div><span>حماية الحساب</span><h2>تغيير كلمة المرور</h2><p>استخدم كلمة مرور لا تقل عن 8 أحرف ولا تشاركها مع أي شخص.</p></div></div><label>كلمة المرور الجديدة<input type="password" autoComplete="new-password" value={password} onChange={event => setPassword(event.target.value)} /></label><label>تأكيد كلمة المرور<input type="password" autoComplete="new-password" value={confirmPassword} onChange={event => setConfirmPassword(event.target.value)} /></label><button type="button" className="primary-button" onClick={() => void changePassword()} disabled={busy === 'password'}>{busy === 'password' ? 'جارٍ الحفظ…' : 'حفظ كلمة المرور'}</button></section>}
         {activeTab === 'portfolio' && dashboard && (
           <section className="student-portfolio-page">
-            <header><BookOpenCheck size={28} /><div><span>ملف إنجازي</span><h2>موادي الدراسية</h2><p>لكل مادة 10 مربعات للصور فقط. تُضغط الصورة وتُحفظ بصيغة WebP قبل رفعها.</p></div></header>
+            <header><BookOpenCheck size={28} /><div><span>ملف إنجازي</span><h2>موادي الدراسية</h2><p>لكل مادة 8 مربعات للصور فقط. تُضغط الصورة وتُحفظ بصيغة WebP قبل رفعها.</p></div></header>
             {!dashboard.subjects.length ? <p className="teacher-empty">لا توجد مواد مرتبطة بفصلك حتى الآن.</p> : (
               <div className="student-subject-grid">
                 {dashboard.subjects.map(subject => (
