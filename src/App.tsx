@@ -61,6 +61,7 @@ import { StudentAdminCenter } from './StudentAdmin'
 import { StudentPortal } from './StudentPortal'
 import { CounselorAdminCenter } from './CounselorAdmin'
 import { CounselorPortal } from './CounselorPortal'
+import { VicePrincipalAdminCenter } from './VicePrincipalAdmin'
 
 type Student = {
   id: string
@@ -200,6 +201,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
   const [schoolPasswordConfirmation, setSchoolPasswordConfirmation] = useState('')
   const [schoolPasswordNotice, setSchoolPasswordNotice] = useState('')
   const [schoolPasswordSubmitting, setSchoolPasswordSubmitting] = useState(false)
+  const [passwordChangeRequired, setPasswordChangeRequired] = useState(account.role === 'vice_principal' && Boolean(account.mustChangePassword))
   const [schoolStorageUsage, setSchoolStorageUsage] = useState<SchoolStorageUsage | null>(null)
   const [schoolStorageLoading, setSchoolStorageLoading] = useState(false)
   const [schoolStorageLoaded, setSchoolStorageLoaded] = useState(false)
@@ -213,7 +215,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
   const [attendanceSearch, setAttendanceSearch] = useState('')
   const [attendanceStudentSearch, setAttendanceStudentSearch] = useState('')
   const [scanInput, setScanInput] = useState('')
-  const [activeNav, setActiveNav] = useState<'dashboard' | 'students' | 'studentPortal' | 'attendance' | 'cooperation' | 'behavior' | 'lessons' | 'teachers' | 'administrators' | 'counselors' | 'referrals' | 'reports' | 'messages' | 'backup'>('attendance')
+  const [activeNav, setActiveNav] = useState<'dashboard' | 'students' | 'studentPortal' | 'attendance' | 'cooperation' | 'behavior' | 'lessons' | 'teachers' | 'administrators' | 'counselors' | 'vicePrincipals' | 'referrals' | 'reports' | 'messages' | 'backup'>('attendance')
   const [manualAttendanceSelection, setManualAttendanceSelection] = useState<Student[]>([])
   const [manualAttendanceSubmitting, setManualAttendanceSubmitting] = useState(false)
   const [attendanceStatusUpdating, setAttendanceStatusUpdating] = useState<Set<string>>(new Set())
@@ -796,12 +798,13 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
   }
 
   const changeSchoolPassword = () => {
+    const minimumPasswordLength = account.role === 'vice_principal' ? 8 : 12
     if (!schoolCurrentPassword) {
       setSchoolPasswordNotice('أدخل كلمة المرور الحالية أولًا.')
       return
     }
-    if (schoolNewPassword.length < 12 || schoolNewPassword.length > 200) {
-      setSchoolPasswordNotice('استخدم كلمة مرور جديدة من 12 حرفًا على الأقل.')
+    if (schoolNewPassword.length < minimumPasswordLength || schoolNewPassword.length > 200) {
+      setSchoolPasswordNotice(`استخدم كلمة مرور جديدة من ${minimumPasswordLength} أحرف على الأقل.`)
       return
     }
     if (schoolNewPassword !== schoolPasswordConfirmation) {
@@ -816,7 +819,8 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
         setSchoolCurrentPassword('')
         setSchoolNewPassword('')
         setSchoolPasswordConfirmation('')
-        setSchoolPasswordNotice('تم تغيير كلمة مرور حساب المدرسة. تم تسجيل خروج الأجهزة الأخرى.')
+        setPasswordChangeRequired(false)
+        setSchoolPasswordNotice('تم تغيير كلمة مرور الحساب. تم تسجيل خروج الأجهزة الأخرى.')
       })
       .catch((reason) => {
         const code = (reason as Error & { code?: string }).code
@@ -1657,9 +1661,30 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
     setTimeout(() => URL.revokeObjectURL(url), 600000)
   }
 
-  const pageLabel = activeNav === 'dashboard' ? 'إعدادات المدرسة' : activeNav === 'attendance' ? 'سجل الحضور' : activeNav === 'cooperation' ? 'المعلم المتعاون' : activeNav === 'behavior' ? 'سجل السلوك' : activeNav === 'lessons' ? 'سير الحصص' : activeNav === 'teachers' ? 'المعلمون' : activeNav === 'administrators' ? 'الإداريون' : activeNav === 'counselors' ? 'الموجّه الطلابي' : activeNav === 'studentPortal' ? 'بوابة الطالب' : activeNav === 'referrals' ? 'إحالات الطلاب' : activeNav === 'reports' ? 'التقارير' : activeNav === 'messages' ? 'الرسائل' : activeNav === 'backup' ? 'النسخ الاحتياطي والاستعادة' : 'إدارة الطلاب'
+  const isSchoolManager = account.role === 'admin' || account.role === 'vice_principal'
+  const pageLabel = activeNav === 'dashboard' ? 'إعدادات المدرسة' : activeNav === 'attendance' ? 'سجل الحضور' : activeNav === 'cooperation' ? 'المعلم المتعاون' : activeNav === 'behavior' ? 'سجل السلوك' : activeNav === 'lessons' ? 'سير الحصص' : activeNav === 'teachers' ? 'المعلمون' : activeNav === 'administrators' ? 'الإداريون' : activeNav === 'counselors' ? 'الموجّه الطلابي' : activeNav === 'vicePrincipals' ? 'وكلاء المدرسة' : activeNav === 'studentPortal' ? 'بوابة الطالب' : activeNav === 'referrals' ? 'إحالات الطلاب' : activeNav === 'reports' ? 'التقارير' : activeNav === 'messages' ? 'الرسائل' : activeNav === 'backup' ? 'النسخ الاحتياطي والاستعادة' : 'إدارة الطلاب'
   return (
     <div className="app-shell" dir="rtl">
+      {passwordChangeRequired && <div className="counselor-dialog-backdrop" role="dialog" aria-modal="true" aria-labelledby="vice-principal-password-title">
+        <form className="counselor-dialog" onSubmit={(event) => { event.preventDefault(); changeSchoolPassword() }}>
+          <span>بوابة وكيل المدرسة</span>
+          <h3 id="vice-principal-password-title">غيّر كلمة المرور المؤقتة</h3>
+          <p>هذه أول مرة تدخل فيها إلى الحساب. أدخل كلمة المرور المؤقتة ثم اختر كلمة مرورك الجديدة.</p>
+          <label>كلمة المرور الحالية
+            <input type="password" autoComplete="current-password" value={schoolCurrentPassword} onChange={(event) => setSchoolCurrentPassword(event.target.value)} required />
+          </label>
+          <label>كلمة المرور الجديدة
+            <input type="password" autoComplete="new-password" minLength={8} value={schoolNewPassword} onChange={(event) => setSchoolNewPassword(event.target.value)} required />
+          </label>
+          <label>تأكيد كلمة المرور الجديدة
+            <input type="password" autoComplete="new-password" minLength={8} value={schoolPasswordConfirmation} onChange={(event) => setSchoolPasswordConfirmation(event.target.value)} required />
+          </label>
+          {schoolPasswordNotice && <p className="teacher-notice error">{schoolPasswordNotice}</p>}
+          <div className="counselor-dialog-actions">
+            <button className="primary-button" disabled={schoolPasswordSubmitting}>{schoolPasswordSubmitting ? 'جارٍ الحفظ…' : 'حفظ كلمة المرور'}</button>
+          </div>
+        </form>
+      </div>}
       {isMobileMenuOpen && (
         <div className="sidebar-backdrop" onClick={() => setIsMobileMenuOpen(false)} />
       )}
@@ -1688,7 +1713,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
           <span className="school-avatar">{schoolSettings.schoolName.trim().charAt(0) || 'م'}</span>
           <div>
             <strong>{schoolSettings.schoolName}</strong>
-            <small>حساب مدير المدرسة</small>
+            <small>{account.role === 'vice_principal' ? 'حساب وكيل المدرسة' : 'حساب مدير المدرسة'}</small>
           </div>
           <span className="online-dot" />
         </div>
@@ -1717,7 +1742,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
             <span className="nav-count">{students.length}</span>
           </button>
 
-          {account.role === 'admin' && <button
+          {isSchoolManager && <button
             className={activeNav === 'studentPortal' ? 'nav-item active' : 'nav-item'}
             onClick={() => {
               setActiveNav('studentPortal')
@@ -1772,7 +1797,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
             <span>سير الحصص</span>
           </button>
 
-          {account.role === 'admin' && <button
+          {isSchoolManager && <button
             className={activeNav === 'teachers' ? 'nav-item active' : 'nav-item'}
             onClick={() => {
               setActiveNav('teachers')
@@ -1783,7 +1808,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
             <span>المعلمون</span>
           </button>}
 
-          {account.role === 'admin' && <button
+          {isSchoolManager && <button
             className={activeNav === 'administrators' ? 'nav-item active' : 'nav-item'}
             onClick={() => {
               setActiveNav('administrators')
@@ -1803,6 +1828,17 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
           >
             <UserPlus size={18} />
             <span>الموجّه الطلابي</span>
+          </button>}
+
+          {account.role === 'admin' && <button
+            className={activeNav === 'vicePrincipals' ? 'nav-item active' : 'nav-item'}
+            onClick={() => {
+              setActiveNav('vicePrincipals')
+              setIsMobileMenuOpen(false)
+            }}
+          >
+            <Users size={18} />
+            <span>وكلاء المدرسة</span>
           </button>}
 
           <button
@@ -1990,11 +2026,11 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
 
               {schoolSettingsNotice && <div className="notice-box settings-notice" role="status">{schoolSettingsNotice}</div>}
             </section>
-            {account.role === 'admin' && <section className="panel school-settings-panel school-password-panel">
+            {isSchoolManager && <section className="panel school-settings-panel school-password-panel">
               <div className="panel-header">
                 <div>
                   <span className="panel-kicker">أمان الحساب</span>
-                  <h3>تغيير كلمة مرور حساب المدرسة</h3>
+                  <h3>تغيير كلمة مرور الحساب</h3>
                   <p>بعد الحفظ سيبقى هذا الجهاز مسجلًا، وتُسجّل الأجهزة الأخرى خروجًا.</p>
                 </div>
                 <button className="primary-button" type="button" onClick={changeSchoolPassword} disabled={schoolPasswordSubmitting}>
@@ -2010,11 +2046,11 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
                 </label>
                 <label className="school-settings-field">
                   <span>كلمة المرور الجديدة</span>
-                  <input type="password" autoComplete="new-password" minLength={12} value={schoolNewPassword} onChange={(event) => setSchoolNewPassword(event.target.value)} />
+                  <input type="password" autoComplete="new-password" minLength={account.role === 'vice_principal' ? 8 : 12} value={schoolNewPassword} onChange={(event) => setSchoolNewPassword(event.target.value)} />
                 </label>
                 <label className="school-settings-field">
                   <span>تأكيد كلمة المرور الجديدة</span>
-                  <input type="password" autoComplete="new-password" minLength={12} value={schoolPasswordConfirmation} onChange={(event) => setSchoolPasswordConfirmation(event.target.value)} />
+                  <input type="password" autoComplete="new-password" minLength={account.role === 'vice_principal' ? 8 : 12} value={schoolPasswordConfirmation} onChange={(event) => setSchoolPasswordConfirmation(event.target.value)} />
                 </label>
               </div>
 
@@ -2517,11 +2553,13 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
 
         {activeNav === 'counselors' && account.role === 'admin' && <CounselorAdminCenter />}
 
-        {activeNav === 'studentPortal' && account.role === 'admin' && <StudentAdminCenter />}
+        {activeNav === 'vicePrincipals' && account.role === 'admin' && <VicePrincipalAdminCenter />}
+
+        {activeNav === 'studentPortal' && isSchoolManager && <StudentAdminCenter />}
 
         {activeNav === 'referrals' && <SchoolReferralCenter schoolName={schoolSettings.schoolName} />}
 
-        {activeNav === 'behavior' && <BehaviorCenter school={schoolSettings} role={account.role === 'admin' ? 'admin' : 'staff'} />}
+        {activeNav === 'behavior' && <BehaviorCenter school={schoolSettings} role={isSchoolManager ? 'admin' : 'staff'} />}
 
         {activeNav === 'messages' && <MessageCenter students={students} attendance={scanLog} schoolName={schoolSettings.schoolName} />}
 

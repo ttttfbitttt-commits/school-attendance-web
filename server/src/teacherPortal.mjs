@@ -608,9 +608,9 @@ export async function handleTeacherPortalRequest(context) {
   const { req, res, url, user, body, json, scoped, authPool, passwordHash } = context
   if (!url.pathname.startsWith('/api/teacher-portal')) return false
 
-  const adminOnly = () => user.role === 'admin'
+  const adminOnly = () => user.role === 'admin' || user.role === 'vice_principal'
   const teacherOnly = () => user.role === 'teacher' && validId(user.teacher_id)
-  const schoolReportAccess = () => user.role === 'admin' || (user.role === 'counselor' && validId(user.counselor_id))
+  const schoolReportAccess = () => user.role === 'admin' || user.role === 'vice_principal' || (user.role === 'counselor' && validId(user.counselor_id))
 
   if (req.method === 'POST' && url.pathname === '/api/teacher-portal/teacher/password') {
     if (!teacherOnly()) { json(res, 403, { error: 'forbidden' }); return true }

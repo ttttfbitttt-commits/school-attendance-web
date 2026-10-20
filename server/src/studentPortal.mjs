@@ -299,7 +299,7 @@ export async function migrateStudentPortal(adminPool) {
 
 export async function handleStudentPortalRequest(context) {
   const { req, res, url, user, body, json, scoped, authPool, passwordHash } = context
-  const adminOnly = () => user.role === 'admin'
+  const adminOnly = () => user.role === 'admin' || user.role === 'vice_principal'
   const teacherOnly = () => user.role === 'teacher' && validUuid(user.teacher_id)
   const studentOnly = () => user.role === 'student' && Boolean(user.student_id)
 
@@ -414,7 +414,7 @@ export async function handleStudentPortalRequest(context) {
   }
 
   if (req.method === 'GET' && url.pathname === '/api/student-portal/portfolio/file') {
-    if (!['admin', 'teacher', 'student'].includes(user.role)) { json(res, 403, { error: 'forbidden' }); return true }
+    if (!['admin', 'vice_principal', 'teacher', 'student'].includes(user.role)) { json(res, 403, { error: 'forbidden' }); return true }
     const assignmentId = String(url.searchParams.get('assignmentId') || '')
     const studentId = clean(url.searchParams.get('studentId'), 100)
     const slotNumber = Number(url.searchParams.get('slotNumber'))

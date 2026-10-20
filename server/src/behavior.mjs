@@ -1,4 +1,4 @@
-import { gradeScope, guideCanAccessStudent, studentGuideGrades } from './counselorScope.mjs'
+import { gradeScope, studentWellbeingGrades, wellbeingCanAccessStudent } from './counselorScope.mjs'
 
 const CATALOG_VERSION = '1447.2'
 const MODES = new Set(['in_person', 'remote'])
@@ -264,7 +264,7 @@ export async function migrateBehavior(adminPool) {
 
 export async function handleBehaviorRequest({ req, res, url, user, pool, body, json, scoped, todayRiyadh }) {
   if (!url.pathname.startsWith('/api/behavior')) return false
-  const adminOnly = () => user.role === 'admin' || user.role === 'counselor'
+  const adminOnly = () => user.role === 'admin' || user.role === 'vice_principal' || user.role === 'counselor'
 
   if (req.method === 'GET' && url.pathname === '/api/behavior/catalog') {
     const category = clean(url.searchParams.get('category'), 30)
@@ -284,7 +284,7 @@ export async function handleBehaviorRequest({ req, res, url, user, pool, body, j
 
   if (req.method === 'GET' && url.pathname === '/api/behavior/overview') {
     const result = await scoped(user.school_id, async client => {
-      const guideGrades = await studentGuideGrades(client, user)
+      const guideGrades = await studentWellbeingGrades(client, user)
       const countValues = [user.school_id]
       const countScope = gradeScope(countValues, guideGrades, 's.grade')
       const counts = (await client.query(`SELECT
@@ -310,7 +310,7 @@ export async function handleBehaviorRequest({ req, res, url, user, pool, body, j
   if (req.method === 'GET' && url.pathname === '/api/behavior/students') {
     const search = clean(url.searchParams.get('q'), 120)
     const result = await scoped(user.school_id, async client => {
-      const guideGrades = await studentGuideGrades(client, user)
+      const guideGrades = await studentWellbeingGrades(client, user)
       const values = [user.school_id, search]
       const scope = gradeScope(values, guideGrades, 's.grade')
       return {
@@ -339,7 +339,7 @@ export async function handleBehaviorRequest({ req, res, url, user, pool, body, j
     if (!rule || !stage || !rule.stageScope.includes(requiredScope) || !studentIds.length || !MODES.has(String(input.mode || '')) || rule.mode !== input.mode) { json(res, 400, { error: 'invalid_behavior_preview' }); return true }
     const preview = await scoped(user.school_id, async client => {
       const schoolName = (await client.query('SELECT name FROM schools WHERE id=$1', [user.school_id])).rows[0]?.name || ''
-      const guideGrades = await studentGuideGrades(client, user)
+      const guideGrades = await studentWellbeingGrades(client, user)
       const values = [user.school_id, studentIds]
       const scope = gradeScope(values, guideGrades, 'grade')
       const students = (await client.query(`SELECT id,name,grade,classroom FROM students WHERE school_id=$1 AND active=true AND id=ANY($2::text[])${scope} ORDER BY name`, values)).rows
@@ -373,7 +373,7 @@ export async function handleBehaviorRequest({ req, res, url, user, pool, body, j
     if (!rule || !incidentDate || !mode || !stage || !rule.stageScope.includes(requiredScope) || rule.mode !== mode || !studentIds.length) { json(res, 400, { error: 'invalid_behavior_incident' }); return true }
     const saved = await scoped(user.school_id, async client => {
       const schoolName = (await client.query('SELECT name FROM schools WHERE id=$1', [user.school_id])).rows[0]?.name || ''
-      const guideGrades = await studentGuideGrades(client, user)
+      const guideGrades = await studentWellbeingGrades(client, user)
       const values = [user.school_id, studentIds]
       const scope = gradeScope(values, guideGrades, 'grade')
       const students = (await client.query(`SELECT id,name,grade,classroom FROM students WHERE school_id=$1 AND active=true AND id=ANY($2::text[])${scope}`, values)).rows
@@ -416,7 +416,7 @@ export async function handleBehaviorRequest({ req, res, url, user, pool, body, j
     const rows = await scoped(user.school_id, async client => {
       const values = [user.school_id]
       const clauses = ['r.school_id=$1']
-      const guideGrades = await studentGuideGrades(client, user)
+      const guideGrades = await studentWellbeingGrades(client, user)
       if (status && RECORD_STATUSES.has(status)) { values.push(status); clauses.push(`r.status=$${values.length}`) }
       if (category) { values.push(category); clauses.push(`r.category=$${values.length}`) }
       if (studentId) { values.push(studentId); clauses.push(`r.student_id=$${values.length}`) }
@@ -443,7 +443,7 @@ export async function handleBehaviorRequest({ req, res, url, user, pool, body, j
         WHERE r.school_id=$1 AND r.id=$2 FOR UPDATE OF r`, [user.school_id, recordId])
       if (!found.rowCount) return { error: 'record_not_found' }
       const record = found.rows[0]
-      const guideGrades = await studentGuideGrades(client, user)
+      const guideGrades = await studentWellbeingGrades(client, user)
       if (guideGrades !== null && !guideGrades.includes(record.grade)) return { error: 'record_not_found' }
       if (record.status !== 'pending') return { error: 'record_not_pending' }
       const rule = await catalogRule(pool, record.rule_code, true)
@@ -489,7 +489,7 @@ export async function handleBehaviorRequest({ req, res, url, user, pool, body, j
         WHERE r.school_id=$1 AND r.id=$2 FOR UPDATE OF r`, [user.school_id, cancelMatch[1]])
       if (!found.rowCount) return { error: 'record_not_found' }
       const record = found.rows[0]
-      const guideGrades = await studentGuideGrades(client, user)
+      const guideGrades = await studentWellbeingGrades(client, user)
       if (guideGrades !== null && !guideGrades.includes(record.grade)) return { error: 'record_not_found' }
       if (record.status === 'cancelled') return { error: 'record_already_cancelled' }
       if (record.status === 'approved') {
@@ -514,7 +514,7 @@ export async function handleBehaviorRequest({ req, res, url, user, pool, body, j
         WHERE r.school_id=$1 AND r.id=$2 FOR UPDATE OF r`, [user.school_id, permanentDeleteMatch[1]])
       if (!found.rowCount) return { error: 'record_not_found' }
       const record = found.rows[0]
-      const guideGrades = await studentGuideGrades(client, user)
+      const guideGrades = await studentWellbeingGrades(client, user)
       if (guideGrades !== null && !guideGrades.includes(record.grade)) return { error: 'record_not_found' }
       await client.query('DELETE FROM behavior_audit_logs WHERE school_id=$1 AND ((entity_type=\'record\' AND entity_id=$2) OR (entity_type=\'action\' AND entity_id IN (SELECT id::text FROM behavior_action_steps WHERE school_id=$1 AND record_id=$3)) OR (entity_type=\'movement\' AND entity_id IN (SELECT id::text FROM behavior_score_movements WHERE school_id=$1 AND record_id=$3)))', [user.school_id, String(record.id), record.id])
       await client.query('DELETE FROM behavior_score_movements WHERE school_id=$1 AND record_id=$2', [user.school_id, record.id])
@@ -540,7 +540,7 @@ export async function handleBehaviorRequest({ req, res, url, user, pool, body, j
     if (!state || (state === 'not_executed' && reason.length < 5)) { json(res, 400, { error: 'invalid_action_update' }); return true }
     const updated = await scoped(user.school_id, async client => {
       const owned = await client.query(`SELECT r.student_id FROM behavior_student_records r WHERE r.school_id=$1 AND r.id=$2`, [user.school_id, actionMatch[1]])
-      if (!owned.rowCount || !await guideCanAccessStudent(client, user, owned.rows[0].student_id)) return 0
+      if (!owned.rowCount || !await wellbeingCanAccessStudent(client, user, owned.rows[0].student_id)) return 0
       const result = await client.query(`UPDATE behavior_action_steps a SET state=$1,reason=$2,evidence_ref=$3,updated_by=$4,updated_at=now()
         FROM behavior_student_records r WHERE a.school_id=$5 AND a.id=$6 AND a.record_id=$7 AND r.school_id=a.school_id AND r.id=a.record_id AND r.status='approved' RETURNING a.id`,
       [state, reason, evidence, user.user_id, user.school_id, actionMatch[2], actionMatch[1]])
@@ -563,7 +563,7 @@ export async function handleBehaviorRequest({ req, res, url, user, pool, body, j
       const source = await client.query(`SELECT * FROM behavior_score_movements WHERE school_id=$1 AND id=$2 AND movement_type='deduction' AND status='approved' FOR UPDATE`, [user.school_id, sourceId])
       if (!source.rowCount) return { error: 'deduction_not_found' }
       const movement = source.rows[0]
-      if (!await guideCanAccessStudent(client, user, movement.student_id)) return { error: 'deduction_not_found' }
+      if (!await wellbeingCanAccessStudent(client, user, movement.student_id)) return { error: 'deduction_not_found' }
       const allocated = Number((await client.query(`SELECT COALESCE(SUM(amount),0) AS total FROM behavior_score_movements WHERE school_id=$1 AND source_movement_id=$2 AND movement_type='compensation' AND status='approved'`, [user.school_id, sourceId])).rows[0].total)
       const remaining = Math.max(0, Math.abs(Number(movement.amount)) - allocated)
       const amount = Math.min(requested, remaining)
@@ -584,7 +584,7 @@ export async function handleBehaviorRequest({ req, res, url, user, pool, body, j
   if (req.method === 'GET' && studentMatch) {
     const studentId = decodeURIComponent(studentMatch[1])
     const profile = await scoped(user.school_id, async client => {
-      if (!await guideCanAccessStudent(client, user, studentId)) return null
+      if (!await wellbeingCanAccessStudent(client, user, studentId)) return null
       const student = (await client.query('SELECT id,name,grade,classroom,phone FROM students WHERE school_id=$1 AND id=$2 AND active=true', [user.school_id, studentId])).rows[0]
       if (!student) return null
       const schoolName = (await client.query('SELECT name FROM schools WHERE id=$1', [user.school_id])).rows[0]?.name || ''

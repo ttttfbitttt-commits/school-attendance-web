@@ -69,7 +69,7 @@ export async function migrateTeacherCooperation(adminPool) {
 export async function handleTeacherCooperationRequest({ req, res, url, user, body, json, scoped }) {
   if (!url.pathname.startsWith('/api/teacher-cooperation')) return false
   const isTeacher = user.role === 'teacher' && validId(user.teacher_id)
-  const isSchool = user.role === 'admin' || user.role === 'staff'
+  const isSchool = user.role === 'admin' || user.role === 'staff' || user.role === 'vice_principal'
 
   if (req.method === 'GET' && url.pathname === '/api/teacher-cooperation/status') {
     if (!isTeacher) { json(res, 403, { error: 'forbidden' }); return true }

@@ -72,7 +72,7 @@ export async function migrateAdministratorPortal(adminPool) {
 }
 
 function administratorOnly(user) { return user.role === 'administrator' && validId(user.administrator_id) }
-function adminOnly(user) { return user.role === 'admin' }
+function adminOnly(user) { return user.role === 'admin' || user.role === 'vice_principal' }
 
 async function attendanceRows(client, schoolId, date) {
   return (await client.query(`SELECT a.student_id AS "studentId",to_char(a.attendance_date,'YYYY-MM-DD') AS date,

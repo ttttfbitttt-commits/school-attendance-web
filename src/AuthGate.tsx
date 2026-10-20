@@ -10,6 +10,7 @@ const roleLabel: Record<LoginChoice['role'], string> = {
   administrator: 'بوابة الإداري',
   student: 'بوابة الطالب',
   counselor: 'بوابة الموجّه الطلابي',
+  vice_principal: 'بوابة وكيل المدرسة',
 }
 
 export function AuthGate({ children }: { children: (account: Account, logout: () => void) => ReactNode }) {

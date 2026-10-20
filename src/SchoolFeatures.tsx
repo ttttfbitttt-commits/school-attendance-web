@@ -246,6 +246,8 @@ export function MessageCenter({ students, attendance, schoolName }: { students: 
   const [lateCandidatesLoading, setLateCandidatesLoading] = useState(false)
   const [confirmedAbsenceIds, setConfirmedAbsenceIds] = useState<Set<string>>(new Set())
   const [absenceCandidatesLoading, setAbsenceCandidatesLoading] = useState(false)
+  const [recipientScopeIds, setRecipientScopeIds] = useState<Set<string> | null>(null)
+  const [recipientScopeLoading, setRecipientScopeLoading] = useState(true)
   const [showStudentDetails, setShowStudentDetails] = useState(false)
   const [openRecipientGroup, setOpenRecipientGroup] = useState('')
   const [openGeneralGrade, setOpenGeneralGrade] = useState('')
@@ -268,6 +270,20 @@ export function MessageCenter({ students, attendance, schoolName }: { students: 
       .finally(() => setLogsLoading(false))
   }
   useEffect(() => { load() }, [type])
+
+  useEffect(() => {
+    let active = true
+    setRecipientScopeIds(null)
+    setRecipientScopeLoading(true)
+    void api.messageRecipientScope(type).then(result => {
+      if (active) setRecipientScopeIds(new Set(result.studentIds))
+    }).catch(() => {
+      if (active) setNotice('تعذر تحميل نطاق الطلاب المسموح بالرسائل.')
+    }).finally(() => {
+      if (active) setRecipientScopeLoading(false)
+    })
+    return () => { active = false }
+  }, [type])
 
   useEffect(() => {
     if (type !== 'absence') return
@@ -319,10 +335,11 @@ export function MessageCenter({ students, attendance, schoolName }: { students: 
   const lateTimes = useMemo(() => new Map(lateAttendance.filter(record => record.status === 'late').map(record => [record.studentId, record.time || ''])), [lateAttendance])
   const attendanceIds = useMemo(() => new Set(attendance.map(record => record.studentId)), [attendance])
   const eligibleStudentCandidates = useMemo(() => students.filter(student => {
+    if (!recipientScopeIds?.has(student.id)) return false
     if (type === 'late' && !lateIds.has(student.id)) return false
     if (type === 'absence' && (!confirmedAbsenceIds.has(student.id) || attendanceIds.has(student.id))) return false
     return true
-  }), [students, type, lateIds, confirmedAbsenceIds, attendanceIds])
+  }), [students, type, lateIds, confirmedAbsenceIds, attendanceIds, recipientScopeIds])
   const eligibleCandidates = useMemo<MessageRecipient[]>(() => type === 'teacher'
     ? teachers.map(teacher => ({ id: teacher.id, name: teacher.name, phone: teacher.phone, identityNumber: teacher.identityNumber }))
     : eligibleStudentCandidates.map(student => ({ id: student.id, name: student.name, phone: student.phone, grade: student.grade, classroom: student.classroom, time: type === 'late' ? lateTimes.get(student.id) || '' : undefined })), [type, teachers, eligibleStudentCandidates, lateTimes])
@@ -391,7 +408,7 @@ export function MessageCenter({ students, attendance, schoolName }: { students: 
   }, [type, visibleLogs, logRows])
   const currentLogTitle = messageLogTitle(type)
   const supportsLogGradeFilter = type !== 'teacher'
-  const recipientsLoading = (type === 'absence' && absenceCandidatesLoading) || (type === 'teacher' && teachersLoading) || (type === 'late' && lateCandidatesLoading)
+  const recipientsLoading = recipientScopeLoading || (type === 'absence' && absenceCandidatesLoading) || (type === 'teacher' && teachersLoading) || (type === 'late' && lateCandidatesLoading)
   const recipientLabel = type === 'teacher' ? 'عدد المعلمين' : 'عدد الطلاب المناسبين'
   const recipientWord = type === 'teacher' ? 'المعلمين' : 'الطلاب'
 

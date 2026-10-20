@@ -1,5 +1,5 @@
 import crypto from 'node:crypto'
-import { gradeScope, guideCanAccessStudent, studentGuideGrades } from './counselorScope.mjs'
+import { gradeScope, guideCanAccessStudent, studentGuideGrades, studentWellbeingGrades } from './counselorScope.mjs'
 
 const RIYADH_TIME_ZONE = 'Asia/Riyadh'
 
@@ -374,7 +374,7 @@ export async function migrateFeatures(pool) {
 
 export async function handleFeatureRequest(context) {
   const { req, res, url, user, pool, body, json, scoped, todayRiyadh } = context
-  const adminOnly = () => user.role === 'admin' || user.role === 'counselor'
+  const adminOnly = () => user.role === 'admin' || user.role === 'vice_principal' || user.role === 'counselor'
 
   if (req.method === 'POST' && url.pathname === '/api/absences/cancel') {
     if (!adminOnly()) { json(res, 403, { error: 'forbidden' }); return true }
@@ -975,6 +975,24 @@ export async function handleFeatureRequest(context) {
     return true
   }
 
+  if (req.method === 'GET' && url.pathname === '/api/messages/recipients') {
+    if (!adminOnly()) { json(res, 403, { error: 'forbidden' }); return true }
+    const type = String(url.searchParams.get('type') || '')
+    const ids = await scoped(user.school_id, async client => {
+      const guideGrades = await studentGuideGrades(client, user)
+      const grades = guideGrades !== null
+        ? guideGrades
+        : user.role === 'vice_principal' && ['late', 'absence'].includes(type)
+          ? await studentWellbeingGrades(client, user)
+          : null
+      const values = [user.school_id]
+      const scope = gradeScope(values, grades, 'grade')
+      return (await client.query(`SELECT id FROM students WHERE school_id=$1 AND active=true${scope} ORDER BY grade,classroom,name`, values)).rows.map(row => row.id)
+    })
+    json(res, 200, { studentIds: ids })
+    return true
+  }
+
   if (req.method === 'GET' && url.pathname === '/api/messages') {
     const requestedType = String(url.searchParams.get('type') || '').trim()
     const messageType = ['late', 'absence', 'general', 'teacher', 'test'].includes(requestedType) ? requestedType : ''
@@ -987,6 +1005,10 @@ export async function handleFeatureRequest(context) {
       if (guideGrades !== null) {
         params.push(guideGrades)
         scope = ` AND message_type<>'teacher' AND EXISTS(SELECT 1 FROM students s WHERE s.school_id=message_logs.school_id AND s.id=message_logs.student_id AND s.grade=ANY($${params.length}::text[]))`
+      } else if (user.role === 'vice_principal') {
+        const grades = await studentWellbeingGrades(client, user)
+        params.push(grades)
+        scope = ` AND (message_type NOT IN ('late','absence') OR EXISTS(SELECT 1 FROM students s WHERE s.school_id=message_logs.school_id AND s.id=message_logs.student_id AND s.grade=ANY($${params.length}::text[])))`
       }
       params.push(limit)
       return client.query(`SELECT id,student_id AS "studentId",student_name AS "studentName",recipient,sender_name AS "senderName",message_type AS type,message_body AS body,status,error_detail AS "errorDetail",created_at AS "createdAt"
@@ -1039,7 +1061,14 @@ export async function handleFeatureRequest(context) {
         }
         return rows
       }
-      const allowedStudentIds = await guideStudentIds(client, user, studentIds)
+      let allowedStudentIds = await guideStudentIds(client, user, studentIds)
+      if (user.role === 'vice_principal' && ['late', 'absence'].includes(type)) {
+        const grades = await studentWellbeingGrades(client, user)
+        const permitted = grades.length
+          ? await client.query(`SELECT id FROM students WHERE school_id=$1 AND active=true AND grade=ANY($2::text[]) AND id=ANY($3::text[])`, [user.school_id, grades, studentIds])
+          : { rows: [] }
+        allowedStudentIds = permitted.rows.map(row => row.id)
+      }
       const students = (await client.query('SELECT id,name,phone,grade,classroom FROM students WHERE school_id=$1 AND active=true AND id=ANY($2::text[]) ORDER BY name', [user.school_id, allowedStudentIds])).rows
       const late = type === 'late' ? (await client.query(`SELECT student_id,to_char(recorded_at AT TIME ZONE $3,'HH24:MI:SS') AS time FROM attendance_logs WHERE school_id=$1 AND attendance_date=$2 AND status='late' AND student_id=ANY($4::text[])`, [user.school_id, todayRiyadh(), RIYADH_TIME_ZONE, allowedStudentIds])).rows : []
       const confirmedAbsences = type === 'absence' ? (await client.query(`SELECT absence.student_id

@@ -1,5 +1,5 @@
 import crypto from 'node:crypto'
-import { studentGuideGrades } from './counselorScope.mjs'
+import { studentGuideGrades, studentWellbeingGrades } from './counselorScope.mjs'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 const DATE = /^\d{4}-\d{2}-\d{2}$/
@@ -94,7 +94,8 @@ export async function migrateStudentReferrals(adminPool) {
 export async function handleStudentReferralRequest({ req, res, url, user, body, json, scoped }) {
   if (!url.pathname.startsWith('/api/student-referrals')) return false
   const isTeacher = user.role === 'teacher' && validId(user.teacher_id)
-  const isSchool = user.role === 'admin' || user.role === 'staff'
+  const isVicePrincipal = user.role === 'vice_principal' && validId(user.vice_principal_id)
+  const isSchool = user.role === 'admin' || user.role === 'staff' || isVicePrincipal
   const isCounselor = user.role === 'counselor' && validId(user.counselor_id)
 
   if (req.method === 'GET' && url.pathname === '/api/student-referrals') {
@@ -109,6 +110,11 @@ export async function handleStudentReferralRequest({ req, res, url, user, body, 
         const grades = await studentGuideGrades(client, user)
         values.push(grades)
         where.push("r.referred_to_counselor=true", `r.grade_value=ANY($${values.length}::text[])`)
+      }
+      if (isVicePrincipal) {
+        const grades = await studentWellbeingGrades(client, user)
+        values.push(grades)
+        where.push(`r.grade_value=ANY($${values.length}::text[])`)
       }
       if (filters.status && STATUSES.has(filters.status)) where.push(`r.status=${add(filters.status)}`)
       if (DATE.test(filters.from || '')) where.push(`r.referral_date>=${add(filters.from)}`)
@@ -203,9 +209,11 @@ export async function handleStudentReferralRequest({ req, res, url, user, body, 
   if (req.method === 'POST' && viewedMatch) {
     if (!isSchool || !validId(viewedMatch[1])) { json(res, 403, { error: 'forbidden' }); return true }
     const changed = await scoped(user.school_id, async client => {
+      const grades = isVicePrincipal ? await studentWellbeingGrades(client, user) : null
+      const gradeScope = grades === null ? '' : ' AND grade_value=ANY($4::text[])'
       const result = await client.query(`UPDATE student_referrals SET status=CASE WHEN status='submitted' THEN 'viewed' ELSE status END,
-        viewed_by=COALESCE(viewed_by,$1),viewed_at=COALESCE(viewed_at,now()),updated_at=now() WHERE school_id=$2 AND id=$3 AND viewed_at IS NULL RETURNING id`,
-      [user.user_id, user.school_id, viewedMatch[1]])
+        viewed_by=COALESCE(viewed_by,$1),viewed_at=COALESCE(viewed_at,now()),updated_at=now() WHERE school_id=$2 AND id=$3 AND viewed_at IS NULL${gradeScope} RETURNING id`,
+      grades === null ? [user.user_id, user.school_id, viewedMatch[1]] : [user.user_id, user.school_id, viewedMatch[1], grades])
       if (result.rowCount) await addEvent(client, user.school_id, viewedMatch[1], user, 'viewed', 'تم فتح الإحالة في حساب المدرسة.')
       return Boolean(result.rowCount)
     })
@@ -241,13 +249,15 @@ export async function handleStudentReferralRequest({ req, res, url, user, body, 
 
     const status = String(input.status || '')
     const viceAction = clean(input.viceAction, 3000)
-    const vicePrincipalName = clean(input.vicePrincipalName, 180)
+    const vicePrincipalName = isVicePrincipal ? clean(user.display_name, 180) : clean(input.vicePrincipalName, 180)
     const referredToCounselor = Boolean(input.referredToCounselor)
     if (!STATUSES.has(status) || status === 'submitted' || status === 'viewed' || status === 'cancelled' || !viceAction || !vicePrincipalName ||
       (referredToCounselor && status !== 'referred_to_counselor') || (!referredToCounselor && status === 'referred_to_counselor')) {
       json(res, 400, { error: 'invalid_referral_action' }); return true
     }
     const changed = await scoped(user.school_id, async client => {
+      const grades = isVicePrincipal ? await studentWellbeingGrades(client, user) : null
+      const gradeScope = grades === null ? '' : ' AND grade_value=ANY($8::text[])'
       const result = await client.query(`UPDATE student_referrals SET status=$1,referred_to_counselor=$2,vice_action=$3,vice_principal_name=$4,
         viewed_by=COALESCE(viewed_by,$5),viewed_at=COALESCE(viewed_at,now()),vice_action_by=$5,vice_action_at=now(),
         counselor_action=CASE WHEN $1='referred_to_counselor' THEN '' ELSE counselor_action END,
@@ -255,8 +265,10 @@ export async function handleStudentReferralRequest({ req, res, url, user, body, 
         counselor_action_by=CASE WHEN $1='referred_to_counselor' THEN NULL ELSE counselor_action_by END,
         counselor_action_at=CASE WHEN $1='referred_to_counselor' THEN NULL ELSE counselor_action_at END,
         completed_at=CASE WHEN $1='completed' THEN now() ELSE NULL END,updated_at=now()
-        WHERE school_id=$6 AND id=$7 AND status <> 'cancelled' RETURNING id`,
-      [status, referredToCounselor, viceAction, vicePrincipalName, user.user_id, user.school_id, updateMatch[1]])
+        WHERE school_id=$6 AND id=$7 AND status <> 'cancelled'${gradeScope} RETURNING id`,
+      grades === null
+        ? [status, referredToCounselor, viceAction, vicePrincipalName, user.user_id, user.school_id, updateMatch[1]]
+        : [status, referredToCounselor, viceAction, vicePrincipalName, user.user_id, user.school_id, updateMatch[1], grades])
       if (result.rowCount) await addEvent(client, user.school_id, updateMatch[1], user, status)
       return Boolean(result.rowCount)
     })

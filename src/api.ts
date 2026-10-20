@@ -1,4 +1,4 @@
-export type Account = { email: string; displayName: string; role: 'admin' | 'staff' | 'teacher' | 'administrator' | 'student' | 'counselor'; schoolId: string; teacherId?: string; administratorId?: string; studentId?: string; counselorId?: string; lessonFlowAccess?: boolean; studentAttendanceCooperationAccess?: boolean; mustChangePassword?: boolean }
+export type Account = { email: string; displayName: string; role: 'admin' | 'staff' | 'teacher' | 'administrator' | 'student' | 'counselor' | 'vice_principal'; schoolId: string; teacherId?: string; administratorId?: string; studentId?: string; counselorId?: string; vicePrincipalId?: string; lessonFlowAccess?: boolean; studentAttendanceCooperationAccess?: boolean; mustChangePassword?: boolean }
 export type LoginChoice = { userId: string; schoolId: string; role: Account['role']; schoolName: string }
 export type StudentPortalAccount = { studentId: string; name: string; grade: string; classroom: string; phone: string; identityNumber: string; eligible: boolean; accountCreated: boolean; accountActive: boolean; mustChangePassword: boolean; attendanceCooperationAccess: boolean }
 export type StudentPortfolioSlot = { slotNumber: number; fileUrl: string; fileName: string; fileType: string; uploadedAt: string | null }
@@ -12,6 +12,8 @@ export type StudentPortalDashboard = { schoolName: string; mustChangePassword: b
 export type AdministrativeStaff = { administratorId: string; name: string; identityNumber: string; phone: string; active: boolean; accountCreated: boolean; accountActive: boolean; mustChangePassword: boolean; lessonFlowAccess: boolean; credentialsAvailable: boolean }
 export type CounselorGradeOption = { grade: string; counselorId: string | null }
 export type StudentCounselor = { counselorId: string; name: string; identityNumber: string; phone: string; active: boolean; accountCreated: boolean; accountActive: boolean; mustChangePassword: boolean; assignedGrades: string[] }
+export type VicePrincipalGradeOption = { grade: string; vicePrincipalId: string | null }
+export type SchoolVicePrincipal = { vicePrincipalId: string; name: string; identityNumber: string; phone: string; grade: string; active: boolean; accountCreated: boolean; accountActive: boolean; mustChangePassword: boolean }
 export type CounselorPortalDashboard = { schoolName: string; mustChangePassword: boolean; counselor: { name: string; identityNumber: string; phone: string }; assignedGrades: string[]; students: Array<{ id: string; name: string; phone: string; grade: string; classroom: string }>; teachers: Array<{ teacherId: string; name: string; identityNumber: string; phone: string }> }
 export type AdministratorAttendanceStudent = { id: string; name: string; phone: string; grade: string; classroom: string }
 export type AdministratorAttendanceRecord = { studentId: string; date: string; time: string; status: 'present' | 'late'; name: string; grade: string; classroom: string; phone: string; recordedBy?: string }
@@ -398,6 +400,7 @@ export const api = {
   studentHistory: (type: 'absence' | 'late', studentId: string) => request<StudentHistory>(`/reports/student-history?type=${type}&studentId=${encodeURIComponent(studentId)}`),
   detailedStudentReport: (studentId: string, from: string, to: string) => request<DetailedStudentReport>(`/reports/student-detail?studentId=${encodeURIComponent(studentId)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`),
   messages: (type?: MessageLog['type'], limit = 5000) => request<{ messages: MessageLog[] }>(`/messages?${type ? `type=${encodeURIComponent(type)}&` : ''}limit=${limit}`),
+  messageRecipientScope: (type: 'late' | 'absence' | 'general' | 'teacher') => request<{ studentIds: string[] }>(`/messages/recipients?type=${encodeURIComponent(type)}`),
   messageTeachers: () => request<{ teachers: MessageTeacher[] }>('/messages/teachers'),
   sendMessages: (payload: { studentIds?: string[]; teacherIds?: string[]; type: 'late' | 'absence' | 'general' | 'teacher'; message?: string }) => request<{ ok: boolean; sent: number; failed: number }>('/messages/send', { method: 'POST', body: JSON.stringify(payload) }),
   lessonOverview: () => request<LessonFlowOverview>('/lesson-flow/overview'),
@@ -466,6 +469,12 @@ export const api = {
   setCounselorAccountStatus: (counselorId: string, active: boolean) => request<{ ok: boolean }>('/counselor-portal/admin/accounts/status', { method: 'PATCH', body: JSON.stringify({ counselorId, active }) }),
   counselorPortalDashboard: () => request<CounselorPortalDashboard>('/counselor-portal/counselor/dashboard'),
   changeCounselorPassword: (password: string) => request<{ ok: boolean }>('/counselor-portal/counselor/password', { method: 'POST', body: JSON.stringify({ password }) }),
+  vicePrincipalAdminOverview: () => request<{ defaultPassword: string; grades: VicePrincipalGradeOption[]; vicePrincipals: SchoolVicePrincipal[] }>('/vice-principals/admin/overview'),
+  createVicePrincipal: (payload: { name: string; identityNumber: string; phone: string; grade: string }) => request<{ ok: boolean; vicePrincipal: SchoolVicePrincipal }>('/vice-principals/admin', { method: 'POST', body: JSON.stringify(payload) }),
+  setVicePrincipalGrade: (vicePrincipalId: string, grade: string) => request<{ ok: boolean; grade: string }>('/vice-principals/admin/grade', { method: 'PUT', body: JSON.stringify({ vicePrincipalId, grade }) }),
+  activateVicePrincipalAccount: (vicePrincipalId: string) => request<{ ok: boolean; temporaryPassword: string }>('/vice-principals/admin/accounts/activate', { method: 'POST', body: JSON.stringify({ vicePrincipalId }) }),
+  resetVicePrincipalAccount: (vicePrincipalId: string) => request<{ ok: boolean; temporaryPassword: string }>('/vice-principals/admin/accounts/reset', { method: 'POST', body: JSON.stringify({ vicePrincipalId }) }),
+  setVicePrincipalAccountStatus: (vicePrincipalId: string, active: boolean) => request<{ ok: boolean }>('/vice-principals/admin/accounts/status', { method: 'PATCH', body: JSON.stringify({ vicePrincipalId, active }) }),
   administratorAttendance: (date = '') => request<{ date: string; schoolName: string; principalName: string; lessonFlowAccess: boolean; students: AdministratorAttendanceStudent[]; records: AdministratorAttendanceRecord[] }>(`/administrator-portal/attendance${date ? `?date=${encodeURIComponent(date)}` : ''}`),
   recordAdministratorAttendance: (studentId: string, status: 'present' | 'late') => request<{ ok: boolean; duplicate: boolean; date: string; status: 'present' | 'late'; student: AdministratorAttendanceStudent; time: string }>('/administrator-portal/attendance', { method: 'POST', body: JSON.stringify({ studentId, status }) }),
   recordAdministratorAttendanceBulk: (studentIds: string[], status: 'present' | 'late') => request<{ ok: boolean; date: string; status: 'present' | 'late'; created: Array<{ student: AdministratorAttendanceStudent; status: 'present' | 'late'; time: string }>; duplicates: AdministratorAttendanceStudent[]; missing: string[] }>('/administrator-portal/attendance/bulk', { method: 'POST', body: JSON.stringify({ studentIds, status }) }),
