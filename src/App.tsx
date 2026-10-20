@@ -65,7 +65,7 @@ import { CounselorPortal } from './CounselorPortal'
 import { VicePrincipalAdminCenter } from './VicePrincipalAdmin'
 import { ActivityLeaderAdminCenter } from './ActivityLeaderAdmin'
 import { ActivityLeaderPortal } from './ActivityLeaderPortal'
-import { AbsenceProcedureGuide } from './AbsenceProcedureGuide'
+import { AbsenceProcedureGuide, ViceApprovedAbsenceProcedureQueue } from './AbsenceProcedureGuide'
 
 type Student = {
   id: string
@@ -2570,7 +2570,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
 
         {activeNav === 'reports' && <ReportsCenter students={students} schoolName={schoolSettings.schoolName} />}
 
-        {activeNav === 'absenceProcedures' && isSchoolManager && <AbsenceProcedureGuide role={account.role === 'vice_principal' ? 'vice' : 'school'} />}
+        {activeNav === 'absenceProcedures' && isSchoolManager && <><AbsenceProcedureGuide role={account.role === 'vice_principal' ? 'vice' : 'school'} />{account.role === 'vice_principal' && <ViceApprovedAbsenceProcedureQueue />}</>}
 
         {activeNav === 'cooperation' && <TeacherCooperationAdmin schoolName={schoolSettings.schoolName} principalName={schoolSettings.principalName} />}
 

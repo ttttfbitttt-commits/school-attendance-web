@@ -376,6 +376,53 @@ export async function handleFeatureRequest(context) {
   const { req, res, url, user, pool, body, json, scoped, todayRiyadh } = context
   const adminOnly = () => user.role === 'admin' || user.role === 'vice_principal' || user.role === 'counselor'
 
+  // المرحلة الأولى من إجراءات الغياب: قراءة الغياب المعتمد فقط. لا تنشئ هذه
+  // الواجهة حالة متابعة ولا ترسل أي رسالة، ونطاق الوكيل مفروض في الاستعلام.
+  if (req.method === 'GET' && url.pathname === '/api/absence-procedures/vice/approved') {
+    if (user.role !== 'vice_principal') { json(res, 403, { error: 'forbidden' }); return true }
+    const date = validDate(url.searchParams.get('date')) || todayRiyadh()
+    if (date > todayRiyadh()) { json(res, 400, { error: 'invalid_absence_date' }); return true }
+    const result = await scoped(user.school_id, async client => {
+      const grades = await studentWellbeingGrades(client, user)
+      if (!grades?.length) return { grade: '', rows: [], summary: { students: 0, unexcused: 0, excused: 0, special: 0 } }
+      const rows = (await client.query(`SELECT
+          a.student_id AS "studentId",s.name,s.grade,s.classroom,s.phone,a.status,
+          totals."absenceDays",totals."unexcusedDays",totals."excusedDays",totals."specialDays"
+        FROM absence_records a
+        JOIN students s ON s.school_id=a.school_id AND s.id=a.student_id AND s.active=true
+        JOIN LATERAL (
+          SELECT COUNT(*)::int AS "absenceDays",
+            COUNT(*) FILTER (WHERE status='unexcused')::int AS "unexcusedDays",
+            COUNT(*) FILTER (WHERE status='excused')::int AS "excusedDays",
+            COUNT(*) FILTER (WHERE status='special')::int AS "specialDays"
+          FROM absence_records history
+          WHERE history.school_id=a.school_id AND history.student_id=a.student_id AND history.absence_date<=$2::date
+            AND NOT EXISTS (
+              SELECT 1 FROM attendance_logs history_attendance
+              WHERE history_attendance.school_id=history.school_id AND history_attendance.student_id=history.student_id
+                AND history_attendance.attendance_date=history.absence_date AND history_attendance.status IN ('present','late')
+            )
+        ) totals ON true
+        WHERE a.school_id=$1 AND a.absence_date=$2::date AND a.status IN ('unexcused','excused','special')
+          AND s.grade=ANY($3::text[])
+          AND NOT EXISTS (
+            SELECT 1 FROM attendance_logs attendance
+            WHERE attendance.school_id=a.school_id AND attendance.student_id=a.student_id
+              AND attendance.attendance_date=a.absence_date AND attendance.status IN ('present','late')
+          )
+        ORDER BY s.grade,s.classroom,s.name`, [user.school_id, date, grades])).rows
+      const summary = rows.reduce((totals, row) => ({
+        students: totals.students + 1,
+        unexcused: totals.unexcused + (row.status === 'unexcused' ? 1 : 0),
+        excused: totals.excused + (row.status === 'excused' ? 1 : 0),
+        special: totals.special + (row.status === 'special' ? 1 : 0),
+      }), { students: 0, unexcused: 0, excused: 0, special: 0 })
+      return { grade: grades.join('، '), rows, summary }
+    })
+    json(res, 200, { date, ...result })
+    return true
+  }
+
   if (req.method === 'POST' && url.pathname === '/api/absences/cancel') {
     if (!adminOnly()) { json(res, 403, { error: 'forbidden' }); return true }
     const input = await body(req)
