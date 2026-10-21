@@ -205,6 +205,14 @@ export function ViceApprovedAbsenceProcedureQueue() {
   </section>
 }
 
+export function SchoolAbsenceProcedureOverview() {
+  const [rows, setRows] = useState<Awaited<ReturnType<typeof api.schoolAbsenceProcedureOverview>>['rows']>([])
+  const [loading, setLoading] = useState(true)
+  useEffect(() => { void api.schoolAbsenceProcedureOverview().then(result => setRows(result.rows)).finally(() => setLoading(false)) }, [])
+  const label = (state: string) => state === 'closed' ? 'مغلقة' : state === 'needs_followup' ? 'متابعة إضافية' : state === 'actioned' ? 'تم إجراء الموجّه' : state === 'referred' ? 'محالة للموجّه' : 'بانتظار الإجراء'
+  return <section className="counselor-absence-referrals school-absence-overview"><header><div><span>إدارة المدرسة</span><h3>متابعة إجراءات التعامل مع الغياب</h3><p>ملخص جميع الحالات ومسار كل حالة بين الوكيل والموجّه.</p></div><button type="button" className="outline-button" onClick={() => void api.schoolAbsenceProcedureOverview().then(result => setRows(result.rows))}><RefreshCw size={16} />تحديث</button></header>{loading ? <p className="teacher-empty">جارٍ تحميل الحالات…</p> : <div className="counselor-absence-referral-list">{rows.map(row => <article key={`${row.studentId}:${row.absenceDate}`}><header><div><strong>{row.name}</strong><small>{row.grade} · الفصل {row.classroom || '—'} · {row.absenceDate}</small></div><span className="vice-absence-status unexcused">{label(row.caseState)}</span></header><dl><div><dt>التواصل</dt><dd>{row.contactOutcome === 'contacted' ? 'تم التواصل' : row.contactOutcome === 'no_answer' ? 'لم يتم الرد' : 'غير موثق'}</dd></div><div><dt>الموجّه</dt><dd>{row.referredCounselorName || '—'}{row.counselorName && ` · ${row.counselorName}`}</dd></div><div><dt>قرار الوكيل</dt><dd>{row.viceDecidedByName ? `${row.viceDecidedByName}${row.viceDecisionNote ? ` · ${row.viceDecisionNote}` : ''}` : 'لم يصدر بعد'}</dd></div></dl></article>)}{!rows.length && <p className="teacher-empty">لا توجد حالات متابعة حالياً.</p>}</div>}</section>
+}
+
 export function CounselorAbsenceReferralQueue() {
   const [queue, setQueue] = useState<CounselorAbsenceReferralResponse | null>(null)
   const [loading, setLoading] = useState(true)

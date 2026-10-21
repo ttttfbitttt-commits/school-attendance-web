@@ -396,6 +396,14 @@ export async function handleFeatureRequest(context) {
   const { req, res, url, user, pool, body, json, scoped, todayRiyadh } = context
   const adminOnly = () => user.role === 'admin' || user.role === 'vice_principal' || user.role === 'counselor'
 
+  if (req.method === 'GET' && url.pathname === '/api/absence-procedures/school/overview') {
+    if (user.role !== 'admin') { json(res, 403, { error: 'forbidden' }); return true }
+    const rows = await scoped(user.school_id, async client => (await client.query(`SELECT follow_up.student_id AS "studentId",student.name,student.grade,student.classroom,follow_up.absence_date AS "absenceDate",absence.status,COALESCE(follow_up.case_state,'') AS "caseState",COALESCE(follow_up.contact_outcome,'') AS "contactOutcome",COALESCE(follow_up.referred_counselor_name,'') AS "referredCounselorName",COALESCE(follow_up.counselor_name,'') AS "counselorName",COALESCE(follow_up.vice_decided_by_name,'') AS "viceDecidedByName",COALESCE(follow_up.vice_decision_note,'') AS "viceDecisionNote",follow_up.counselor_acted_at AS "counselorActedAt",follow_up.updated_at AS "updatedAt"
+      FROM absence_follow_up_cases follow_up JOIN students student ON student.school_id=follow_up.school_id AND student.id=follow_up.student_id JOIN absence_records absence ON absence.school_id=follow_up.school_id AND absence.student_id=follow_up.student_id AND absence.absence_date=follow_up.absence_date
+      WHERE follow_up.school_id=$1 AND student.active=true ORDER BY follow_up.updated_at DESC,student.grade,student.classroom,student.name`, [user.school_id])).rows)
+    json(res, 200, { rows }); return true
+  }
+
   // المرحلة الأولى من إجراءات الغياب: قراءة الغياب المعتمد فقط. لا تنشئ هذه
   // الواجهة حالة متابعة ولا ترسل أي رسالة، ونطاق الوكيل مفروض في الاستعلام.
   if (req.method === 'GET' && url.pathname === '/api/absence-procedures/vice/approved') {
