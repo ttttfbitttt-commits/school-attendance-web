@@ -445,7 +445,17 @@ export async function handleFeatureRequest(context) {
     if (user.role !== 'admin') { json(res, 403, { error: 'forbidden' }); return true }
     const rows = await scoped(user.school_id, async client => { await ensureAutomaticAbsenceCases(client); return (await client.query(`SELECT follow_up.student_id AS "studentId",student.name,student.grade,student.classroom,follow_up.absence_date AS "absenceDate",absence.status,COALESCE(follow_up.case_state,'') AS "caseState",COALESCE(follow_up.contact_outcome,'') AS "contactOutcome",COALESCE(follow_up.referred_counselor_name,'') AS "referredCounselorName",COALESCE(follow_up.counselor_name,'') AS "counselorName",COALESCE(follow_up.vice_decided_by_name,'') AS "viceDecidedByName",COALESCE(follow_up.vice_decision_note,'') AS "viceDecisionNote",follow_up.counselor_acted_at AS "counselorActedAt",follow_up.updated_at AS "updatedAt"
       FROM absence_follow_up_cases follow_up JOIN students student ON student.school_id=follow_up.school_id AND student.id=follow_up.student_id JOIN absence_records absence ON absence.school_id=follow_up.school_id AND absence.student_id=follow_up.student_id AND absence.absence_date=follow_up.absence_date
-      WHERE follow_up.school_id=$1 AND student.active=true ORDER BY follow_up.updated_at DESC,student.grade,student.classroom,student.name`, [user.school_id])).rows })
+      WHERE follow_up.school_id=$1 AND student.active=true
+        AND (SELECT COUNT(*) FROM absence_records history
+          WHERE history.school_id=follow_up.school_id AND history.student_id=follow_up.student_id
+            AND history.absence_date<=follow_up.absence_date
+            AND history.status IN ('unexcused','excused','special')
+            AND NOT EXISTS (
+              SELECT 1 FROM attendance_logs history_attendance
+              WHERE history_attendance.school_id=history.school_id AND history_attendance.student_id=history.student_id
+                AND history_attendance.attendance_date=history.absence_date AND history_attendance.status IN ('present','late')
+            )) >= 3
+      ORDER BY follow_up.updated_at DESC,student.grade,student.classroom,student.name`, [user.school_id])).rows })
     json(res, 200, { rows }); return true
   }
 
