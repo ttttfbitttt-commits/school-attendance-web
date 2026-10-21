@@ -76,6 +76,7 @@ type CounselorAbsenceReferralResponse = Awaited<ReturnType<typeof api.counselorA
 type ContactForm = { outcome: 'contacted' | 'no_answer'; method: 'phone' | 'sms' | 'whatsapp' | 'visit' | 'other'; note: string }
 type ReferralForm = { note: string }
 type CounselorActionForm = { action: string; plan: string }
+type ViceDecisionForm = { decision: 'closed' | 'needs_followup'; note: string }
 
 function riyadhToday() {
   const values = new Intl.DateTimeFormat('en', { timeZone: 'Asia/Riyadh', year: 'numeric', month: '2-digit', day: '2-digit' })
@@ -111,6 +112,10 @@ export function ViceApprovedAbsenceProcedureQueue() {
   const [referralForm, setReferralForm] = useState<ReferralForm>({ note: '' })
   const [referralError, setReferralError] = useState('')
   const [savingReferral, setSavingReferral] = useState(false)
+  const [deciding, setDeciding] = useState<ViceApprovedAbsenceRow | null>(null)
+  const [decisionForm, setDecisionForm] = useState<ViceDecisionForm>({ decision: 'closed', note: '' })
+  const [decisionError, setDecisionError] = useState('')
+  const [savingDecision, setSavingDecision] = useState(false)
 
   const load = async (targetDate = date) => {
     setLoading(true)
@@ -165,6 +170,22 @@ export function ViceApprovedAbsenceProcedureQueue() {
     } finally { setSavingReferral(false) }
   }
 
+  const openDecision = (row: ViceApprovedAbsenceRow, decision: ViceDecisionForm['decision']) => {
+    setDeciding(row); setDecisionForm({ decision, note: row.viceDecisionNote || '' }); setDecisionError('')
+  }
+
+  const saveDecision = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault(); if (!deciding) return
+    setSavingDecision(true); setDecisionError(''); setNotice('')
+    try {
+      const result = await api.decideViceAbsenceCase({ studentId: deciding.studentId, date, ...decisionForm })
+      setQueue(current => current ? { ...current, rows: current.rows.map(row => row.studentId === deciding.studentId ? { ...row, ...result.decision } : row) } : current)
+      setNotice(decisionForm.decision === 'closed' ? 'تم إغلاق الحالة وتوثيق قرار الوكيل.' : 'تم طلب متابعة إضافية من الموجّه.')
+      setDeciding(null)
+    } catch { setDecisionError('تعذر حفظ قرار الوكيل. حدّث القائمة ثم حاول مرة أخرى.') }
+    finally { setSavingDecision(false) }
+  }
+
   return <section className="vice-absence-queue" aria-labelledby="vice-absence-queue-title">
     <header>
       <div><span>متابعة الوكيل</span><h3 id="vice-absence-queue-title">حالات بانتظار تواصل ولي الأمر</h3><p>تظهر هنا حالات الغياب المعتمدة فقط لمرحلتك. لا تعدّل هذه القائمة سجل الحضور أو ترسل رسائل.</p></div>
@@ -175,10 +196,12 @@ export function ViceApprovedAbsenceProcedureQueue() {
     {notice && <p className="teacher-notice success">{notice}</p>}
     {loading ? <p className="teacher-empty">جارٍ تحميل حالات الغياب المعتمدة…</p> : <>
       <div className="vice-absence-queue-summary"><article><span>الحالات</span><strong>{queue?.summary.students || 0}</strong></article><article><span>بدون عذر</span><strong>{queue?.summary.unexcused || 0}</strong></article><article><span>بعذر أو خاص</span><strong>{(queue?.summary.excused || 0) + (queue?.summary.special || 0)}</strong></article></div>
+      {queue?.rows.some(row => row.counselorActedAt && row.caseState !== 'closed') && <div className="vice-absence-decision-list">{queue.rows.filter(row => row.counselorActedAt && row.caseState !== 'closed').map(row => <div key={`decision:${row.studentId}`} className="vice-absence-decision-actions"><span>قرار الحالة: {row.name}</span><button type="button" className="outline-button" onClick={() => openDecision(row, 'needs_followup')}>طلب متابعة إضافية</button><button type="button" className="primary-button" onClick={() => openDecision(row, 'closed')}>إغلاق الحالة</button></div>)}</div>}
       <div className="vice-absence-queue-list">{queue?.rows.map(row => <article key={row.studentId}><div><strong>{row.name}</strong><small>{row.grade} · الفصل {row.classroom || '—'} · <bdi>{row.studentId}</bdi></small></div><span className={`vice-absence-status ${row.status}`}>{absenceStatusLabel(row.status)}</span><div className="vice-absence-total"><strong>{row.absenceDays}</strong><span>يوم غياب معتمد</span></div><div className={row.contactOutcome ? 'vice-absence-contact complete' : 'vice-absence-contact'}><strong>{row.contactOutcome === 'contacted' ? 'تم التواصل' : row.contactOutcome === 'no_answer' ? 'لم يتم الرد' : 'بانتظار تواصل ولي الأمر'}</strong>{row.contactOutcome && <small>وثّقه الوكيل: {row.contactedByName || 'وكيل المدرسة'} · {contactMethodLabel(row.contactMethod)} · {contactStamp(row.contactedAt)}</small>}{row.referredAt && <small>أحيلت إلى الموجّه: {row.referredCounselorName || '—'} · {contactStamp(row.referredAt)}</small>}</div><button type="button" className="outline-button vice-absence-contact-button" onClick={() => openContact(row)}><PhoneCall size={15} />{row.contactOutcome ? 'تعديل التوثيق' : 'توثيق التواصل'}</button>{row.contactOutcome && <button type="button" className="outline-button vice-absence-referral-button" onClick={() => openReferral(row)}><ArrowLeftRight size={15} />{row.referredAt ? 'تعديل الإحالة' : 'إحالة إلى الموجّه'}</button>}{row.counselorActedAt && <div className="vice-absence-counselor-response"><strong>رد الموجّه: {row.counselorName || 'الموجّه الطلابي'} · {contactStamp(row.counselorActedAt)}</strong><p>{row.counselorAction}</p>{row.counselorPlan && <small>خطة المتابعة: {row.counselorPlan}</small>}</div>}</article>)}{!queue?.rows.length && <p className="teacher-empty">لا توجد حالات غياب معتمدة لمرحلتك في هذا التاريخ.</p>}</div>
     </>}
     {editing && <div className="counselor-dialog-backdrop" role="dialog" aria-modal="true" aria-labelledby="absence-contact-title" onMouseDown={() => !savingContact && setEditing(null)}><form className="counselor-dialog absence-contact-dialog" onSubmit={saveContact} onMouseDown={event => event.stopPropagation()}><button type="button" className="counselor-dialog-close" onClick={() => setEditing(null)} disabled={savingContact}><X size={18} /></button><span>ملف متابعة الغياب</span><h3 id="absence-contact-title">توثيق التواصل مع ولي الأمر</h3><p><strong>{editing.name}</strong> · {editing.grade} · الفصل {editing.classroom || '—'}</p><label>نتيجة التواصل<select value={contactForm.outcome} onChange={event => setContactForm(current => ({ ...current, outcome: event.target.value as ContactForm['outcome'] }))}><option value="contacted">تم التواصل مع ولي الأمر</option><option value="no_answer">لم يتم الرد</option></select></label><label>طريقة التواصل<select value={contactForm.method} onChange={event => setContactForm(current => ({ ...current, method: event.target.value as ContactForm['method'] }))}><option value="phone">مكالمة هاتفية</option><option value="sms">رسالة نصية</option><option value="whatsapp">واتساب</option><option value="visit">زيارة</option><option value="other">طريقة أخرى</option></select></label><label>ملخص التواصل أو المحاولة<textarea value={contactForm.note} maxLength={2000} minLength={3} onChange={event => setContactForm(current => ({ ...current, note: event.target.value }))} placeholder="اكتب ما تم مع ولي الأمر أو نتيجة محاولة التواصل" required /></label>{contactError && <p className="teacher-notice error">{contactError}</p>}<div className="counselor-dialog-actions"><button type="button" className="outline-button" onClick={() => setEditing(null)} disabled={savingContact}>إلغاء</button><button className="primary-button" disabled={savingContact}>{savingContact ? 'جارٍ الحفظ…' : 'حفظ التوثيق'}</button></div></form></div>}
     {referring && <div className="counselor-dialog-backdrop" role="dialog" aria-modal="true" aria-labelledby="absence-referral-title" onMouseDown={() => !savingReferral && setReferring(null)}><form className="counselor-dialog absence-contact-dialog" onSubmit={saveReferral} onMouseDown={event => event.stopPropagation()}><button type="button" className="counselor-dialog-close" onClick={() => setReferring(null)} disabled={savingReferral}><X size={18} /></button><span>إحالة إلكترونية</span><h3 id="absence-referral-title">إحالة الحالة إلى الموجّه الطلابي</h3><p><strong>{referring.name}</strong> · {referring.grade} · الفصل {referring.classroom || '—'}</p><p>سيصل للموجّه المكلّف بهذه المرحلة توثيق التواصل المسجل مع سبب الإحالة.</p><label>سبب الإحالة للموجّه الطلابي<textarea value={referralForm.note} maxLength={2000} minLength={3} onChange={event => setReferralForm({ note: event.target.value })} placeholder="اكتب سبب الإحالة أو المطلوب من الموجّه" required /></label>{referralError && <p className="teacher-notice error">{referralError}</p>}<div className="counselor-dialog-actions"><button type="button" className="outline-button" onClick={() => setReferring(null)} disabled={savingReferral}>إلغاء</button><button className="primary-button" disabled={savingReferral}>{savingReferral ? 'جارٍ إرسال الإحالة…' : 'تحويل إلى الموجّه'}</button></div></form></div>}
+    {deciding && <div className="counselor-dialog-backdrop" role="dialog" aria-modal="true" aria-labelledby="absence-decision-title" onMouseDown={() => !savingDecision && setDeciding(null)}><form className="counselor-dialog absence-contact-dialog" onSubmit={saveDecision} onMouseDown={event => event.stopPropagation()}><button type="button" className="counselor-dialog-close" onClick={() => setDeciding(null)} disabled={savingDecision}><X size={18} /></button><span>قرار الوكيل</span><h3 id="absence-decision-title">{decisionForm.decision === 'closed' ? 'إغلاق الحالة' : 'طلب متابعة إضافية'}</h3><p><strong>{deciding.name}</strong> · {deciding.grade} · الفصل {deciding.classroom || '—'}</p><label>ملاحظات القرار<textarea value={decisionForm.note} minLength={3} maxLength={2000} onChange={event => setDecisionForm(current => ({ ...current, note: event.target.value }))} placeholder="اكتب قرارك أو المطلوب في المتابعة الإضافية" required /></label>{decisionError && <p className="teacher-notice error">{decisionError}</p>}<div className="counselor-dialog-actions"><button type="button" className="outline-button" onClick={() => setDeciding(null)} disabled={savingDecision}>إلغاء</button><button className="primary-button" disabled={savingDecision}>{savingDecision ? 'جارٍ الحفظ…' : 'حفظ القرار'}</button></div></form></div>}
   </section>
 }
 
