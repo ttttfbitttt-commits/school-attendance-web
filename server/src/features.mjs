@@ -488,6 +488,7 @@ export async function handleFeatureRequest(context) {
           AND follow_up.student_id=a.student_id AND follow_up.absence_date=a.absence_date
         WHERE a.school_id=$1 AND a.absence_date=$2::date AND a.status IN ('unexcused','excused','special')
           AND s.grade=ANY($3::text[])
+          AND totals."absenceDays" >= 3
           AND NOT EXISTS (
             SELECT 1 FROM attendance_logs attendance
             WHERE attendance.school_id=a.school_id AND attendance.student_id=a.student_id
