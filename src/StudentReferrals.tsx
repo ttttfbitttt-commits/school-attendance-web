@@ -251,6 +251,7 @@ export function SchoolReferralCenter({ schoolName }: { schoolName: string }) {
 
 export function CounselorReferralCenter({ schoolName }: { schoolName: string }) {
   const [referrals, setReferrals] = useState<StudentReferral[]>([])
+  const [mode, setMode] = useState<'queue' | 'report'>('queue')
   const [selected, setSelected] = useState<StudentReferral | null>(null)
   const [preview, setPreview] = useState<StudentReferral | null>(null)
   const [query, setQuery] = useState('')
@@ -265,17 +266,20 @@ export function CounselorReferralCenter({ schoolName }: { schoolName: string }) 
   useEffect(() => { void load() }, [])
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase()
-    if (!needle) return referrals
-    return referrals.filter(item => `${item.studentName} ${item.studentId} ${item.teacherName} ${item.grade} ${item.classroom}`.toLowerCase().includes(needle))
-  }, [query, referrals])
+    const source = mode === 'report' ? referrals.filter(item => Boolean(item.counselorAction)) : referrals
+    if (!needle) return source
+    return source.filter(item => `${item.studentName} ${item.studentId} ${item.teacherName} ${item.grade} ${item.classroom}`.toLowerCase().includes(needle))
+  }, [query, referrals, mode])
   const pending = referrals.filter(item => item.status === 'referred_to_counselor' && !item.counselorAction).length
   const completed = referrals.filter(item => Boolean(item.counselorAction)).length
   return <section className="referral-school-center counselor-referral-center">
     <header className="referral-school-header"><div><span>{schoolName} · بوابة الموجّه الطلابي</span><h2>الإحالات المحالة</h2><p>راجع الإحالات التي حوّلها وكيل المدرسة، ثم وثّق الإجراء المتخذ باسمك.</p></div><FileText size={34} /></header>
     <div className="counselor-referral-stats"><article><small>بانتظار الإجراء</small><strong>{pending}</strong></article><article><small>تم توثيقها</small><strong>{completed}</strong></article><article><small>إجمالي الإحالات</small><strong>{referrals.length}</strong></article></div>
+    <div className="referral-mode-cards"><button className={mode === 'queue' ? 'active' : ''} onClick={() => setMode('queue')}><Send size={21} /><strong>الإحالات المحالة</strong><small>الحالات التي تحتاج إجراء</small></button><button className={mode === 'report' ? 'active' : ''} onClick={() => setMode('report')}><FileText size={21} /><strong>تقرير إجراءات الموجّه</strong><small>{completed} حالة تمت معالجتها</small></button></div>
     <div className="referral-school-panel">
-      <div className="referral-toolbar"><label className="referral-search"><Search size={17} /><input value={query} onChange={event => setQuery(event.target.value)} placeholder="ابحث بالطالب أو المعلم أو الفصل" /></label><button className="icon-button" onClick={() => void load()} title="تحديث"><RefreshCw size={17} /></button></div>
-      {error && <p className="teacher-notice error">{error}</p>}{busy ? <div className="referral-empty">جارٍ تحميل الإحالات…</div> : <ReferralList referrals={filtered} emptyText="لا توجد إحالات محالة إلى الموجّه حاليًا." onOpen={setSelected} />}
+      <div className="referral-toolbar"><label className="referral-search"><Search size={17} /><input value={query} onChange={event => setQuery(event.target.value)} placeholder="ابحث بالطالب أو المعلم أو الفصل" /></label>{mode === 'report' && <><button className="outline-button" onClick={() => exportReferralExcel(filtered, schoolName)} disabled={!filtered.length}><FileSpreadsheet size={16} /> Excel</button><button className="outline-button" onClick={() => exportReferralPdf(filtered, schoolName)} disabled={!filtered.length}><Printer size={16} /> PDF</button></>}<button className="icon-button" onClick={() => void load()} title="تحديث"><RefreshCw size={17} /></button></div>
+      {mode === 'report' && <div className="referral-recorded-actions"><article><small>التقرير</small><strong>الحالات التي تم الرد عليها من قبل الموجّه</strong><p>يعرض الطالب والصف وسبب الإحالة والإجراء المتخذ واسم الموجّه وتاريخ الإجراء.</p></article></div>}
+      {error && <p className="teacher-notice error">{error}</p>}{busy ? <div className="referral-empty">جارٍ تحميل الإحالات…</div> : <ReferralList referrals={filtered} emptyText={mode === 'report' ? 'لا توجد حالات تم الرد عليها من قبل الموجّه.' : 'لا توجد إحالات محالة إلى الموجّه حاليًا.'} onOpen={setSelected} />}
     </div>
     {selected && <ReferralDetail referral={selected} schoolMode={false} counselorMode onClose={() => setSelected(null)} onSaved={() => { setSelected(null); void load() }} onPrint={setPreview} />}
     {preview && <ReferralOfficialPreview referral={preview} onClose={() => setPreview(null)} />}
