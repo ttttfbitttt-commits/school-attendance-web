@@ -13,8 +13,8 @@ type View = 'attendance' | 'lessons' | 'reports' | 'password'
 const normalize = (value: unknown) => String(value ?? '').replace(/\s+/g, ' ').trim()
 const comparable = (value: unknown) => normalize(value).toLocaleLowerCase('ar')
 const normalizedStudentId = (value: unknown) => normalize(value).replace(/^([+-]?\d+)\.0+$/, '$1')
-const SCAN_INTERVAL_MS = 150
-const SCAN_MAX_DIMENSION = 360
+const SCAN_INTERVAL_MS = 190
+const SCAN_MAX_DIMENSION = 420
 const SCAN_PAUSE_AFTER_READ_MS = 450
 function barcodeCandidates(raw: string) {
   const code = normalize(raw)
@@ -190,8 +190,8 @@ export function AdministratorPortal({ account, onLogout }: { account: Account; o
     if (!navigator.mediaDevices?.getUserMedia) { setNotice({ type: 'error', text: 'هذا المتصفح لا يدعم تشغيل الكاميرا. استخدم Safari أو Chrome محدثًا.' }); return }
     try {
       const options: MediaStreamConstraints[] = [
-        { video: { facingMode: { ideal: 'environment' }, width: { ideal: 960, min: 480, max: 1280 }, height: { ideal: 540, min: 360, max: 720 }, frameRate: { ideal: 15, max: 20 } }, audio: false },
-        { video: { facingMode: { ideal: 'user' }, width: { ideal: 960, min: 480, max: 1280 }, height: { ideal: 540, min: 360, max: 720 }, frameRate: { ideal: 15, max: 20 } }, audio: false },
+        { video: { facingMode: { ideal: 'environment' }, width: { ideal: 720, min: 480, max: 960 }, height: { ideal: 405, min: 360, max: 540 }, frameRate: { ideal: 12, max: 15 } }, audio: false },
+        { video: { facingMode: { ideal: 'user' }, width: { ideal: 720, min: 480, max: 960 }, height: { ideal: 405, min: 360, max: 540 }, frameRate: { ideal: 12, max: 15 } }, audio: false },
         { video: true, audio: false },
       ]
       let stream: MediaStream | null = null

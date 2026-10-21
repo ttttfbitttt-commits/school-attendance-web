@@ -4,8 +4,8 @@ import { Camera, CheckCircle2, ShieldCheck, Square, XCircle } from 'lucide-react
 import { api, type StudentCooperationStatus } from './api'
 
 const jsQR = ((jsQRNs as unknown as { default?: unknown }).default || jsQRNs) as (data: Uint8ClampedArray, width: number, height: number, options?: { inversionAttempts?: 'attemptBoth' }) => { data: string } | null
-const SCAN_INTERVAL_MS = 150
-const SCAN_MAX_DIMENSION = 360
+const SCAN_INTERVAL_MS = 190
+const SCAN_MAX_DIMENSION = 420
 
 type Feedback = { kind: 'created' | 'duplicate' | 'error'; title: string; message: string; student?: { name: string; grade: string; classroom: string } }
 
@@ -109,7 +109,7 @@ export function StudentCooperationPanel({ status, onStatus }: { status: StudentC
     if (!navigator.mediaDevices?.getUserMedia) { setNotice('المتصفح لا يدعم تشغيل الكاميرا. استخدم Chrome أو Safari محدثًا.'); return }
     setNotice('')
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 960, max: 1280 }, height: { ideal: 540, max: 720 }, frameRate: { ideal: 15, max: 20 } }, audio: false })
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 720, min: 480, max: 960 }, height: { ideal: 405, min: 360, max: 540 }, frameRate: { ideal: 12, max: 15 } }, audio: false })
       streamRef.current = stream
       setCameraActive(true)
       window.setTimeout(async () => {

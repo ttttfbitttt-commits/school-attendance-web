@@ -10,8 +10,8 @@ const jsQR = ((jsQRNs as unknown as { default?: unknown }).default || jsQRNs) as
 const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Riyadh' }).format(new Date())
 const periodLabel = (period: number) => period === 1 ? 'الحصة الأولى' : 'الحصة الثانية'
 const escapeHtml = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character] || character))
-const SCAN_INTERVAL_MS = 150
-const SCAN_MAX_DIMENSION = 360
+const SCAN_INTERVAL_MS = 190
+const SCAN_MAX_DIMENSION = 420
 const SCAN_PAUSE_AFTER_READ_MS = 450
 
 type ScanFeedback = {
@@ -216,7 +216,7 @@ export function TeacherCooperationPanel({ status, onRefresh }: { status: Teacher
     if (!navigator.mediaDevices?.getUserMedia) { setNotice('المتصفح لا يدعم تشغيل الكاميرا. استخدم Chrome أو Safari المحدث.'); return }
     setNotice('')
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 960, max: 1280 }, height: { ideal: 540, max: 720 }, frameRate: { ideal: 15, max: 20 } }, audio: false })
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 720, min: 480, max: 960 }, height: { ideal: 405, min: 360, max: 540 }, frameRate: { ideal: 12, max: 15 } }, audio: false })
       streamRef.current = stream
       const track = stream.getVideoTracks()[0]
       try { setTorchSupported(Boolean((track.getCapabilities?.() as MediaTrackCapabilities & { torch?: boolean })?.torch)) } catch { setTorchSupported(false) }

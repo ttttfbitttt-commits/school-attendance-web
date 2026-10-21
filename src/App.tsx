@@ -114,8 +114,9 @@ const readSchoolSettings = (): SchoolSettings => DEFAULT_SCHOOL_SETTINGS
 
 // توازن بين سرعة قراءة البطاقة واستهلاك المعالج: 6-7 محاولات في الثانية
 // مع إبقاء دقة بث الكاميرا المنخفضة التي خففت حرارة الجهاز.
-const QR_SCAN_INTERVAL_MS = 150
-const QR_SCAN_MAX_DIMENSION = 360
+// توازن بين سرعة القراءة واستهلاك المعالج: بث أقل دقة مع تحليل مربع أوضح.
+const QR_SCAN_INTERVAL_MS = 190
+const QR_SCAN_MAX_DIMENSION = 420
 const QR_SCAN_PAUSE_AFTER_READ_MS = 450
 
 const aliases = {
@@ -952,26 +953,26 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
       {
         video: {
           facingMode: { ideal: 'environment' },
-          width: { ideal: 960, min: 480, max: 1280 },
-          height: { ideal: 540, min: 360, max: 720 },
-          frameRate: { ideal: 15, max: 20 },
+          width: { ideal: 720, min: 480, max: 960 },
+          height: { ideal: 405, min: 360, max: 540 },
+          frameRate: { ideal: 12, max: 15 },
         },
         audio: false,
       },
       {
         video: {
           facingMode: { ideal: 'user' },
-          width: { ideal: 960, min: 480, max: 1280 },
-          height: { ideal: 540, min: 360, max: 720 },
-          frameRate: { ideal: 15, max: 20 },
+          width: { ideal: 720, min: 480, max: 960 },
+          height: { ideal: 405, min: 360, max: 540 },
+          frameRate: { ideal: 12, max: 15 },
         },
         audio: false,
       },
       {
         video: {
-          width: { ideal: 960, min: 480, max: 1280 },
-          height: { ideal: 540, min: 360, max: 720 },
-          frameRate: { ideal: 15, max: 20 },
+          width: { ideal: 720, min: 480, max: 960 },
+          height: { ideal: 405, min: 360, max: 540 },
+          frameRate: { ideal: 12, max: 15 },
         },
         audio: false,
       },
