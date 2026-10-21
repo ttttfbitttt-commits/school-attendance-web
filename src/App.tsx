@@ -1206,6 +1206,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
     const existingRecord = scanLogRef.current.find((rec) => rec.studentId === student.id)
     if (existingRecord) {
       playAudioBeep('duplicate')
+      setNotice(`الطالب ${student.name} تم تحضيره مسبقًا اليوم.`)
       setLastScannedOverlay({ student, status: existingRecord.status, scanTime: existingRecord.time, duplicate: true })
       if (overlayTimerRef.current) clearTimeout(overlayTimerRef.current)
       overlayTimerRef.current = setTimeout(() => setLastScannedOverlay(null), 3000)
@@ -1264,6 +1265,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
       if (!result.ok) {
         setScanLog((prev) => prev.filter((record) => record !== newRecord))
         playAudioBeep('duplicate')
+        setNotice(`الطالب ${student.name} تم تحضيره مسبقًا اليوم.`)
         setLastScannedOverlay({ student, status, scanTime: timeStr, duplicate: true })
         if (overlayTimerRef.current) clearTimeout(overlayTimerRef.current)
         overlayTimerRef.current = setTimeout(() => setLastScannedOverlay(null), 3000)
