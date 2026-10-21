@@ -53,12 +53,17 @@ const optimizePortfolioImage = async (file: File) => {
   throw new Error('تعذر ضغط الصورة إلى الحجم المسموح. اختر صورة أصغر.')
 }
 
-const readAsDataUrl = (file: Blob) => new Promise<string>((resolve, reject) => {
-  const reader = new FileReader()
-  reader.onload = () => resolve(String(reader.result || ''))
-  reader.onerror = () => reject(new Error('تعذر قراءة الصورة.'))
-  reader.readAsDataURL(file)
-})
+const readAsDataUrl = async (file: Blob) => {
+  // FileReader is unavailable in some embedded/iOS browser contexts. Reading
+  // the Blob directly keeps uploads working in Chrome/Safari on mobile.
+  const bytes = new Uint8Array(await file.arrayBuffer())
+  let binary = ''
+  const chunkSize = 0x8000
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize))
+  }
+  return `data:${file.type || 'application/octet-stream'};base64,${btoa(binary)}`
+}
 
 const portfolioImageName = (fileName: string) => `${fileName.replace(/\.[^.]+$/, '').trim() || 'صورة-إنجاز'}.webp`
 
