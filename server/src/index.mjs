@@ -44,6 +44,7 @@ const SCHOOL_STORAGE_TABLES = [
 ]
 
 function json(res, status, body) {
+  if (res.headersSent || res.writableEnded) return false
   res.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
   res.end(JSON.stringify(body))
 }
