@@ -324,7 +324,7 @@ async function configureDatabaseRoles() {
     teacher_sheet_configs, teacher_sheet_entries, teacher_evidence_records, teacher_evidence_images, behavior_incidents, behavior_student_records,
     behavior_action_steps, behavior_score_movements, behavior_audit_logs, student_referrals, administrative_staff,
     student_referral_events, teacher_attendance_contributions, student_portfolio_files, student_counselors, student_counselor_grade_assignments,
-    school_vice_principals, vice_principal_grade_assignments, school_activity_leaders TO attendance_app`)
+    school_vice_principals, vice_principal_grade_assignments, school_activity_leaders, activity_leader_activity_recipients TO attendance_app`)
   await adminPool.query('GRANT SELECT ON behavior_catalog_rules TO attendance_app')
   await adminPool.query('GRANT USAGE, SELECT ON SEQUENCE behavior_audit_logs_id_seq TO attendance_app')
   await adminPool.query('GRANT USAGE, SELECT ON SEQUENCE student_referral_events_id_seq TO attendance_app')
