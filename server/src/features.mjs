@@ -396,11 +396,35 @@ export async function handleFeatureRequest(context) {
   const { req, res, url, user, pool, body, json, scoped, todayRiyadh } = context
   const adminOnly = () => user.role === 'admin' || user.role === 'vice_principal' || user.role === 'counselor'
 
+  // Create the first follow-up case automatically when a student reaches
+  // three recorded absence days. The third absence date is used as the case
+  // date, and the unique key keeps refreshes and concurrent requests safe.
+  const ensureAutomaticAbsenceCases = client => client.query(`WITH eligible AS (
+      SELECT school_id,student_id,(array_agg(absence_date ORDER BY absence_date))[3] AS absence_date
+      FROM absence_records
+      WHERE school_id=$1 AND absence_date<=CURRENT_DATE
+        AND status IN ('unexcused','excused','special')
+        AND NOT EXISTS (
+          SELECT 1 FROM attendance_logs attendance
+          WHERE attendance.school_id=absence_records.school_id
+            AND attendance.student_id=absence_records.student_id
+            AND attendance.attendance_date=absence_records.absence_date
+            AND attendance.status IN ('present','late')
+        )
+      GROUP BY school_id,student_id
+      HAVING COUNT(*) >= 3
+    )
+    INSERT INTO absence_follow_up_cases(school_id,student_id,absence_date)
+    SELECT eligible.school_id,eligible.student_id,eligible.absence_date
+    FROM eligible
+    JOIN students student ON student.school_id=eligible.school_id AND student.id=eligible.student_id AND student.active=true
+    ON CONFLICT (school_id,student_id,absence_date) DO NOTHING`, [user.school_id])
+
   if (req.method === 'GET' && url.pathname === '/api/absence-procedures/school/overview') {
     if (user.role !== 'admin') { json(res, 403, { error: 'forbidden' }); return true }
-    const rows = await scoped(user.school_id, async client => (await client.query(`SELECT follow_up.student_id AS "studentId",student.name,student.grade,student.classroom,follow_up.absence_date AS "absenceDate",absence.status,COALESCE(follow_up.case_state,'') AS "caseState",COALESCE(follow_up.contact_outcome,'') AS "contactOutcome",COALESCE(follow_up.referred_counselor_name,'') AS "referredCounselorName",COALESCE(follow_up.counselor_name,'') AS "counselorName",COALESCE(follow_up.vice_decided_by_name,'') AS "viceDecidedByName",COALESCE(follow_up.vice_decision_note,'') AS "viceDecisionNote",follow_up.counselor_acted_at AS "counselorActedAt",follow_up.updated_at AS "updatedAt"
+    const rows = await scoped(user.school_id, async client => { await ensureAutomaticAbsenceCases(client); return (await client.query(`SELECT follow_up.student_id AS "studentId",student.name,student.grade,student.classroom,follow_up.absence_date AS "absenceDate",absence.status,COALESCE(follow_up.case_state,'') AS "caseState",COALESCE(follow_up.contact_outcome,'') AS "contactOutcome",COALESCE(follow_up.referred_counselor_name,'') AS "referredCounselorName",COALESCE(follow_up.counselor_name,'') AS "counselorName",COALESCE(follow_up.vice_decided_by_name,'') AS "viceDecidedByName",COALESCE(follow_up.vice_decision_note,'') AS "viceDecisionNote",follow_up.counselor_acted_at AS "counselorActedAt",follow_up.updated_at AS "updatedAt"
       FROM absence_follow_up_cases follow_up JOIN students student ON student.school_id=follow_up.school_id AND student.id=follow_up.student_id JOIN absence_records absence ON absence.school_id=follow_up.school_id AND absence.student_id=follow_up.student_id AND absence.absence_date=follow_up.absence_date
-      WHERE follow_up.school_id=$1 AND student.active=true ORDER BY follow_up.updated_at DESC,student.grade,student.classroom,student.name`, [user.school_id])).rows)
+      WHERE follow_up.school_id=$1 AND student.active=true ORDER BY follow_up.updated_at DESC,student.grade,student.classroom,student.name`, [user.school_id])).rows })
     json(res, 200, { rows }); return true
   }
 
@@ -411,6 +435,7 @@ export async function handleFeatureRequest(context) {
     const date = validDate(url.searchParams.get('date')) || todayRiyadh()
     if (date > todayRiyadh()) { json(res, 400, { error: 'invalid_absence_date' }); return true }
     const result = await scoped(user.school_id, async client => {
+      await ensureAutomaticAbsenceCases(client)
       const grades = await studentWellbeingGrades(client, user)
       if (!grades?.length) return { grade: '', rows: [], summary: { students: 0, unexcused: 0, excused: 0, special: 0 } }
       const rows = (await client.query(`SELECT
@@ -547,6 +572,7 @@ export async function handleFeatureRequest(context) {
   if (req.method === 'GET' && url.pathname === '/api/absence-procedures/counselor/referred') {
     if (user.role !== 'counselor' || !user.counselor_id) { json(res, 403, { error: 'forbidden' }); return true }
     const result = await scoped(user.school_id, async client => {
+      await ensureAutomaticAbsenceCases(client)
       const grades = await studentGuideGrades(client, user)
       if (!grades?.length) return []
       return (await client.query(`SELECT
