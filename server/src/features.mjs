@@ -299,6 +299,21 @@ export async function migrateFeatures(pool) {
       FOREIGN KEY (school_id,student_id) REFERENCES students(school_id,id) ON DELETE RESTRICT,
       CHECK ((contact_outcome='' AND contact_method='' AND contact_note='') OR (contact_outcome IN ('contacted','no_answer') AND contact_method<>'' AND length(btrim(contact_note))>=3))
     );
+    CREATE TABLE IF NOT EXISTS absence_message_logs (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      school_id uuid NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+      student_id text NOT NULL,
+      student_name text NOT NULL,
+      absence_days integer NOT NULL CHECK (absence_days >= 3),
+      recipient text NOT NULL DEFAULT '',
+      sender_name text NOT NULL DEFAULT '',
+      message_body text NOT NULL,
+      status text NOT NULL CHECK (status IN ('sent','failed')),
+      error_detail text NOT NULL DEFAULT '',
+      sent_by uuid REFERENCES users(id) ON DELETE SET NULL,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      FOREIGN KEY (school_id,student_id) REFERENCES students(school_id,id) ON DELETE RESTRICT
+    );
     CREATE TABLE IF NOT EXISTS application_migrations (
       name text PRIMARY KEY,
       applied_at timestamptz NOT NULL DEFAULT now()
@@ -317,6 +332,7 @@ export async function migrateFeatures(pool) {
     CREATE INDEX IF NOT EXISTS absence_corrections_school_student ON absence_corrections(school_id,student_id,absence_date DESC);
     CREATE INDEX IF NOT EXISTS absence_follow_up_cases_school_day ON absence_follow_up_cases(school_id,absence_date DESC);
     CREATE INDEX IF NOT EXISTS absence_follow_up_cases_school_student ON absence_follow_up_cases(school_id,student_id,absence_date DESC);
+    CREATE INDEX IF NOT EXISTS absence_message_logs_school_created ON absence_message_logs(school_id,created_at DESC);
     CREATE INDEX IF NOT EXISTS attendance_logs_late_history ON attendance_logs(school_id,student_id,attendance_date DESC) WHERE status='late';
     ALTER TABLE almadar_accounts ENABLE ROW LEVEL SECURITY;
     ALTER TABLE almadar_accounts FORCE ROW LEVEL SECURITY;
@@ -328,6 +344,8 @@ export async function migrateFeatures(pool) {
     ALTER TABLE absence_records FORCE ROW LEVEL SECURITY;
     ALTER TABLE absence_corrections ENABLE ROW LEVEL SECURITY;
     ALTER TABLE absence_corrections FORCE ROW LEVEL SECURITY;
+    ALTER TABLE absence_message_logs ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE absence_message_logs FORCE ROW LEVEL SECURITY;
     DO $$ BEGIN
       IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename='almadar_accounts' AND policyname='almadar_accounts_school_scope') THEN
         CREATE POLICY almadar_accounts_school_scope ON almadar_accounts USING (school_id=current_setting('app.school_id',true)::uuid) WITH CHECK (school_id=current_setting('app.school_id',true)::uuid);
@@ -343,6 +361,9 @@ export async function migrateFeatures(pool) {
       END IF;
       IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename='absence_corrections' AND policyname='absence_corrections_school_scope') THEN
         CREATE POLICY absence_corrections_school_scope ON absence_corrections USING (school_id=current_setting('app.school_id',true)::uuid) WITH CHECK (school_id=current_setting('app.school_id',true)::uuid);
+      END IF;
+      IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename='absence_message_logs' AND policyname='absence_message_logs_school_scope') THEN
+        CREATE POLICY absence_message_logs_school_scope ON absence_message_logs USING (school_id=current_setting('app.school_id',true)::uuid) WITH CHECK (school_id=current_setting('app.school_id',true)::uuid);
       END IF;
     END $$;
   `)
@@ -483,6 +504,44 @@ export async function handleFeatureRequest(context) {
     })
     json(res, 200, { date, ...result })
     return true
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/absence-procedures/vice/messages') {
+    if (user.role !== 'vice_principal') { json(res, 403, { error: 'forbidden' }); return true }
+    const rows = await scoped(user.school_id, async client => {
+      const grades = await studentWellbeingGrades(client, user)
+      if (!grades?.length) return []
+      return (await client.query(`SELECT id,student_id AS "studentId",student_name AS "studentName",absence_days AS "absenceDays",recipient,sender_name AS "senderName",message_body AS "messageBody",status,error_detail AS "errorDetail",created_at AS "createdAt"
+        FROM absence_message_logs WHERE school_id=$1 AND student_id IN (SELECT id FROM students WHERE school_id=$1 AND active=true AND grade=ANY($2::text[])) ORDER BY created_at DESC LIMIT 5000`, [user.school_id, grades])).rows
+    })
+    json(res, 200, { rows }); return true
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/absence-procedures/vice/message') {
+    if (user.role !== 'vice_principal') { json(res, 403, { error: 'forbidden' }); return true }
+    const input = await body(req)
+    const studentId = String(input.studentId || '').trim()
+    const date = validDate(input.date) || todayRiyadh()
+    if (!studentId || date > todayRiyadh()) { json(res, 400, { error: 'invalid_absence_message' }); return true }
+    const account = await accountForSchool(user.school_id, scoped)
+    const result = await scoped(user.school_id, async client => {
+      const grades = await studentWellbeingGrades(client, user)
+      if (!grades?.length) return { error: 'vice_grade_not_assigned' }
+      const student = (await client.query(`SELECT id,name,phone FROM students WHERE school_id=$1 AND id=$2 AND active=true AND grade=ANY($3::text[])`, [user.school_id, studentId, grades])).rows[0]
+      if (!student) return { error: 'student_not_found' }
+      const totals = (await client.query(`SELECT COUNT(*)::int AS days FROM absence_records a WHERE a.school_id=$1 AND a.student_id=$2 AND a.absence_date<=$3::date AND a.status IN ('unexcused','excused','special') AND NOT EXISTS (SELECT 1 FROM attendance_logs x WHERE x.school_id=a.school_id AND x.student_id=a.student_id AND x.attendance_date=a.absence_date AND x.status IN ('present','late'))`, [user.school_id, studentId, date])).rows[0]
+      const absenceDays = Number(totals?.days || 0)
+      if (absenceDays < 3) return { error: 'student_below_three_absences' }
+      const school = (await client.query('SELECT name FROM schools WHERE id=$1', [user.school_id])).rows[0]
+      const messageBody = `بلغ غياب ابنكم الطالب ${student.name} ${absenceDays} أيام نأمل التواصل مع وكيل المدرسة ${user.display_name || 'وكيل المدرسة'} ${school?.name || ''}`.replace(/\s+/g, ' ').trim()
+      const recipient = normalizePhone(student.phone)
+      const outcome = !account ? { ok: false, error: 'almadar_not_configured' } : !recipient ? { ok: false, error: 'invalid_recipient_phone' } : await sendMessage(decrypt(account.api_key_encrypted), { number: recipient, senderName: account.sender_name, sendAtOption: 'Now', messageBody, allow_duplicate: true })
+      await client.query(`INSERT INTO absence_message_logs(school_id,student_id,student_name,absence_days,recipient,sender_name,message_body,status,error_detail,sent_by)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, [user.school_id, student.id, student.name, absenceDays, recipient || String(student.phone || ''), account?.sender_name || '', messageBody, outcome.ok ? 'sent' : 'failed', outcome.ok ? '' : outcome.error, user.user_id])
+      return { message: { studentId: student.id, studentName: student.name, absenceDays, messageBody, status: outcome.ok ? 'sent' : 'failed' }, error: outcome.ok ? '' : outcome.error }
+    })
+    if (result.error && !result.message) { json(res, result.error === 'almadar_not_configured' ? 400 : result.error === 'student_not_found' ? 404 : 409, result); return true }
+    json(res, 200, { ok: result.message.status === 'sent', ...result }); return true
   }
 
   if (req.method === 'POST' && url.pathname === '/api/absence-procedures/vice/contact') {
