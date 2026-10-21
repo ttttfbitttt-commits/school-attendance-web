@@ -649,6 +649,7 @@ export async function handleFeatureRequest(context) {
       if (!grades?.length) return []
       return (await client.query(`SELECT
           follow_up.student_id AS "studentId",student.name,student.grade,student.classroom,student.phone,absence.absence_date AS "absenceDate",absence.status,
+          (SELECT COUNT(*)::int FROM absence_records history WHERE history.school_id=follow_up.school_id AND history.student_id=follow_up.student_id AND history.absence_date<=CURRENT_DATE AND history.status IN ('unexcused','excused','special') AND NOT EXISTS (SELECT 1 FROM attendance_logs history_attendance WHERE history_attendance.school_id=history.school_id AND history_attendance.student_id=history.student_id AND history_attendance.attendance_date=history.absence_date AND history_attendance.status IN ('present','late'))) AS "absenceDays",
           follow_up.contact_outcome AS "contactOutcome",follow_up.contact_method AS "contactMethod",follow_up.contact_note AS "contactNote",
           COALESCE(follow_up.contacted_by_name,'') AS "contactedByName",follow_up.contacted_at AS "contactedAt",
           follow_up.referral_note AS "referralNote",COALESCE(follow_up.referred_by_name,'') AS "referredByName",follow_up.referred_at AS "referredAt",
