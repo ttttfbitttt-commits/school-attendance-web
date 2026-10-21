@@ -94,18 +94,20 @@ function attemptState(key, now) {
   }
   return saved
 }
-function loginRateLimited(req, scope, identity) {
+function loginRateLimited(req, scope, identity, includeIp = true) {
   const now = Date.now()
   const [ipKey, identityKey] = loginKeys(req, scope, identity)
   const ip = attemptState(ipKey, now)
   const account = attemptState(identityKey, now)
-  const limited = ip.count >= LOGIN_IP_LIMIT || account.count >= LOGIN_IDENTITY_LIMIT
+  const limited = (includeIp && ip.count >= LOGIN_IP_LIMIT) || account.count >= LOGIN_IDENTITY_LIMIT
   if (!limited) return false
   return Math.max(1, Math.ceil((Math.min(ip.startedAt, account.startedAt) + LOGIN_WINDOW_MS - now) / 1000))
 }
-function recordFailedLogin(req, scope, identity) {
+function recordFailedLogin(req, scope, identity, includeIp = true) {
   const now = Date.now()
-  for (const key of loginKeys(req, scope, identity)) attemptState(key, now).count += 1
+  const [, identityKey] = loginKeys(req, scope, identity)
+  attemptState(identityKey, now).count += 1
+  if (includeIp) attemptState(loginKeys(req, scope, identity)[0], now).count += 1
   if (loginAttempts.size > 5000) {
     for (const [key, value] of loginAttempts) if (value.startedAt + LOGIN_WINDOW_MS <= now) loginAttempts.delete(key)
   }
@@ -418,12 +420,12 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/api/auth/unified-login') {
       const { identifier: rawIdentifier, password, userId, schoolId, role } = await body(req)
       const identifier = normalizeUnifiedIdentifier(rawIdentifier)
-      const retryAfter = loginRateLimited(req, 'unified', identifier)
+      const retryAfter = loginRateLimited(req, 'unified', identifier, false)
       if (retryAfter) return loginThrottleResponse(res, retryAfter)
       const candidates = await unifiedLoginCandidates(identifier)
       const matches = candidates.filter(row => passwordMatches(String(password || ''), row.password_hash))
       if (!matches.length) {
-        recordFailedLogin(req, 'unified', identifier)
+        recordFailedLogin(req, 'unified', identifier, false)
         return json(res, 401, { error: 'invalid_login' })
       }
       const selectionRequested = Boolean(userId || schoolId || role)
@@ -432,7 +434,7 @@ const server = http.createServer(async (req, res) => {
         : matches.length === 1 ? matches[0] : null
       if (!selected) {
         if (selectionRequested) {
-          recordFailedLogin(req, 'unified', identifier)
+          recordFailedLogin(req, 'unified', identifier, false)
           return json(res, 401, { error: 'invalid_login' })
         }
         return json(res, 409, { error: 'login_selection_required', choices: await unifiedLoginChoices(matches) })

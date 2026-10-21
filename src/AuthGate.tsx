@@ -52,7 +52,9 @@ export function AuthGate({ children }: { children: (account: Account, logout: ()
         setLoginChoices(apiError.data.choices)
         return
       }
-      setError('تعذر تسجيل الدخول. تحقق من رقم الهوية أو بريد المدرسة وكلمة المرور ثم حاول مرة أخرى.')
+      setError(apiError.code === 'too_many_login_attempts'
+        ? 'تم إيقاف المحاولات لهذا الحساب مؤقتًا لحمايته. انتظر قليلًا ثم حاول مرة أخرى.'
+        : 'تعذر تسجيل الدخول. تحقق من رقم الهوية أو بريد المدرسة وكلمة المرور ثم حاول مرة أخرى.')
     } finally {
       setSubmitting(false)
     }
