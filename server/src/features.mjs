@@ -410,7 +410,9 @@ export async function handleFeatureRequest(context) {
           totals."absenceDays",totals."unexcusedDays",totals."excusedDays",totals."specialDays",
           COALESCE(follow_up.contact_outcome,'') AS "contactOutcome",COALESCE(follow_up.contact_method,'') AS "contactMethod",
           COALESCE(follow_up.contact_note,'') AS "contactNote",COALESCE(follow_up.contacted_by_name,'') AS "contactedByName",follow_up.contacted_at AS "contactedAt",
-          COALESCE(follow_up.referred_counselor_name,'') AS "referredCounselorName",COALESCE(follow_up.referral_note,'') AS "referralNote",follow_up.referred_at AS "referredAt"
+          COALESCE(follow_up.referred_counselor_name,'') AS "referredCounselorName",COALESCE(follow_up.referral_note,'') AS "referralNote",follow_up.referred_at AS "referredAt",
+          COALESCE(follow_up.counselor_action,'') AS "counselorAction",COALESCE(follow_up.counselor_plan,'') AS "counselorPlan",
+          COALESCE(follow_up.counselor_name,'') AS "counselorName",follow_up.counselor_acted_at AS "counselorActedAt"
         FROM absence_records a
         JOIN students s ON s.school_id=a.school_id AND s.id=a.student_id AND s.active=true
         JOIN LATERAL (
@@ -541,7 +543,9 @@ export async function handleFeatureRequest(context) {
           follow_up.student_id AS "studentId",student.name,student.grade,student.classroom,student.phone,absence.absence_date AS "absenceDate",absence.status,
           follow_up.contact_outcome AS "contactOutcome",follow_up.contact_method AS "contactMethod",follow_up.contact_note AS "contactNote",
           COALESCE(follow_up.contacted_by_name,'') AS "contactedByName",follow_up.contacted_at AS "contactedAt",
-          follow_up.referral_note AS "referralNote",COALESCE(follow_up.referred_by_name,'') AS "referredByName",follow_up.referred_at AS "referredAt"
+          follow_up.referral_note AS "referralNote",COALESCE(follow_up.referred_by_name,'') AS "referredByName",follow_up.referred_at AS "referredAt",
+          COALESCE(follow_up.counselor_action,'') AS "counselorAction",COALESCE(follow_up.counselor_plan,'') AS "counselorPlan",
+          COALESCE(follow_up.counselor_name,'') AS "counselorName",follow_up.counselor_acted_at AS "counselorActedAt"
         FROM absence_follow_up_cases follow_up
         JOIN absence_records absence ON absence.school_id=follow_up.school_id AND absence.student_id=follow_up.student_id
           AND absence.absence_date=follow_up.absence_date
@@ -556,6 +560,45 @@ export async function handleFeatureRequest(context) {
         ORDER BY follow_up.referred_at DESC,student.grade,student.classroom,student.name`, [user.school_id, user.counselor_id, grades])).rows
     })
     json(res, 200, { rows: result })
+    return true
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/absence-procedures/counselor/action') {
+    if (user.role !== 'counselor' || !user.counselor_id) { json(res, 403, { error: 'forbidden' }); return true }
+    const input = await body(req)
+    const studentId = String(input.studentId || '').trim()
+    const date = validDate(input.date)
+    const action = String(input.action || '').replace(/\s+/g, ' ').trim().slice(0, 2000)
+    const plan = String(input.plan || '').replace(/\s+/g, ' ').trim().slice(0, 2000)
+    const counselorName = String(user.display_name || '').replace(/\s+/g, ' ').trim().slice(0, 180) || 'الموجّه الطلابي'
+    if (!studentId || !date || date > todayRiyadh() || action.length < 3) {
+      json(res, 400, { error: 'invalid_counselor_action' }); return true
+    }
+    const result = await scoped(user.school_id, async client => {
+      const grades = await studentGuideGrades(client, user)
+      if (!grades?.length) return null
+      const eligible = await client.query(`SELECT 1
+        FROM absence_follow_up_cases follow_up
+        JOIN absence_records absence ON absence.school_id=follow_up.school_id AND absence.student_id=follow_up.student_id
+          AND absence.absence_date=follow_up.absence_date
+        JOIN students student ON student.school_id=follow_up.school_id AND student.id=follow_up.student_id AND student.active=true
+        WHERE follow_up.school_id=$1 AND follow_up.student_id=$2 AND follow_up.absence_date=$3::date
+          AND follow_up.referred_counselor_id=$4 AND follow_up.referred_at IS NOT NULL
+          AND student.grade=ANY($5::text[]) AND absence.status IN ('unexcused','excused','special')
+          AND NOT EXISTS (
+            SELECT 1 FROM attendance_logs attendance
+            WHERE attendance.school_id=absence.school_id AND attendance.student_id=absence.student_id
+              AND attendance.attendance_date=absence.absence_date AND attendance.status IN ('present','late')
+          )`, [user.school_id, studentId, date, user.counselor_id, grades])
+      if (!eligible.rowCount) return null
+      return client.query(`UPDATE absence_follow_up_cases
+        SET counselor_action=$4,counselor_plan=$5,counselor_acted_by=$6,counselor_name=$7,counselor_acted_at=now(),updated_at=now()
+        WHERE school_id=$1 AND student_id=$2 AND absence_date=$3::date
+        RETURNING counselor_action AS "counselorAction",counselor_plan AS "counselorPlan",counselor_name AS "counselorName",counselor_acted_at AS "counselorActedAt"`,
+      [user.school_id, studentId, date, action, plan, user.user_id, counselorName])
+    })
+    if (!result) { json(res, 404, { error: 'referred_absence_not_found' }); return true }
+    json(res, 200, { ok: true, action: result.rows[0] })
     return true
   }
 

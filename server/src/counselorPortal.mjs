@@ -59,6 +59,11 @@ export async function migrateCounselorPortal(adminPool) {
     ALTER TABLE absence_follow_up_cases ADD COLUMN IF NOT EXISTS referred_by uuid REFERENCES users(id) ON DELETE SET NULL;
     ALTER TABLE absence_follow_up_cases ADD COLUMN IF NOT EXISTS referred_by_name text NOT NULL DEFAULT '';
     ALTER TABLE absence_follow_up_cases ADD COLUMN IF NOT EXISTS referred_at timestamptz;
+    ALTER TABLE absence_follow_up_cases ADD COLUMN IF NOT EXISTS counselor_action text NOT NULL DEFAULT '';
+    ALTER TABLE absence_follow_up_cases ADD COLUMN IF NOT EXISTS counselor_plan text NOT NULL DEFAULT '';
+    ALTER TABLE absence_follow_up_cases ADD COLUMN IF NOT EXISTS counselor_acted_by uuid REFERENCES users(id) ON DELETE SET NULL;
+    ALTER TABLE absence_follow_up_cases ADD COLUMN IF NOT EXISTS counselor_name text NOT NULL DEFAULT '';
+    ALTER TABLE absence_follow_up_cases ADD COLUMN IF NOT EXISTS counselor_acted_at timestamptz;
   `)
 }
 
