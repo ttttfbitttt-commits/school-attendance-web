@@ -16,6 +16,7 @@ import { handleCounselorPortalRequest, migrateCounselorPortal } from './counselo
 import { handleVicePrincipalPortalRequest, migrateVicePrincipalPortal } from './vicePrincipalPortal.mjs'
 import { handleActivityLeaderPortalRequest, migrateActivityLeaderPortal } from './activityLeaderPortal.mjs'
 import { guideCanAccessStudent, gradeScope, studentGuideGrades } from './counselorScope.mjs'
+import { handlePlatformRequest, migratePlatformDashboard, SCHOOL_STORAGE_TABLES } from './platformDashboard.mjs'
 
 const { Pool } = pg
 if (!process.env.DATABASE_URL || !process.env.RUNTIME_DATABASE_URL || !process.env.AUTH_DATABASE_URL) {
@@ -34,14 +35,6 @@ const LOGIN_WINDOW_MS = 15 * 60 * 1000
 const LOGIN_IP_LIMIT = 20
 const LOGIN_IDENTITY_LIMIT = 10
 const loginAttempts = new Map()
-const SCHOOL_STORAGE_TABLES = [
-  'students', 'attendance_logs', 'almadar_accounts', 'student_excuses', 'message_logs', 'absence_records', 'absence_corrections', 'absence_follow_up_cases', 'absence_message_logs',
-  'lesson_teachers', 'lesson_classrooms', 'lesson_schedule_imports', 'lesson_name_mappings', 'lesson_time_slots', 'lesson_schedule_assignments',
-  'teacher_incidents', 'teacher_day_absences', 'teacher_classroom_student_maps', 'teacher_lesson_sessions', 'teacher_lesson_student_records',
-  'teacher_sheet_configs', 'teacher_sheet_entries', 'teacher_evidence_records', 'teacher_evidence_images', 'behavior_incidents', 'behavior_student_records', 'behavior_action_steps',
-  'behavior_score_movements', 'behavior_audit_logs', 'student_referrals', 'student_referral_events', 'teacher_attendance_contributions',
-  'administrative_staff', 'student_counselors', 'student_counselor_grade_assignments', 'school_vice_principals', 'vice_principal_grade_assignments', 'school_activity_leaders',
-]
 
 function json(res, status, body) {
   if (res.headersSent || res.writableEnded) return false
@@ -141,6 +134,9 @@ async function auth(req) {
 async function createSession(res, userId, schoolId) {
   const token = crypto.randomBytes(32).toString('base64url')
   await authPool.query('INSERT INTO sessions(token_hash,user_id,school_id,expires_at) VALUES($1,$2,$3,now()+interval \'12 hours\')', [tokenHash(token), userId, schoolId])
+  await scopedOn(authPool, schoolId, client => client.query(`INSERT INTO school_login_activity(school_id,activity_date,login_count)
+    VALUES($1,(now() AT TIME ZONE 'Asia/Riyadh')::date,1)
+    ON CONFLICT(school_id,activity_date) DO UPDATE SET login_count=school_login_activity.login_count+1`, [schoolId]))
   res.setHeader('set-cookie', sessionCookie(token))
 }
 function account(row) {
@@ -331,6 +327,7 @@ async function configureDatabaseRoles() {
   await adminPool.query('GRANT USAGE, SELECT ON SEQUENCE student_referral_events_id_seq TO attendance_app')
   await adminPool.query('GRANT SELECT, INSERT, UPDATE ON schools, users, memberships TO attendance_auth')
   await adminPool.query('GRANT SELECT, INSERT, DELETE ON sessions TO attendance_auth')
+  await adminPool.query('GRANT SELECT, INSERT, UPDATE ON school_login_activity TO attendance_auth')
   await adminPool.query('GRANT SELECT, INSERT, UPDATE, DELETE ON teacher_login_accounts TO attendance_auth')
   await adminPool.query('GRANT SELECT, INSERT, UPDATE, DELETE ON administrative_login_accounts TO attendance_auth')
   await adminPool.query('GRANT SELECT, INSERT, UPDATE, DELETE ON student_login_accounts TO attendance_auth')
@@ -343,6 +340,7 @@ async function configureDatabaseRoles() {
 async function enforceTenantRowSecurity() {
   const tables = [
     ['schools', 'id', 'schools_school_scope'],
+    ['school_login_activity', 'school_id', 'school_login_activity_scope'],
     ['students', 'school_id', 'students_school_scope'],
     ['attendance_logs', 'school_id', 'attendance_school_scope'],
     ['almadar_accounts', 'school_id', 'almadar_accounts_school_scope'],
@@ -405,6 +403,7 @@ async function migrateDatabase() {
   await migrateCounselorPortal(adminPool)
   await migrateVicePrincipalPortal(adminPool)
   await migrateActivityLeaderPortal(adminPool)
+  await migratePlatformDashboard(adminPool)
   await migrateBehavior(adminPool)
   await migrateStudentReferrals(adminPool)
   await migrateTeacherCooperation(adminPool)
@@ -417,6 +416,7 @@ const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, `http://${req.headers.host}`)
     if (req.method === 'GET' && url.pathname === '/api/health') return json(res, 200, { ok: true })
+    if (await handlePlatformRequest({ req, res, url, body, json, adminPool, loginRateLimited, recordFailedLogin, clearLoginAttempts, loginThrottleResponse })) return
     if (req.method === 'POST' && url.pathname === '/api/auth/register') return await requestSchoolRegistration({ req, res, authPool, body, json, passwordHash })
     if (req.method === 'POST' && url.pathname === '/api/auth/verify-email') return await verifySchoolRegistration({ req, res, authPool, body, json, scopedOn, createSession })
     if (req.method === 'POST' && url.pathname === '/api/auth/unified-login') {

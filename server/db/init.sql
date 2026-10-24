@@ -62,8 +62,16 @@ CREATE TABLE sessions (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
+CREATE TABLE school_login_activity (
+  school_id uuid NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+  activity_date date NOT NULL,
+  login_count integer NOT NULL DEFAULT 0 CHECK (login_count >= 0),
+  PRIMARY KEY (school_id, activity_date)
+);
+
 CREATE INDEX attendance_logs_school_day ON attendance_logs(school_id, attendance_date DESC);
 CREATE INDEX attendance_logs_late_history ON attendance_logs(school_id, student_id, attendance_date DESC) WHERE status = 'late';
+CREATE INDEX school_login_activity_date ON school_login_activity(activity_date DESC);
 
 CREATE TABLE almadar_accounts (
   school_id uuid PRIMARY KEY REFERENCES schools(id) ON DELETE CASCADE,
@@ -156,6 +164,8 @@ CREATE INDEX absence_corrections_school_student ON absence_corrections(school_id
 -- Even if a future query is written incorrectly, PostgreSQL requires a school context.
 ALTER TABLE schools ENABLE ROW LEVEL SECURITY;
 ALTER TABLE schools FORCE ROW LEVEL SECURITY;
+ALTER TABLE school_login_activity ENABLE ROW LEVEL SECURITY;
+ALTER TABLE school_login_activity FORCE ROW LEVEL SECURITY;
 ALTER TABLE students ENABLE ROW LEVEL SECURITY;
 ALTER TABLE attendance_logs ENABLE ROW LEVEL SECURITY;
 ALTER TABLE students FORCE ROW LEVEL SECURITY;
@@ -172,6 +182,7 @@ ALTER TABLE absence_corrections ENABLE ROW LEVEL SECURITY;
 ALTER TABLE absence_corrections FORCE ROW LEVEL SECURITY;
 CREATE POLICY students_school_scope ON students USING (school_id = current_setting('app.school_id', true)::uuid) WITH CHECK (school_id = current_setting('app.school_id', true)::uuid);
 CREATE POLICY schools_school_scope ON schools USING (id = current_setting('app.school_id', true)::uuid) WITH CHECK (id = current_setting('app.school_id', true)::uuid);
+CREATE POLICY school_login_activity_scope ON school_login_activity USING (school_id = current_setting('app.school_id', true)::uuid) WITH CHECK (school_id = current_setting('app.school_id', true)::uuid);
 CREATE POLICY attendance_school_scope ON attendance_logs USING (school_id = current_setting('app.school_id', true)::uuid) WITH CHECK (school_id = current_setting('app.school_id', true)::uuid);
 CREATE POLICY almadar_accounts_school_scope ON almadar_accounts USING (school_id = current_setting('app.school_id', true)::uuid) WITH CHECK (school_id = current_setting('app.school_id', true)::uuid);
 CREATE POLICY student_excuses_school_scope ON student_excuses USING (school_id = current_setting('app.school_id', true)::uuid) WITH CHECK (school_id = current_setting('app.school_id', true)::uuid);

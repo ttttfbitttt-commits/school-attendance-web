@@ -21,6 +21,32 @@ export type AdministratorAttendanceRecord = { studentId: string; date: string; t
 export type SchoolPreferences = { attendanceMode: 'auto' | 'present' | 'late'; cutoffTime: string; gradeAliases: Record<string, string> }
 export type SchoolProfile = { schoolName: string; principalName: string; academicYear: string; semester: string; preferences: SchoolPreferences }
 export type SchoolStorageUsage = { totalBytes: number; recordsBytes: number; portfolioBytes: number; portfolioFiles: number; records: number }
+export type PlatformSchoolUsage = {
+  id: string
+  name: string
+  activatedAt: string
+  activatedBy: { name: string; email: string }
+  registeredEmails: string[]
+  teacherCount: number
+  teacherAccounts: number
+  teachers: string[]
+  studentCount: number
+  studentAccounts: number
+  loginCount30Days: number
+  lastLoginDate: string | null
+  attendanceCount: number
+  usage: {
+    status: 'active' | 'used_before' | 'login_only' | 'not_started'
+    records90Days: number
+    records30Days: number
+    attendance30Days: number
+    absences30Days: number
+    messages30Days: number
+    totalRecords: number
+    lastActualUse: string | null
+  }
+  storage: { totalBytes: number; recordsBytes: number; portfolioBytes: number; portfolioFiles: number; records: number }
+}
 export type AlmadarAccount = { configured: boolean; senderName?: string; lastBalance?: string | null; verifiedAt?: string | null; updatedAt?: string | null }
 export type Excuse = { id: string; studentId: string; name: string; grade: string; classroom: string; category: string; note: string; startDate: string; endDate: string | null; createdAt: string }
 export type AbsenceStatus = 'unexcused' | 'excused' | 'special'
@@ -361,6 +387,11 @@ export const api = {
   school: () => request<{ school: SchoolProfile }>('/school'),
   saveSchool: (school: SchoolProfile) => request<{ school: SchoolProfile }>('/school', { method: 'PUT', body: JSON.stringify(school) }),
   schoolStorageUsage: () => request<{ usage: SchoolStorageUsage }>('/school/storage-usage'),
+  platformSchools: () => request<{ schools: PlatformSchoolUsage[] }>('/platform/schools'),
+  platformMe: () => request<{ authenticated: true }>('/platform/me'),
+  platformLogin: (username: string, password: string) => request<{ authenticated: true }>('/platform/login', { method: 'POST', body: JSON.stringify({ username, password }) }),
+  platformLogout: () => request<{ ok: true }>('/platform/logout', { method: 'POST' }),
+  deletePlatformSchool: (schoolId: string, confirmName: string) => request<{ ok: true }>(`/platform/schools/${encodeURIComponent(schoolId)}/delete`, { method: 'POST', body: JSON.stringify({ confirmName }) }),
   students: () => request<{ students: StudentRecord[] }>('/students'),
   saveStudents: (students: unknown[]) => request<{ ok: boolean }>('/students', { method: 'PUT', body: JSON.stringify({ students }) }),
   createStudent: (student: StudentInput) => request<{ ok: boolean; student: StudentRecord }>('/students', { method: 'POST', body: JSON.stringify(student) }),

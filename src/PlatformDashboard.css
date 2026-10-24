@@ -1,0 +1,298 @@
+.platform-dashboard {
+  display: grid;
+  gap: 20px;
+  padding-bottom: 28px;
+}
+
+.platform-dashboard-intro,
+.platform-schools-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.platform-dashboard-intro h2,
+.platform-schools-toolbar h3 {
+  margin: 4px 0;
+  color: #1d344b;
+}
+
+.platform-dashboard-intro p,
+.platform-schools-toolbar p {
+  margin: 5px 0 0;
+  color: #66788a;
+}
+
+.platform-dashboard-kicker {
+  color: #16806b;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.platform-dashboard-intro .secondary-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.platform-refreshing {
+  animation: platform-rotation 1s linear infinite;
+}
+
+.platform-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+  gap: 12px;
+}
+
+.platform-summary-card {
+  display: grid;
+  gap: 8px;
+  min-height: 118px;
+  padding: 16px;
+  border: 1px solid #e1e9ef;
+  border-radius: 14px;
+  background: #fff;
+  color: #177966;
+}
+
+.platform-summary-card span {
+  color: #66788a;
+  font-size: 13px;
+}
+
+.platform-summary-card strong {
+  color: #1e354b;
+  font-size: 22px;
+}
+
+.platform-schools-panel {
+  min-width: 0;
+  padding: 18px;
+  border: 1px solid #e1e9ef;
+  border-radius: 16px;
+  background: #fff;
+}
+
+.platform-schools-toolbar {
+  margin-bottom: 16px;
+}
+
+.platform-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: min(390px, 100%);
+  padding: 0 12px;
+  border: 1px solid #d6e0e8;
+  border-radius: 10px;
+  color: #738497;
+}
+
+.platform-search input {
+  width: 100%;
+  min-height: 42px;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #203247;
+}
+
+.platform-table-scroll {
+  overflow-x: auto;
+  border: 1px solid #e5ebf0;
+  border-radius: 12px;
+}
+
+.platform-schools-table {
+  width: 100%;
+  min-width: 1080px;
+  border-collapse: collapse;
+  text-align: right;
+}
+
+.platform-schools-table th,
+.platform-schools-table td {
+  padding: 12px;
+  border-bottom: 1px solid #e9eef2;
+  vertical-align: top;
+}
+
+.platform-schools-table th {
+  background: #f6f9fb;
+  color: #52687a;
+  font-size: 12px;
+  white-space: nowrap;
+}
+
+.platform-schools-table td {
+  color: #263b50;
+  font-size: 13px;
+}
+
+.platform-schools-table td strong,
+.platform-schools-table td small {
+  display: block;
+}
+
+.platform-schools-table td small {
+  margin-top: 5px;
+  color: #718294;
+  line-height: 1.6;
+}
+
+.platform-school-name strong {
+  max-width: 210px;
+}
+
+.platform-usage-status {
+  display: inline-block;
+  padding: 5px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.platform-usage-status.active {
+  background: #e6f6ef;
+  color: #14764f;
+}
+
+.platform-usage-status.used_before {
+  background: #fff4df;
+  color: #94620b;
+}
+
+.platform-usage-status.login_only {
+  background: #edf2fb;
+  color: #435f90;
+}
+
+.platform-usage-status.not_started {
+  background: #f1f3f5;
+  color: #677582;
+}
+
+.platform-teacher-details {
+  margin-top: 8px;
+  color: #177966;
+}
+
+.platform-teacher-details summary {
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.platform-teacher-details ul {
+  max-height: 180px;
+  overflow-y: auto;
+  margin: 8px 0 0;
+  padding: 8px 24px 8px 8px;
+  border-radius: 8px;
+  background: #f5f8fa;
+  color: #40566b;
+}
+
+.platform-teacher-details li {
+  padding: 3px 0;
+}
+
+.platform-empty,
+.platform-error {
+  margin: 14px 0;
+  padding: 14px;
+  border-radius: 10px;
+  color: #647789;
+  background: #f5f8fa;
+}
+
+.platform-error {
+  color: #a32e35;
+  background: #fff0f0;
+}
+
+.platform-storage-note,
+.platform-usage-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  margin: 14px 0 0;
+  color: #687c8e;
+  font-size: 12px;
+  line-height: 1.7;
+}
+
+.platform-storage-note svg {
+  flex: 0 0 auto;
+  margin-top: 2px;
+}
+
+.platform-portal {
+  width: min(1600px, 100%);
+  min-height: 100vh;
+  margin: 0 auto;
+  padding: 20px;
+}
+
+.platform-portal-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 22px;
+  padding-bottom: 16px;
+  border-bottom: 1px solid #dfe7ed;
+}
+
+.platform-portal-header > div {
+  display: grid;
+  gap: 4px;
+  color: #1d344b;
+}
+
+.platform-portal-header span {
+  color: #66788a;
+  font-size: 13px;
+}
+
+.platform-portal-header button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.platform-delete-button {
+  padding: 8px 10px;
+  border: 1px solid #f0c8c8;
+  border-radius: 8px;
+  background: #fff4f4;
+  color: #a52d34;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.platform-delete-button:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+@keyframes platform-rotation {
+  to { transform: rotate(360deg); }
+}
+
+@media (max-width: 720px) {
+  .platform-dashboard-intro,
+  .platform-schools-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .platform-dashboard-intro .secondary-button,
+  .platform-search {
+    width: 100%;
+    justify-content: center;
+  }
+}
