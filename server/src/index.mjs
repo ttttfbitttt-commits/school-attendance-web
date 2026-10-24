@@ -28,6 +28,7 @@ const adminPool = new Pool({ connectionString: process.env.DATABASE_URL })
 const backupPool = new Pool({ connectionString: process.env.DATABASE_URL, max: 1 })
 const pool = new Pool({ connectionString: process.env.RUNTIME_DATABASE_URL })
 const authPool = new Pool({ connectionString: process.env.AUTH_DATABASE_URL })
+const platformPool = new Pool({ connectionString: process.env.DATABASE_URL, max: 2 })
 const PORT = Number(process.env.PORT || 3000)
 const COOKIE = 'attendance_session'
 const secureCookie = process.env.NODE_ENV === 'production'
@@ -416,7 +417,7 @@ const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, `http://${req.headers.host}`)
     if (req.method === 'GET' && url.pathname === '/api/health') return json(res, 200, { ok: true })
-    if (await handlePlatformRequest({ req, res, url, body, json, adminPool, loginRateLimited, recordFailedLogin, clearLoginAttempts, loginThrottleResponse })) return
+    if (await handlePlatformRequest({ req, res, url, body, json, adminPool: platformPool, loginRateLimited, recordFailedLogin, clearLoginAttempts, loginThrottleResponse })) return
     if (req.method === 'POST' && url.pathname === '/api/auth/register') return await requestSchoolRegistration({ req, res, authPool, body, json, passwordHash })
     if (req.method === 'POST' && url.pathname === '/api/auth/verify-email') return await verifySchoolRegistration({ req, res, authPool, body, json, scopedOn, createSession })
     if (req.method === 'POST' && url.pathname === '/api/auth/unified-login') {
