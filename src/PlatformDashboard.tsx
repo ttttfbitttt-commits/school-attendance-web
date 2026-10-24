@@ -103,6 +103,8 @@ export function PlatformDashboard() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [deletingSchoolId, setDeletingSchoolId] = useState('')
+  const [schoolPendingDeletion, setSchoolPendingDeletion] = useState<PlatformSchoolUsage | null>(null)
+  const [deleteConfirmation, setDeleteConfirmation] = useState('')
 
   const loadSchools = useCallback(async () => {
     setLoading(true)
@@ -145,19 +147,32 @@ export function PlatformDashboard() {
     )
   }, [schools, search])
 
-  const removeSchool = async (school: PlatformSchoolUsage) => {
-    const confirmation = window.prompt(
-      `سيُحذف نهائيًا حساب «${school.name}» وجميع سجلاته وملفاته من قاعدة بيانات الخادم. لن يؤثر ذلك على النسخ التي تم تنزيلها خارجيًا.\n\nاكتب اسم المدرسة كما يظهر لتأكيد الحذف:`,
-    )
-    if (confirmation === null) return
-    if (confirmation !== school.name) {
-      setError('لم يطابق اسم التأكيد اسم المدرسة؛ لم يتم حذف أي بيانات.')
+  const requestSchoolDeletion = (school: PlatformSchoolUsage) => {
+    setError('')
+    setDeleteConfirmation('')
+    setSchoolPendingDeletion(school)
+  }
+
+  const cancelSchoolDeletion = () => {
+    if (deletingSchoolId) return
+    setSchoolPendingDeletion(null)
+    setDeleteConfirmation('')
+  }
+
+  const removeSchool = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    const school = schoolPendingDeletion
+    if (!school || deletingSchoolId) return
+    if (deleteConfirmation !== school.name) {
+      setError('اكتب اسم المدرسة مطابقًا تمامًا لتأكيد الحذف.')
       return
     }
     setDeletingSchoolId(school.id)
     setError('')
     try {
-      await api.deletePlatformSchool(school.id, confirmation)
+      await api.deletePlatformSchool(school.id, deleteConfirmation)
+      setSchoolPendingDeletion(null)
+      setDeleteConfirmation('')
       await loadSchools()
     } catch (reason) {
       const apiError = reason as Error & { code?: string }
@@ -252,7 +267,7 @@ export function PlatformDashboard() {
                     <th>إجراء المشرف</th>
                   </tr>
                 </thead>
-                <tbody>{filteredSchools.map(school => <PlatformSchoolRow key={school.id} school={school} deleting={deletingSchoolId === school.id} onDelete={removeSchool} />)}</tbody>
+                <tbody>{filteredSchools.map(school => <PlatformSchoolRow key={school.id} school={school} deleting={deletingSchoolId === school.id} onDelete={requestSchoolDeletion} />)}</tbody>
               </table>
             </div>}
 
@@ -264,6 +279,34 @@ export function PlatformDashboard() {
           تصنّف المدرسة غير نشطة إذا لم تُسجّل أي استخدام فعلي خلال آخر 90 يومًا، سواء استخدمت النظام سابقًا أو لم تستخدمه مطلقًا. يشمل الاستخدام الحضور والغياب والرسائل والحصص والسلوك والإحالات وملفات الإنجاز. أعداد الدخول اليومية تبدأ بعد نشر الميزة.
         </p>
       </div>
+      {schoolPendingDeletion && <div className="platform-delete-backdrop" role="presentation" onMouseDown={event => {
+        if (event.target === event.currentTarget) cancelSchoolDeletion()
+      }}>
+        <section className="platform-delete-dialog" role="dialog" aria-modal="true" aria-labelledby="platform-delete-title" aria-describedby="platform-delete-description">
+          <h3 id="platform-delete-title">تأكيد حذف المدرسة</h3>
+          <p id="platform-delete-description">
+            سيُحذف نهائيًا حساب <strong>{schoolPendingDeletion.name}</strong> وجميع بياناته وسجلاته من الخادم. لا يمكن التراجع عن هذا الإجراء.
+          </p>
+          <form onSubmit={event => void removeSchool(event)}>
+            <label htmlFor="platform-delete-confirmation">اكتب اسم المدرسة للتأكيد</label>
+            <input
+              id="platform-delete-confirmation"
+              autoComplete="off"
+              value={deleteConfirmation}
+              onChange={event => setDeleteConfirmation(event.target.value)}
+              disabled={Boolean(deletingSchoolId)}
+              autoFocus
+            />
+            {error && <div className="platform-error" role="alert">{error}</div>}
+            <div className="platform-delete-dialog-actions">
+              <button type="button" className="secondary-button" onClick={cancelSchoolDeletion} disabled={Boolean(deletingSchoolId)}>إلغاء</button>
+              <button className="platform-delete-button" type="submit" disabled={Boolean(deletingSchoolId) || deleteConfirmation !== schoolPendingDeletion.name}>
+                {deletingSchoolId ? 'جارٍ الحذف...' : 'حذف نهائي'}
+              </button>
+            </div>
+          </form>
+        </section>
+      </div>}
     </section>
   )
 }

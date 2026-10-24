@@ -279,6 +279,71 @@
   cursor: wait;
 }
 
+.platform-delete-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgb(15 28 41 / 55%);
+}
+
+.platform-delete-dialog {
+  width: min(480px, 100%);
+  padding: 22px;
+  border: 1px solid #e3eaf0;
+  border-radius: 16px;
+  background: #fff;
+  box-shadow: 0 24px 80px rgb(17 35 52 / 28%);
+}
+
+.platform-delete-dialog h3 {
+  margin: 0;
+  color: #263b50;
+}
+
+.platform-delete-dialog > p {
+  color: #687c8e;
+  line-height: 1.8;
+}
+
+.platform-delete-dialog form {
+  display: grid;
+  gap: 10px;
+}
+
+.platform-delete-dialog label {
+  color: #40566b;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.platform-delete-dialog input {
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid #d6e0e8;
+  border-radius: 9px;
+  direction: rtl;
+}
+
+.platform-delete-dialog input:focus {
+  border-color: #4892c3;
+  outline: 3px solid rgb(72 146 195 / 16%);
+}
+
+.platform-delete-dialog-actions {
+  display: flex;
+  justify-content: flex-start;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.platform-delete-dialog-actions button {
+  min-height: 40px;
+}
+
 .platform-password-visibility {
   justify-self: start;
   margin-top: -10px;
