@@ -273,6 +273,7 @@ export function PlatformPortal() {
   const [checkingSession, setCheckingSession] = useState(true)
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [passwordVisible, setPasswordVisible] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
 
@@ -323,7 +324,10 @@ export function PlatformPortal() {
       {error && <div className="auth-error" role="alert">{error}</div>}
       <form onSubmit={login} autoComplete="on">
         <label>اسم مستخدم المشرف<input name="username" autoComplete="username" value={username} onChange={event => setUsername(event.target.value)} required /></label>
-        <label><LockKeyhole size={16} /> كلمة مرور المشرف<input name="password" type="password" autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} required /></label>
+        <label><LockKeyhole size={16} /> كلمة مرور المشرف<input name="password" type={passwordVisible ? 'text' : 'password'} autoComplete="current-password" value={password} onChange={event => setPassword(event.target.value)} required /></label>
+        <button className="platform-password-visibility" type="button" aria-pressed={passwordVisible} onClick={() => setPasswordVisible(visible => !visible)}>
+          {passwordVisible ? 'إخفاء كلمة المرور' : 'إظهار كلمة المرور'}
+        </button>
         <button className="auth-submit" type="submit" disabled={submitting}>{submitting ? 'جارٍ التحقق...' : 'دخول المشرف'}</button>
       </form>
       <a className="auth-back" href="/">العودة إلى نظام المدارس</a>

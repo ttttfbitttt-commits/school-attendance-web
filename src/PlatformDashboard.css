@@ -279,6 +279,21 @@
   cursor: wait;
 }
 
+.platform-password-visibility {
+  justify-self: start;
+  margin-top: -10px;
+  padding: 4px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: #176fae;
+  font-size: 13px;
+}
+
+.platform-password-visibility:hover {
+  background: #edf6fc;
+}
+
 @keyframes platform-rotation {
   to { transform: rotate(360deg); }
 }
