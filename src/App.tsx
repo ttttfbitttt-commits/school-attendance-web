@@ -47,7 +47,7 @@ import {
 import './App.css'
 import { AuthGate } from './AuthGate'
 import { formatHijriDate, formatHijriDateWithWeekday } from './dateUtils'
-import { api, type Account, type SchoolProfile, type SchoolStorageUsage } from './api'
+import { api, type Account, type LessonTimeSlot, type SchoolProfile, type SchoolStorageUsage } from './api'
 import { LessonFlowCenter } from './LessonFlow'
 import { AlmadarSettings, downloadWorkbook, MessageCenter, reportBrandHeader, ReportsCenter } from './SchoolFeatures'
 import { TeacherAdminCenter } from './TeacherAdmin'
@@ -111,6 +111,115 @@ const DEFAULT_SCHOOL_SETTINGS: SchoolSettings = {
 }
 
 const readSchoolSettings = (): SchoolSettings => DEFAULT_SCHOOL_SETTINGS
+
+function timeToMinutes(value: string) {
+  const match = /^(\d{2}):(\d{2})$/.exec(value)
+  if (!match) return NaN
+  const hours = Number(match[1])
+  const minutes = Number(match[2])
+  return hours * 60 + minutes
+}
+
+function minutesToTime(value: number) {
+  const total = Math.max(0, Math.min(23 * 60 + 59, value))
+  return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`
+}
+
+function shiftLessonTime(value: string, delta: number) {
+  const minutes = timeToMinutes(value)
+  return Number.isFinite(minutes) ? minutesToTime(minutes + delta) : value
+}
+
+function SchoolFirstPeriodSettings({ onOpenLessonTimes }: { onOpenLessonTimes: () => void }) {
+  const [times, setTimes] = useState<LessonTimeSlot[]>([])
+  const [startTime, setStartTime] = useState('07:30')
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [notice, setNotice] = useState('')
+  const [error, setError] = useState('')
+
+  const load = async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const overview = await api.lessonOverview()
+      setTimes(overview.times)
+      const first = overview.times
+        .filter(slot => slot.periodNumber === 1)
+        .sort((a, b) => a.weekday - b.weekday)[0]
+      if (first?.startTime) setStartTime(first.startTime)
+    } catch {
+      setError('تعذر تحميل توقيت الحصة الأولى من الخادم.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => { void load() }, [])
+
+  const save = async () => {
+    const target = timeToMinutes(startTime)
+    if (!Number.isFinite(target)) {
+      setError('أدخل وقتًا صحيحًا لبداية الحصة الأولى.')
+      return
+    }
+    if (!times.length) {
+      setError('لم تُضبط أوقات الحصص بعد. افتح «سير الحصص» لإضافة التوقيتات أولًا.')
+      return
+    }
+    const firstByDay = new Map<number, LessonTimeSlot>()
+    times.filter(slot => slot.periodNumber === 1).forEach(slot => firstByDay.set(slot.weekday, slot))
+    const nextTimes = times.map(slot => {
+      const first = firstByDay.get(slot.weekday)
+      if (!first) return slot
+      const firstMinutes = timeToMinutes(first.startTime)
+      const delta = target - firstMinutes
+      return { ...slot, startTime: shiftLessonTime(slot.startTime, delta), endTime: shiftLessonTime(slot.endTime, delta) }
+    })
+    setSaving(true)
+    setNotice('')
+    setError('')
+    try {
+      await api.saveLessonTimes(nextTimes)
+      setTimes(nextTimes)
+      setNotice(`تم حفظ بداية الحصة الأولى لجميع أيام الدراسة: ${startTime}.`)
+    } catch {
+      setError('تعذر حفظ توقيت الحصص. أعد المحاولة أو افتح «سير الحصص» للتحقق.')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <section className="panel school-settings-panel first-period-settings-panel">
+      <div className="panel-header">
+        <div>
+          <span className="panel-kicker">توقيت اليوم الدراسي</span>
+          <h3>بداية الحصة الأولى</h3>
+          <p>يُطبّق الوقت على أوقات الحصص المحفوظة، ويحافظ على الفواصل ومدد الحصص. يتزامن تلقائيًا مع تعاون المعلم والطالب.</p>
+        </div>
+        <button className="secondary-button" type="button" onClick={onOpenLessonTimes}>إدارة جميع أوقات الحصص</button>
+      </div>
+      <div className="school-settings-grid">
+        <label className="school-settings-field">
+          <span>تبدأ الحصة الأولى الساعة</span>
+          <input type="time" value={startTime} onChange={event => setStartTime(event.target.value)} disabled={loading || saving} />
+        </label>
+        <div className="school-settings-field first-period-settings-summary">
+          <span>الحالة</span>
+          <strong>{loading ? 'جارٍ التحميل…' : times.length ? `التوقيت محفوظ · ${times.filter(slot => slot.periodNumber === 1).length} أيام` : 'لم تُضبط أوقات الحصص بعد'}</strong>
+        </div>
+      </div>
+      <div className="feature-actions first-period-settings-actions">
+        <button className="primary-button" type="button" onClick={() => void save()} disabled={loading || saving || !times.length}>
+          <Save size={17} /> {saving ? 'جارٍ الحفظ…' : 'حفظ بداية الحصة'}
+        </button>
+      </div>
+      {notice && <div className="notice-box settings-notice" role="status">{notice}</div>}
+      {error && <div className="notice-box settings-notice error" role="alert">{error}</div>}
+    </section>
+  )
+}
 
 // توازن بين سرعة قراءة البطاقة واستهلاك المعالج: 6-7 محاولات في الثانية
 // مع إبقاء دقة بث الكاميرا المنخفضة التي خففت حرارة الجهاز.
@@ -2056,6 +2165,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
 
               {schoolSettingsNotice && <div className="notice-box settings-notice" role="status">{schoolSettingsNotice}</div>}
             </section>
+            {isSchoolManager && <SchoolFirstPeriodSettings onOpenLessonTimes={() => setActiveNav('lessons')} />}
             {isSchoolManager && <section className="panel school-settings-panel school-password-panel">
               <div className="panel-header">
                 <div>
