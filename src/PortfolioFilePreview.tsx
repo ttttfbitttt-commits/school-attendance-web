@@ -6,28 +6,37 @@ import { openPrintDocument } from './SchoolFeatures'
 export type PortfolioPreviewFile = { fileUrl: string; fileName: string; fileType: string }
 const escapeHtml = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character] || character))
 
-function numericHijriDate(value: string) {
+function numericHijriDateParts(value: string) {
   const parts = Object.fromEntries(new Intl.DateTimeFormat('ar-SA-u-ca-islamic-umalqura-nu-arab', {
     day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'Asia/Riyadh',
   }).formatToParts(new Date(value)).filter(part => part.type !== 'literal').map(part => [part.type, part.value]))
-  return `${parts.day}/${parts.month}/${parts.year} هـ`
+  return { day: String(parts.day), month: String(parts.month), year: String(parts.year) }
+}
+
+function hijriDateHtml(value: string) {
+  const { day, month, year } = numericHijriDateParts(value)
+  return `<time dir="rtl" class="portfolio-correction-date"><bdi dir="ltr">${escapeHtml(day)}</bdi><i>/</i><bdi dir="ltr">${escapeHtml(month)}</bdi><i>/</i><bdi dir="ltr">${escapeHtml(year)}</bdi><span>هـ</span></time>`
+}
+
+function HijriDate({ value }: { value: string }) {
+  const { day, month, year } = numericHijriDateParts(value)
+  return <time dir="rtl" className="portfolio-correction-date"><bdi dir="ltr">{day}</bdi><i>/</i><bdi dir="ltr">{month}</bdi><i>/</i><bdi dir="ltr">{year}</bdi><span>هـ</span></time>
 }
 
 function teacherNameParts(name: string) {
   const parts = name.trim().split(/\s+/).filter(Boolean)
-  return { shortName: parts.length > 1 ? `${parts[0]} ${parts[parts.length - 1]}` : parts[0] || name, initials: parts.length > 1 ? `${parts[0][0]}${parts[parts.length - 1][0]}` : parts[0]?.[0] || name[0] || '' }
+  return parts.length > 1 ? `${parts[0]} ${parts[parts.length - 1]}` : parts[0] || name
 }
 
-function SignatureDrawing({ initials }: { initials: string }) {
-  return <svg className="portfolio-correction-signature" viewBox="0 0 180 56" role="img" aria-label={`أحرف مزخرفة: ${initials}`} preserveAspectRatio="xMinYMid meet">
-    <path d="M 17 39 C 36 50, 42 15, 66 18 S 89 52, 107 31 C 120 16, 134 15, 161 20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
-    <text x="90" y="43" textAnchor="middle" direction="rtl" unicodeBidi="bidi-override" fontFamily="'Aref Ruqaa', 'Amiri', 'Traditional Arabic', serif" fontSize="36" fontWeight="700" fill="currentColor">{initials}</text>
-    <path d="M 30 49 C 72 43, 112 54, 158 44" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+function SignatureDrawing() {
+  return <svg className="portfolio-correction-signature" viewBox="0 0 180 56" role="img" aria-label="زخرفة توقيع عامة" preserveAspectRatio="xMinYMid meet">
+    <path d="M 6 33 C 31 30, 47 35, 69 32 C 55 27, 52 15, 64 11 C 77 7, 105 11, 111 19 C 117 28, 99 33, 83 28 C 76 26, 71 20, 74 16 C 79 22, 85 37, 93 38 C 102 39, 108 22, 118 23 C 127 23, 121 34, 132 36 C 143 38, 154 30, 174 32" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+    <path d="M 23 43 C 67 39, 111 47, 158 40" fill="none" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
   </svg>
 }
 
-function signatureSvg(initials: string) {
-  return `<svg class="signature generated" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 56" role="img" aria-label="أحرف مزخرفة" preserveAspectRatio="xMinYMid meet"><path d="M 17 39 C 36 50, 42 15, 66 18 S 89 52, 107 31 C 120 16, 134 15, 161 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/><text x="90" y="43" text-anchor="middle" direction="rtl" unicode-bidi="bidi-override" font-family="'Aref Ruqaa','Amiri','Traditional Arabic',serif" font-size="36" font-weight="700" fill="currentColor">${escapeHtml(initials)}</text><path d="M 30 49 C 72 43, 112 54, 158 44" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>`
+function signatureSvg() {
+  return `<svg class="signature generated" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 56" role="img" aria-label="زخرفة توقيع عامة" preserveAspectRatio="xMinYMid meet"><path d="M 6 33 C 31 30, 47 35, 69 32 C 55 27, 52 15, 64 11 C 77 7, 105 11, 111 19 C 117 28, 99 33, 83 28 C 76 26, 71 20, 74 16 C 79 22, 85 37, 93 38 C 102 39, 108 22, 118 23 C 127 23, 121 34, 132 36 C 143 38, 154 30, 174 32" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/><path d="M 23 43 C 67 39, 111 47, 158 40" fill="none" stroke="currentColor" stroke-width="1.25" stroke-linecap="round"/></svg>`
 }
 
 function PortfolioCorrectionStamp({ correction, signatureMode, signatureData }: {
@@ -35,14 +44,13 @@ function PortfolioCorrectionStamp({ correction, signatureMode, signatureData }: 
   signatureMode: 'uploaded' | 'generated'
   signatureData: string
 }) {
-  const teacher = teacherNameParts(correction.teacherName)
   return <div className="portfolio-correction-stamp" style={{ color: correction.color }} dir="rtl">
     {correction.note && <span>{correction.note}</span>}
-    <strong>{teacher.shortName}</strong>
+    <strong>{teacherNameParts(correction.teacherName)}</strong>
     {signatureMode === 'uploaded' && signatureData
       ? <img src={signatureData} alt={`توقيع ${correction.teacherName}`} />
-      : <SignatureDrawing initials={teacher.initials} />}
-    <time dir="rtl"><bdi dir="rtl" className="portfolio-correction-date">{numericHijriDate(correction.correctedAt)}</bdi></time>
+      : <SignatureDrawing />}
+    <HijriDate value={correction.correctedAt} />
   </div>
 }
 
@@ -61,14 +69,14 @@ export function PortfolioFilePreview({ file, correction, signatureMode, signatur
     const teacher = teacherNameParts(correction.teacherName)
     const signature = selectedSignatureMode === 'uploaded' && selectedSignatureData
       ? `<img class="signature" src="${escapeHtml(selectedSignatureData)}" alt="التوقيع">`
-      : signatureSvg(teacher.initials)
+      : signatureSvg()
     const source = isImage
-      ? `<div class="source-image-wrap"><img class="source-image" src="${escapeHtml(file.fileUrl)}" alt="${escapeHtml(file.fileName)}"><div class="stamp" style="color:${escapeHtml(correction.color)}">${correction.note ? `<span>${escapeHtml(correction.note)}</span>` : ''}<strong>${escapeHtml(teacher.shortName)}</strong>${signature}<time dir="rtl"><bdi dir="rtl">${escapeHtml(numericHijriDate(correction.correctedAt))}</bdi></time></div></div>`
+      ? `<div class="source-image-wrap"><img class="source-image" src="${escapeHtml(file.fileUrl)}" alt="${escapeHtml(file.fileName)}"><div class="stamp" style="color:${escapeHtml(correction.color)}">${correction.note ? `<span>${escapeHtml(correction.note)}</span>` : ''}<strong>${escapeHtml(teacher)}</strong>${signature}${hijriDateHtml(correction.correctedAt)}</div></div>`
       : isPdf
         ? `<iframe class="source-pdf" src="${escapeHtml(file.fileUrl)}" title="${escapeHtml(file.fileName)}"></iframe>`
         : `<div class="word-file"><strong>${escapeHtml(file.fileName || 'ملف Word')}</strong><p>الملف الأصلي متاح للتنزيل من شاشة المعاينة.</p></div>`
-    const wordStamp = `<div class="stamp" style="color:${escapeHtml(correction.color)}">${correction.note ? `<span>${escapeHtml(correction.note)}</span>` : ''}<strong>${escapeHtml(teacher.shortName)}</strong>${signature}<time dir="rtl"><bdi dir="rtl">${escapeHtml(numericHijriDate(correction.correctedAt))}</bdi></time></div>`
-    const contents = `<style>.corrected-sheet{position:relative;min-height:230mm;display:grid;place-items:center}.source-image-wrap{position:relative;display:inline-block;max-width:100%;max-height:265mm;line-height:0}.corrected-sheet .source-image{display:block;max-width:100%;max-height:265mm;object-fit:contain}.corrected-sheet .source-pdf{position:absolute;inset:0;width:100%;height:100%;border:0}.corrected-sheet .word-file{align-self:center;text-align:center;color:#334155}.corrected-sheet .stamp{position:absolute;z-index:2;left:0;bottom:0;display:grid;justify-items:start;gap:1px;max-width:70%;font-size:11px;font-weight:800;line-height:1.3;text-align:left;direction:rtl}.corrected-sheet .stamp strong{font-size:12px;font-weight:900}.corrected-sheet .stamp time{position:relative;z-index:2;margin-top:-8px;direction:rtl;font-size:10px;font-weight:800}.corrected-sheet .signature{display:block;width:76px;height:30px;object-fit:contain;object-position:left center}.corrected-sheet .signature.generated{width:88px;height:32px}.corrected-sheet .stamp img.signature{filter:drop-shadow(0 0 2px #fff)}@media print{.corrected-sheet{min-height:0}}</style><section class="page"><div class="corrected-sheet">${isImage ? source : `${isPdf ? source : `<div class="word-file"><strong>${escapeHtml(file.fileName || 'ملف Word')}</strong><p>الملف الأصلي متاح للتنزيل من شاشة المعاينة.</p></div>`}${wordStamp}`}</div></section>`
+    const wordStamp = `<div class="stamp" style="color:${escapeHtml(correction.color)}">${correction.note ? `<span>${escapeHtml(correction.note)}</span>` : ''}<strong>${escapeHtml(teacher)}</strong>${signature}${hijriDateHtml(correction.correctedAt)}</div>`
+    const contents = `<style>.corrected-sheet{position:relative;min-height:230mm;display:grid;place-items:center}.source-image-wrap{position:relative;display:inline-block;max-width:100%;max-height:265mm;line-height:0}.corrected-sheet .source-image{display:block;max-width:100%;max-height:265mm;object-fit:contain}.corrected-sheet .source-pdf{position:absolute;inset:0;width:100%;height:100%;border:0}.corrected-sheet .word-file{align-self:center;text-align:center;color:#334155}.corrected-sheet .stamp{position:absolute;z-index:2;left:3mm;bottom:3mm;display:grid;justify-items:start;gap:1px;max-width:70%;padding:2mm 3mm;border:1px solid color-mix(in srgb,currentColor 45%,transparent);border-radius:2mm;background:transparent;font-size:11px;font-weight:900;line-height:1.3;text-align:left;direction:ltr}.corrected-sheet .stamp>span,.corrected-sheet .stamp>strong,.corrected-sheet .stamp>time{direction:rtl;text-align:left;font-weight:900}.corrected-sheet .stamp strong{font-size:12px}.corrected-sheet .portfolio-correction-date{display:flex;flex-direction:row;gap:1px;direction:rtl;unicode-bidi:isolate}.corrected-sheet .portfolio-correction-date bdi{direction:ltr;unicode-bidi:isolate}.corrected-sheet .stamp time{position:relative;z-index:2;margin-top:-8px;font-size:10px}.corrected-sheet .signature{display:block;width:76px;height:30px;object-fit:contain;object-position:left center}.corrected-sheet .signature.generated{width:88px;height:32px}.corrected-sheet .stamp img.signature{filter:drop-shadow(0 0 2px #fff)}@media print{.corrected-sheet{min-height:0}}</style><section class="page"><div class="corrected-sheet">${isImage ? source : `${isPdf ? source : `<div class="word-file"><strong>${escapeHtml(file.fileName || 'ملف Word')}</strong><p>الملف الأصلي متاح للتنزيل من شاشة المعاينة.</p></div>`}${wordStamp}`}</div></section>`
     openPrintDocument(`تصحيح ${file.fileName || 'ملف الإنجاز'}`, contents, schoolName)
   }
   const isImage = file.fileType.startsWith('image/')
