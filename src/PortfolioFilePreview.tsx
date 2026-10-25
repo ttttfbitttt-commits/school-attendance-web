@@ -39,7 +39,7 @@ function signatureSvg() {
   return `<svg class="signature generated" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 56" role="img" aria-label="زخرفة توقيع عامة" preserveAspectRatio="xMinYMid meet"><path d="M 6 33 C 31 30, 47 35, 69 32 C 55 27, 52 15, 64 11 C 77 7, 105 11, 111 19 C 117 28, 99 33, 83 28 C 76 26, 71 20, 74 16 C 79 22, 85 37, 93 38 C 102 39, 108 22, 118 23 C 127 23, 121 34, 132 36 C 143 38, 154 30, 174 32" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" opacity="0.9"/><path d="M 23 43 C 67 39, 111 47, 158 40" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round" opacity="0.9"/></svg>`
 }
 
-function PortfolioCorrectionStamp({ correction, signatureMode, signatureData }: {
+export function PortfolioCorrectionStamp({ correction, signatureMode, signatureData }: {
   correction: StudentPortfolioCorrection
   signatureMode: 'uploaded' | 'generated'
   signatureData: string
@@ -62,8 +62,8 @@ export function PortfolioFilePreview({ file, correction, signatureMode, signatur
   schoolName?: string
   onClose: () => void
 }) {
-  const selectedSignatureMode = signatureMode || 'generated'
-  const selectedSignatureData = signatureData || ''
+  const selectedSignatureMode = correction?.signatureMode || signatureMode || 'generated'
+  const selectedSignatureData = correction?.signatureData || signatureData || ''
   const printCorrection = () => {
     if (!correction) return
     const teacher = teacherNameParts(correction.teacherName)

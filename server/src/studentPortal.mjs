@@ -188,9 +188,13 @@ async function assignmentRoster(client, schoolId, assignmentId, teacherId = '') 
   const files = (await client.query(`SELECT student_id AS "studentId",assignment_id::text AS "assignmentId",slot_number AS "slotNumber",file_name AS "fileName",file_type AS "fileType",
       to_char(uploaded_at AT TIME ZONE 'Asia/Riyadh','YYYY-MM-DD HH24:MI') AS "uploadedAt"
     FROM student_portfolio_files WHERE school_id=$1 AND assignment_id=$2::uuid`, [schoolId, assignmentId])).rows.map(file => storedPortfolioFile(file))
-  const corrections = (await client.query(`SELECT student_id AS "studentId",slot_number AS "slotNumber",assignment_id::text AS "assignmentId",
-      teacher_name AS "teacherName",note,color,corrected_at AS "correctedAt"
-    FROM student_portfolio_corrections WHERE school_id=$1 AND assignment_id=$2::uuid`, [schoolId, assignmentId])).rows
+  const corrections = (await client.query(`SELECT correction.student_id AS "studentId",correction.slot_number AS "slotNumber",correction.assignment_id::text AS "assignmentId",
+      correction.teacher_name AS "teacherName",correction.note,correction.color,correction.corrected_at AS "correctedAt",
+      COALESCE(settings.signature_mode,'generated') AS "signatureMode",COALESCE(settings.signature_data,'') AS "signatureData"
+    FROM student_portfolio_corrections correction
+    LEFT JOIN teacher_portfolio_correction_settings settings
+      ON settings.school_id=correction.school_id AND settings.teacher_id=correction.teacher_id
+    WHERE correction.school_id=$1 AND correction.assignment_id=$2::uuid`, [schoolId, assignmentId])).rows
   const fileMap = new Map()
   for (const file of files) {
     const current = fileMap.get(file.studentId) || []

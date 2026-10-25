@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ArrowRight, BookOpenCheck, Check, FileText, FolderOpen, Image, Layers3, PenLine, Printer, RefreshCw, Save, Upload, Users } from 'lucide-react'
 import { api, type StudentPortfolioCorrection, type StudentPortfolioEntries, type StudentPortfolioGroup, type TeacherPortfolioCorrectionSettings } from './api'
-import { PortfolioFilePreview, type PortfolioPreviewFile } from './PortfolioFilePreview'
+import { PortfolioCorrectionStamp, PortfolioFilePreview, type PortfolioPreviewFile } from './PortfolioFilePreview'
 import { savePortfolioImagesPdf } from './portfolioPdf'
 import { openPrintDocument } from './SchoolFeatures'
 
@@ -104,7 +104,7 @@ export function StudentPortfolioBoard({ scope = 'school', schoolName = 'المد
       setSelectedClassroom(nextClassroom)
       setSelectedId(current => result.groups.some(group => group.assignmentId === current) ? current : '')
       setClassEntries(null)
-      setClassEntriesLoading(scope === 'teacher' && Boolean(nextClassroom))
+      setClassEntriesLoading(scope !== 'activityLeader' && Boolean(nextClassroom))
     } catch {
       setError('تعذر تحميل مواد ملف الإنجاز الآن.')
     } finally { setBusy(false) }
@@ -159,14 +159,15 @@ export function StudentPortfolioBoard({ scope = 'school', schoolName = 'المد
     setSelectedId('')
     setEntries(null)
     setClassEntries(null)
-    setClassEntriesLoading(scope === 'teacher' && Boolean(key))
+    setClassEntriesLoading(scope !== 'activityLeader' && Boolean(key))
   }
   const classroomFileCount = classSubjects.reduce((count, group) => count + group.submittedFiles, 0)
 
   useEffect(() => {
-    if (scope !== 'teacher' || !selectedClassroom || !classSubjects.length) return
+    if (scope === 'activityLeader' || !selectedClassroom || !classSubjects.length) return
     let active = true
-    Promise.all(classSubjects.map(group => api.teacherPortfolioEntries(group.assignmentId)))
+    const loadClassEntries = scope === 'teacher' ? api.teacherPortfolioEntries : api.schoolPortfolioEntries
+    Promise.all(classSubjects.map(group => loadClassEntries(group.assignmentId)))
       .then(result => { if (active) setClassEntries(result) })
       .catch(() => { if (active) setCorrectionMessage('تعذر تحميل ملفات الفصل لتجهيز التصدير.') })
       .finally(() => { if (active) setClassEntriesLoading(false) })
@@ -300,6 +301,7 @@ export function StudentPortfolioBoard({ scope = 'school', schoolName = 'المد
       {!selectedClassroom ? <div className="student-portfolio-classroom-grid">{classrooms.map(classroom => <button type="button" key={classroom.key} onClick={() => chooseClassroom(classroom.key)}><Layers3 size={25} /><strong>{classroom.grade}</strong><span>الفصل {classroom.classroom}</span><small><Users size={13} /> {classroom.students} طالب · <Image size={13} /> {classroom.files} ملف</small><em>{classroom.subjects} مواد <ArrowRight size={15} /></em></button>)}</div> : <>
         <div className="student-portfolio-classroom-bar"><button type="button" className="outline-button" onClick={() => chooseClassroom('')}><ArrowRight size={16} /> الفصول</button><div><span>{classSubjects[0]?.grade}</span><strong>الفصل {classSubjects[0]?.classroom}</strong></div></div>
         {scope === 'teacher' && <div className="student-portfolio-class-actions"><div className="student-portfolio-class-actions-head"><span>إجراءات الفصل</span></div><div className="student-portfolio-class-actions-row"><button type="button" className="portfolio-correct-all" onClick={() => void correctPortfolioFiles(undefined, undefined, classSubjects.map(group => group.assignmentId))} disabled={!correctionSettingsReady || correctingFiles || !classroomFileCount || (correctionSettings.signatureMode === 'uploaded' && !correctionSettings.signatureData)}><PenLine size={16} />{correctingFiles ? 'جارٍ التصحيح…' : `تصحيح جميع ملفات الفصل (${classroomFileCount})`}</button><button type="button" className="outline-button" onClick={() => void clearPortfolioCorrections(undefined, undefined, classSubjects.map(group => group.assignmentId))} disabled={!correctionSettingsReady || correctingFiles || !classroomFileCount}><PenLine size={16} />إلغاء التصحيح</button><button type="button" className="outline-button" onClick={() => void exportCurrentClassPdf()} disabled={!correctionSettingsReady || correctingFiles || !classEntries?.length || classEntriesLoading || !classImageCount || exportingPdf}><Printer size={16} />{classEntriesLoading ? 'جارٍ تجهيز الفصل…' : exportingPdf ? 'جارٍ إنشاء PDF…' : `تصدير PDF (${classImageCount})`}</button></div>{correctionMessage && <p className="portfolio-correction-message" role="status"><Check size={15} />{correctionMessage}</p>}</div>}
+        {scope === 'school' && <div className="student-portfolio-class-actions"><div className="student-portfolio-class-actions-head"><span>تصدير ملفات الفصل</span><small>يُضاف ختم التصحيح المحفوظ إلى كل صورة مصححة.</small></div><div className="student-portfolio-class-actions-row"><button type="button" className="outline-button" onClick={() => void exportCurrentClassPdf()} disabled={!classEntries?.length || classEntriesLoading || !classImageCount || exportingPdf}><Printer size={16} />{classEntriesLoading ? 'جارٍ تجهيز الفصل…' : exportingPdf ? 'جارٍ إنشاء PDF…' : `تصدير PDF (${classImageCount})`}</button></div>{correctionMessage && <p className="portfolio-correction-message" role="status"><Check size={15} />{correctionMessage}</p>}</div>}
         <div className="student-portfolio-group-grid">
           {classSubjects.map(group => <button type="button" key={group.assignmentId} className={selectedId === group.assignmentId ? 'active' : ''} onClick={() => setSelectedId(group.assignmentId)}>
             <FolderOpen size={23} /><strong>{group.subject}</strong><span>{group.teacherName}</span><small>{group.grade} · الفصل {group.classroom}</small><em><Users size={13} /> {group.studentCount} طالب · <Image size={13} /> {group.submittedFiles} ملف</em>
@@ -326,12 +328,12 @@ export function StudentPortfolioBoard({ scope = 'school', schoolName = 'المد
           {entries.students.map(student => <article key={student.id}>
             <div className="student-portfolio-student-name"><b>{student.name}</b><span dir="ltr">{student.identityNumber}</span>{scope === 'teacher' && <button type="button" className="portfolio-correction-student" onClick={() => void correctPortfolioFiles(student.id)} disabled={!correctionSettingsReady || correctingFiles || !student.slots.some(slot => slot.fileUrl) || (correctionSettings.signatureMode === 'uploaded' && !correctionSettings.signatureData)}><PenLine size={14} />تصحيح ملفات الطالب</button>}</div>
             <div className="student-portfolio-slot-list">{student.slots.map(slot => <div className={`student-portfolio-slot ${slot.fileUrl ? 'filled' : ''}`} key={slot.slotNumber}>
-              {slot.fileUrl ? <>{slot.fileType.startsWith('image/') ? <button type="button" className="student-portfolio-image-button" onClick={() => setPreview({ ...slot, assignmentId: entries.assignmentId, studentId: student.id })}><img src={slot.fileUrl} alt={`إنجاز ${student.name} ${slot.slotNumber}`} /></button> : <button type="button" className="student-portfolio-file-link" onClick={() => setPreview({ ...slot, assignmentId: entries.assignmentId, studentId: student.id })}><FileText size={20} /><span>{slot.fileName || 'فتح الملف'}</span></button>}{scope === 'teacher' && <button type="button" className="portfolio-correction-slot-action" onClick={() => void correctPortfolioFiles(student.id, slot.slotNumber)} disabled={!correctionSettingsReady || correctingFiles || (correctionSettings.signatureMode === 'uploaded' && !correctionSettings.signatureData)}><PenLine size={13} />{slot.correction ? 'تحديث التصحيح' : 'تصحيح'}</button>}{slot.correction && <small className="portfolio-corrected-label">تم التصحيح</small>}</> : <span>المربع {slot.slotNumber}<small>لم يُرفع ملف</small></span>}
+              {slot.fileUrl ? <>{slot.fileType.startsWith('image/') ? <button type="button" className="student-portfolio-image-button" onClick={() => setPreview({ ...slot, assignmentId: entries.assignmentId, studentId: student.id })}><img src={slot.fileUrl} alt={`إنجاز ${student.name} ${slot.slotNumber}`} />{slot.correction && <PortfolioCorrectionStamp correction={slot.correction} signatureMode={slot.correction.signatureMode || correctionSettings.signatureMode} signatureData={slot.correction.signatureData || correctionSettings.signatureData} />}</button> : <button type="button" className="student-portfolio-file-link" onClick={() => setPreview({ ...slot, assignmentId: entries.assignmentId, studentId: student.id })}><FileText size={20} /><span>{slot.fileName || 'فتح الملف'}</span></button>}{scope === 'teacher' && <button type="button" className="portfolio-correction-slot-action" onClick={() => void correctPortfolioFiles(student.id, slot.slotNumber)} disabled={!correctionSettingsReady || correctingFiles || (correctionSettings.signatureMode === 'uploaded' && !correctionSettings.signatureData)}><PenLine size={13} />{slot.correction ? 'تحديث التصحيح' : 'تصحيح'}</button>}{slot.correction && <small className="portfolio-corrected-label">تم التصحيح</small>}</> : <span>المربع {slot.slotNumber}<small>لم يُرفع ملف</small></span>}
             </div>)}</div>
           </article>)}
         </div>
       </section>}
     </>}
-    {preview && <PortfolioFilePreview file={preview} correction={scope === 'teacher' ? preview.correction : null} signatureMode={correctionSettings.signatureMode} signatureData={correctionSettings.signatureData} schoolName={schoolName} onClose={() => setPreview(null)} />}
+    {preview && <PortfolioFilePreview file={preview} correction={preview.correction} signatureMode={correctionSettings.signatureMode} signatureData={correctionSettings.signatureData} schoolName={schoolName} onClose={() => setPreview(null)} />}
   </section>
 }
