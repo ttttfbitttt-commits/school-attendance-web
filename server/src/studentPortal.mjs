@@ -230,7 +230,32 @@ async function studentSubjects(client, schoolId, studentId) {
     current.push(file)
     byAssignment.set(file.assignmentId, current)
   }
-  return { student, subjects: subjects.map(subject => ({ ...subject, slots: portfolioSlots(byAssignment.get(subject.assignmentId)) })) }
+  const corrections = (await client.query(`SELECT correction.assignment_id::text AS "assignmentId",correction.student_id AS "studentId",
+      correction.slot_number AS "slotNumber",correction.teacher_name AS "teacherName",correction.note,correction.color,
+      correction.corrected_at AS "correctedAt",COALESCE(settings.signature_mode,'uploaded') AS "signatureMode",
+      COALESCE(settings.signature_data,'') AS "signatureData"
+    FROM student_portfolio_corrections correction
+      LEFT JOIN teacher_portfolio_correction_settings settings
+        ON settings.school_id=correction.school_id AND settings.teacher_id=correction.teacher_id
+    WHERE correction.school_id=$1 AND correction.student_id=$2 AND correction.assignment_id=ANY($3::uuid[])`,
+  [schoolId, studentId, subjects.map(row => row.assignmentId)])).rows
+  const defaultSignature = corrections.some(correction => correction.signatureMode === 'uploaded' && !correction.signatureData)
+    ? await defaultTeacherSignatureData()
+    : ''
+  const correctionsByAssignment = new Map()
+  for (const correction of corrections) {
+    const signatureData = correction.signatureMode === 'uploaded'
+      ? correction.signatureData ? await processTeacherSignature(correction.signatureData) : defaultSignature
+      : ''
+    if (correction.signatureMode === 'uploaded' && !signatureData) throw new Error('teacher_signature_processing_failed')
+    const current = correctionsByAssignment.get(correction.assignmentId) || []
+    current.push({ ...correction, signatureData })
+    correctionsByAssignment.set(correction.assignmentId, current)
+  }
+  return { student, subjects: subjects.map(subject => ({
+    ...subject,
+    slots: portfolioSlots(byAssignment.get(subject.assignmentId), correctionsByAssignment.get(subject.assignmentId)),
+  })) }
 }
 
 async function upsertStudentAccount({ authPool, schoolId, student, passwordHash }) {

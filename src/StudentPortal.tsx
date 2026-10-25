@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
 import * as QRCode from 'qrcode'
-import { BookOpenCheck, CalendarDays, Camera, FileText, Home, KeyRound, LogOut, Menu, QrCode, UserRound, X } from 'lucide-react'
-import { api, type Account, type StudentPortfolioSubject, type StudentPortalDashboard } from './api'
+import { BookOpenCheck, CalendarDays, Camera, FileText, Home, KeyRound, LogOut, Menu, Printer, QrCode, UserRound, X } from 'lucide-react'
+import { api, type Account, type StudentPortfolioCorrection, type StudentPortfolioSubject, type StudentPortalDashboard } from './api'
 import { StudentCooperationPanel } from './StudentCooperation'
 import { PortfolioFilePreview, type PortfolioPreviewFile } from './PortfolioFilePreview'
+import { savePortfolioImagesPdf } from './portfolioPdf'
 
 type StudentTab = 'home' | 'portfolio' | 'schedule' | 'cooperation' | 'password'
 const days = ['', 'الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت']
@@ -78,7 +79,8 @@ export function StudentPortal({ account, onLogout }: { account: Account; onLogou
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
   const [uploading, setUploading] = useState('')
-  const [preview, setPreview] = useState<PortfolioPreviewFile | null>(null)
+  const [preview, setPreview] = useState<(PortfolioPreviewFile & { correction?: StudentPortfolioCorrection | null }) | null>(null)
+  const [exportingSubject, setExportingSubject] = useState('')
 
   const load = async () => {
     setBusy('dashboard'); setError('')
@@ -141,6 +143,21 @@ export function StudentPortal({ account, onLogout }: { account: Account; onLogou
       setNotice('تمت إزالة الملف من مربع الإنجاز.')
     } catch { setError('تعذر إزالة الملف.') } finally { setUploading('') }
   }
+  const exportSubjectPdf = async (subject: StudentPortfolioSubject) => {
+    if (exportingSubject) return
+    const images = subject.slots.filter(slot => slot.fileUrl && slot.fileType.startsWith('image/'))
+    if (!images.length) return
+    setExportingSubject(subject.assignmentId)
+    setError('')
+    setNotice('')
+    try {
+      const safeSubjectName = subject.subject.trim().replace(/[^\p{L}\p{N}-]+/gu, '-').replace(/^-+|-+$/g, '') || 'مادة'
+      await savePortfolioImagesPdf(images.map(slot => ({ slot, correction: slot.correction })), `ملف-إنجاز-${safeSubjectName}.pdf`, 'uploaded', '')
+      setNotice(`تم تصدير ${images.length} صورة لمادة ${subject.subject}، كل صورة في صفحة مستقلة.`)
+    } catch (reason) {
+      setError(reason instanceof Error ? `تعذر تصدير PDF: ${reason.message}` : 'تعذر تصدير ملف الإنجاز. حاول مرة أخرى.')
+    } finally { setExportingSubject('') }
+  }
   const schedule = useMemo(() => {
     const groups = new Map<number, StudentPortalDashboard['schedule']>()
     for (const item of dashboard?.schedule || []) groups.set(item.weekday, [...(groups.get(item.weekday) || []), item])
@@ -166,7 +183,7 @@ export function StudentPortal({ account, onLogout }: { account: Account; onLogou
               <div className="student-subject-grid">
                 {dashboard.subjects.map(subject => (
                   <article key={subject.assignmentId}>
-                    <header><div><strong>{subject.subject}</strong><span>المعلم: {subject.teacherName}</span></div><small>{subject.grade} · {subject.classroom}</small></header>
+                    <header><div><strong>{subject.subject}</strong><span>المعلم: {subject.teacherName}</span></div><small>{subject.grade} · {subject.classroom}</small><button type="button" className="outline-button" onClick={() => void exportSubjectPdf(subject)} disabled={exportingSubject !== '' || !subject.slots.some(slot => slot.fileUrl && slot.fileType.startsWith('image/'))}><Printer size={16} />{exportingSubject === subject.assignmentId ? 'جارٍ إنشاء PDF…' : 'تصدير PDF'}</button></header>
                     <div className="student-upload-slots">
                       {subject.slots.map(slot => (
                         <div className={`student-upload-slot ${slot.fileUrl ? 'filled' : ''}`} key={slot.slotNumber}>
@@ -201,6 +218,6 @@ export function StudentPortal({ account, onLogout }: { account: Account; onLogou
         )}      </>}
         {activeTab === 'cooperation' && dashboard?.attendanceCooperation.available && <StudentCooperationPanel status={dashboard.attendanceCooperation} onStatus={attendanceCooperation => setDashboard(current => current ? { ...current, attendanceCooperation } : current)} />}
     </div>
-    {preview && <PortfolioFilePreview file={preview} onClose={() => setPreview(null)} />}
+    {preview && <PortfolioFilePreview file={preview} correction={preview.correction} signatureMode={preview.correction?.signatureMode} signatureData={preview.correction?.signatureData} onClose={() => setPreview(null)} />}
   </main>
 }
