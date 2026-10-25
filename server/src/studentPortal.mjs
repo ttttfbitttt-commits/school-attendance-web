@@ -105,21 +105,6 @@ async function processTeacherSignature(value) {
   }
 }
 
-async function teacherSignatureHasWhiteBackground(value) {
-  const match = /^data:image\/(?:png|jpeg|webp);base64,([A-Za-z0-9+/=]+)$/.exec(String(value || ''))
-  if (!match) return false
-  const { data, info } = await sharp(Buffer.from(match[1], 'base64'), { limitInputPixels: 25_000_000 })
-    .ensureAlpha().raw().toBuffer({ resolveWithObject: true })
-  let visiblePixels = 0
-  let whitePixels = 0
-  for (let offset = 0; offset < data.length; offset += info.channels) {
-    if (data[offset + 3] < 240) continue
-    visiblePixels += 1
-    if (data[offset] > 230 && data[offset + 1] > 230 && data[offset + 2] > 230) whitePixels += 1
-  }
-  return visiblePixels > 0 && whitePixels / visiblePixels > 0.3
-}
-
 function portfolioFile(value, fileName) {
   const data = String(value || '')
   const match = /^data:([^;]+);base64,([A-Za-z0-9+/=]+)$/.exec(data)
@@ -522,28 +507,18 @@ export async function handleStudentPortalRequest(context) {
       let settings = await scoped(user.school_id, async client => (await client.query(`SELECT signature_mode AS "signatureMode",COALESCE(signature_data,'') AS "signatureData",correction_color AS "correctionColor"
         FROM teacher_portfolio_correction_settings WHERE school_id=$1 AND teacher_id=$2::uuid`, [user.school_id, user.teacher_id])).rows[0])
       if (settings?.signatureData) {
-        const match = /^data:image\/(?:png|jpeg|webp);base64,([A-Za-z0-9+/=]+)$/.exec(settings.signatureData)
-        let metadata
-        let hasWhiteBackground = false
+        let signatureData
         try {
-          metadata = match
-            ? await sharp(Buffer.from(match[1], 'base64'), { limitInputPixels: 25_000_000 }).metadata()
-            : null
-          hasWhiteBackground = metadata?.hasAlpha ? await teacherSignatureHasWhiteBackground(settings.signatureData) : false
+          signatureData = await processTeacherSignature(settings.signatureData)
         } catch {
           json(res, 500, { error: 'teacher_signature_processing_failed' })
           return true
         }
-        if (!metadata) {
+        if (!signatureData) {
           json(res, 500, { error: 'teacher_signature_processing_failed' })
           return true
         }
-        if (!metadata.hasAlpha || hasWhiteBackground) {
-          const signatureData = await processTeacherSignature(settings.signatureData)
-          if (!signatureData) {
-            json(res, 500, { error: 'teacher_signature_processing_failed' })
-            return true
-          }
+        if (signatureData !== settings.signatureData) {
           settings = await scoped(user.school_id, async client => (await client.query(`UPDATE teacher_portfolio_correction_settings
             SET signature_data=$3,updated_at=now() WHERE school_id=$1 AND teacher_id=$2::uuid
             RETURNING signature_mode AS "signatureMode",signature_data AS "signatureData",correction_color AS "correctionColor"`,

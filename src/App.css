@@ -5875,6 +5875,6 @@ body.referral-print-mode .referral-official-sheet{width:210mm!important;height:2
 .portfolio-correction-date{display:flex;flex-direction:row;align-items:center;gap:1px;unicode-bidi:isolate;direction:rtl;font-weight:900}
 .portfolio-correction-date bdi{direction:ltr;unicode-bidi:isolate}
 .portfolio-correction-date i{font-style:normal}
-.portfolio-correction-stamp img{display:block;width:95px;height:34px;object-fit:contain;object-position:left center}
+.portfolio-correction-uploaded-signature{display:block;width:95px;height:34px;background-color:currentColor;mask-repeat:no-repeat;-webkit-mask-repeat:no-repeat;mask-position:left center;-webkit-mask-position:left center;mask-size:contain;-webkit-mask-size:contain}
 .portfolio-correction-signature{display:block;width:96px;height:34px;overflow:visible}
 @media(max-width:600px){.portfolio-correction-settings{padding:12px}.portfolio-correction-settings-actions{align-items:stretch;flex-direction:column}.portfolio-correction-settings-actions button{justify-content:center}.portfolio-correction-stamp{left:8px;bottom:8px;font-size:10px}.portfolio-preview-image-wrap,.portfolio-preview-content.image .portfolio-preview-image-wrap>img{max-height:calc(100dvh - 165px)}.portfolio-preview-pdf-wrap,.portfolio-preview-content.pdf .portfolio-preview-pdf-wrap iframe{min-height:0;height:100%}}
