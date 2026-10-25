@@ -613,6 +613,38 @@ export async function handleStudentPortalRequest(context) {
     return true
   }
 
+  if (req.method === 'POST' && url.pathname === '/api/student-portal/teacher/portfolio/corrections/cancel') {
+    if (!teacherOnly()) { json(res, 403, { error: 'forbidden' }); return true }
+    const input = await body(req)
+    const assignmentId = String(input.assignmentId || '')
+    const assignmentIds = Array.isArray(input.assignmentIds)
+      ? [...new Set(input.assignmentIds.map(value => String(value || '')))]
+      : assignmentId ? [assignmentId] : []
+    const studentId = input.studentId == null ? null : clean(input.studentId, 100)
+    const slotNumber = input.slotNumber == null ? null : Number(input.slotNumber)
+    if (!assignmentIds.length || assignmentIds.length > 100 || assignmentIds.some(id => !validUuid(id)) || (input.studentId != null && !studentId)
+      || (slotNumber !== null && (!studentId || !Number.isInteger(slotNumber) || slotNumber < 1 || slotNumber > PORTFOLIO_SLOT_COUNT))) {
+      json(res, 400, { error: 'invalid_portfolio_correction_cancel' })
+      return true
+    }
+    const result = await scoped(user.school_id, async client => {
+      const deleted = await client.query(`WITH targets AS (
+          SELECT school_id,student_id,assignment_id,slot_number
+          FROM student_portfolio_corrections
+          WHERE school_id=$1 AND assignment_id=ANY($2::uuid[]) AND teacher_id=$3::uuid
+            AND ($4::text IS NULL OR student_id=$4)
+            AND ($5::smallint IS NULL OR slot_number=$5)
+        )
+        DELETE FROM student_portfolio_corrections c
+        USING targets t
+        WHERE c.school_id=t.school_id AND c.student_id=t.student_id AND c.assignment_id=t.assignment_id AND c.slot_number=t.slot_number
+        RETURNING c.student_id`, [user.school_id, assignmentIds, user.teacher_id, studentId, slotNumber])
+      return deleted.rowCount || 0
+    })
+    json(res, 200, { cleared: result })
+    return true
+  }
+
   if (req.method === 'GET' && url.pathname === '/api/student-portal/portfolio/file') {
     if (!['admin', 'vice_principal', 'teacher', 'student', 'activity_leader'].includes(user.role)) { json(res, 403, { error: 'forbidden' }); return true }
     const assignmentId = String(url.searchParams.get('assignmentId') || '')
