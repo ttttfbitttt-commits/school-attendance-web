@@ -56,7 +56,7 @@ export function StudentPortfolioBoard({ scope = 'school', schoolName = 'المد
   const [entries, setEntries] = useState<StudentPortfolioEntries | null>(null)
   const [busy, setBusy] = useState(true)
   const [error, setError] = useState('')
-  const [preview, setPreview] = useState<(PortfolioPreviewFile & { correction?: StudentPortfolioCorrection | null; studentId: string }) | null>(null)
+  const [preview, setPreview] = useState<(PortfolioPreviewFile & { correction?: StudentPortfolioCorrection | null; studentId: string; slotNumber: number }) | null>(null)
   const [correctionSettings, setCorrectionSettings] = useState<TeacherPortfolioCorrectionSettings>(DEFAULT_CORRECTION_SETTINGS)
   const [correctionNote, setCorrectionNote] = useState('')
   const [correctionMessage, setCorrectionMessage] = useState('')
