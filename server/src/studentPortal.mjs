@@ -1,3 +1,5 @@
+import sharp from 'sharp'
+
 const DEFAULT_STUDENT_PASSWORD = '12345678'
 const validUuid = value => /^[0-9a-f-]{36}$/i.test(String(value || ''))
 const identityNumber = value => String(value ?? '').trim().replace(/\s/g, '').replace(/[^0-9]/g, '')
@@ -7,6 +9,7 @@ const storedPortfolioFileTypes = new Set(['image/png', 'image/jpeg', 'image/webp
 const portfolioUploadImageTypes = new Set(['image/png', 'image/jpeg', 'image/webp'])
 const MAX_PORTFOLIO_IMAGE_BYTES = 1_000_000
 const PORTFOLIO_SLOT_COUNT = 8
+const DEFAULT_PORTFOLIO_CORRECTION_COLOR = '#d62828'
 const classroomKey = value => clean(value, 260).normalize('NFKC').replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه').replace(/[\u064B-\u065F\u0670ـ]/g, '').replace(/[^\p{L}\p{N}]+/gu, ' ').replace(/\s+/g, ' ').trim()
 const portfolioFileUrl = (assignmentId, studentId, slotNumber) => `/api/student-portal/portfolio/file?assignmentId=${encodeURIComponent(assignmentId)}&studentId=${encodeURIComponent(studentId)}&slotNumber=${encodeURIComponent(slotNumber)}`
 
@@ -55,12 +58,51 @@ async function ensureAutomaticMappings(client, schoolId) {
   }
 }
 
-function portfolioSlots(files = []) {
+function portfolioSlots(files = [], corrections = []) {
   const bySlot = new Map(files.map(file => [Number(file.slotNumber), file]))
+  const correctionBySlot = new Map(corrections.map(correction => [Number(correction.slotNumber), correction]))
   return Array.from({ length: PORTFOLIO_SLOT_COUNT }, (_, index) => {
     const file = bySlot.get(index + 1)
-    return { slotNumber: index + 1, fileUrl: file?.fileUrl || '', fileName: file?.fileName || '', fileType: file?.fileType || '', uploadedAt: file?.uploadedAt || null }
+    return { slotNumber: index + 1, fileUrl: file?.fileUrl || '', fileName: file?.fileName || '', fileType: file?.fileType || '', uploadedAt: file?.uploadedAt || null, correction: correctionBySlot.get(index + 1) || null }
   })
+}
+
+async function processTeacherSignature(value) {
+  const match = /^data:image\/(?:png|jpeg|webp);base64,([A-Za-z0-9+/=]+)$/.exec(String(value || ''))
+  if (!match || match[1].length > 1_800_000) return null
+  const input = Buffer.from(match[1], 'base64')
+  try {
+    const { data, info } = await sharp(input, { limitInputPixels: 25_000_000 }).rotate().ensureAlpha().raw().toBuffer({ resolveWithObject: true })
+    let left = info.width
+    let top = info.height
+    let right = -1
+    let bottom = -1
+    for (let y = 0; y < info.height; y += 1) {
+      for (let x = 0; x < info.width; x += 1) {
+        const offset = (y * info.width + x) * info.channels
+        const darkness = 255 - (data[offset] + data[offset + 1] + data[offset + 2]) / 3
+        const alpha = Math.round(data[offset + 3] * Math.max(0, Math.min(1, (darkness - 38) / 50)))
+        data[offset + 3] = alpha
+        if (alpha > 96) {
+          left = Math.min(left, x)
+          top = Math.min(top, y)
+          right = Math.max(right, x)
+          bottom = Math.max(bottom, y)
+        }
+      }
+    }
+    if (right < left || bottom < top) return null
+    const signature = await sharp(data, { raw: info })
+      .extract({ left, top, width: right - left + 1, height: bottom - top + 1 })
+      .resize({ width: 1600, height: 800, fit: 'inside', withoutEnlargement: true })
+      .png({ compressionLevel: 9, palette: true })
+      .toBuffer()
+    if (signature.length > 1_200_000) return null
+    return `data:image/png;base64,${signature.toString('base64')}`
+  } catch (error) {
+    if (error instanceof Error) return null
+    throw error
+  }
 }
 
 function portfolioFile(value, fileName) {
@@ -143,13 +185,22 @@ async function assignmentRoster(client, schoolId, assignmentId, teacherId = '') 
   const files = (await client.query(`SELECT student_id AS "studentId",assignment_id::text AS "assignmentId",slot_number AS "slotNumber",file_name AS "fileName",file_type AS "fileType",
       to_char(uploaded_at AT TIME ZONE 'Asia/Riyadh','YYYY-MM-DD HH24:MI') AS "uploadedAt"
     FROM student_portfolio_files WHERE school_id=$1 AND assignment_id=$2::uuid`, [schoolId, assignmentId])).rows.map(file => storedPortfolioFile(file))
+  const corrections = (await client.query(`SELECT student_id AS "studentId",slot_number AS "slotNumber",assignment_id::text AS "assignmentId",
+      teacher_name AS "teacherName",note,color,corrected_at AS "correctedAt"
+    FROM student_portfolio_corrections WHERE school_id=$1 AND assignment_id=$2::uuid`, [schoolId, assignmentId])).rows
   const fileMap = new Map()
   for (const file of files) {
     const current = fileMap.get(file.studentId) || []
     current.push(file)
     fileMap.set(file.studentId, current)
   }
-  return { ...assignment, students: students.map(student => ({ ...student, identityNumber: identityNumber(student.id), slots: portfolioSlots(fileMap.get(student.id)) })) }
+  const correctionMap = new Map()
+  for (const correction of corrections) {
+    const current = correctionMap.get(correction.studentId) || []
+    current.push(correction)
+    correctionMap.set(correction.studentId, current)
+  }
+  return { ...assignment, students: students.map(student => ({ ...student, identityNumber: identityNumber(student.id), slots: portfolioSlots(fileMap.get(student.id), correctionMap.get(student.id)) })) }
 }
 
 async function studentSubjects(client, schoolId, studentId) {
@@ -249,6 +300,29 @@ export async function migrateStudentPortal(adminPool) {
       FOREIGN KEY (school_id,student_id) REFERENCES students(school_id,id) ON DELETE CASCADE
     );
     CREATE INDEX IF NOT EXISTS student_portfolio_files_assignment ON student_portfolio_files(school_id,assignment_id,student_id);
+    CREATE TABLE IF NOT EXISTS teacher_portfolio_correction_settings (
+      school_id uuid NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+      teacher_id uuid NOT NULL,
+      signature_mode text NOT NULL DEFAULT 'generated' CHECK (signature_mode IN ('uploaded','generated')),
+      signature_data text,
+      correction_color text NOT NULL DEFAULT '${DEFAULT_PORTFOLIO_CORRECTION_COLOR}',
+      updated_at timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (school_id,teacher_id)
+    );
+    CREATE TABLE IF NOT EXISTS student_portfolio_corrections (
+      school_id uuid NOT NULL,
+      student_id text NOT NULL,
+      assignment_id uuid NOT NULL,
+      slot_number smallint NOT NULL,
+      teacher_id uuid NOT NULL,
+      teacher_name text NOT NULL,
+      note text NOT NULL DEFAULT '',
+      color text NOT NULL DEFAULT '${DEFAULT_PORTFOLIO_CORRECTION_COLOR}',
+      corrected_at timestamptz NOT NULL DEFAULT now(),
+      PRIMARY KEY (school_id,student_id,assignment_id,slot_number),
+      FOREIGN KEY (school_id,student_id,assignment_id,slot_number)
+        REFERENCES student_portfolio_files(school_id,student_id,assignment_id,slot_number) ON DELETE CASCADE
+    );
   `)
   await adminPool.query(`
     ALTER TABLE student_login_accounts ADD COLUMN IF NOT EXISTS attendance_cooperation_access boolean NOT NULL DEFAULT false;
@@ -427,6 +501,84 @@ export async function handleStudentPortalRequest(context) {
     return true
   }
 
+  if (url.pathname === '/api/student-portal/teacher/portfolio/correction-settings') {
+    if (!teacherOnly()) { json(res, 403, { error: 'forbidden' }); return true }
+    if (req.method === 'GET') {
+      const settings = await scoped(user.school_id, async client => (await client.query(`SELECT signature_mode AS "signatureMode",COALESCE(signature_data,'') AS "signatureData",correction_color AS "correctionColor"
+        FROM teacher_portfolio_correction_settings WHERE school_id=$1 AND teacher_id=$2::uuid`, [user.school_id, user.teacher_id])).rows[0])
+      json(res, 200, settings || { signatureMode: 'generated', signatureData: '', correctionColor: DEFAULT_PORTFOLIO_CORRECTION_COLOR })
+      return true
+    }
+    if (req.method === 'PUT') {
+      const input = await body(req)
+      if (!['uploaded', 'generated'].includes(input.signatureMode) || typeof input.correctionColor !== 'string' || !/^#[0-9a-f]{6}$/i.test(input.correctionColor)
+        || (input.signatureData !== undefined && typeof input.signatureData !== 'string')) {
+        json(res, 400, { error: 'invalid_portfolio_correction_settings' })
+        return true
+      }
+      const signatureData = input.signatureData ? await processTeacherSignature(input.signatureData) : null
+      if (input.signatureData && !signatureData) { json(res, 400, { error: 'invalid_teacher_signature_image' }); return true }
+      const saved = await scoped(user.school_id, async client => {
+        const existing = (await client.query(`SELECT signature_data FROM teacher_portfolio_correction_settings
+          WHERE school_id=$1 AND teacher_id=$2::uuid`, [user.school_id, user.teacher_id])).rows[0]
+        if (input.signatureMode === 'uploaded' && !signatureData && !existing?.signature_data) return null
+        return (await client.query(`INSERT INTO teacher_portfolio_correction_settings(school_id,teacher_id,signature_mode,signature_data,correction_color,updated_at)
+          VALUES($1,$2::uuid,$3,COALESCE($4,$5),$6,now())
+          ON CONFLICT(school_id,teacher_id) DO UPDATE SET signature_mode=EXCLUDED.signature_mode,
+            signature_data=COALESCE($4,teacher_portfolio_correction_settings.signature_data),
+            correction_color=EXCLUDED.correction_color,updated_at=now()
+          RETURNING signature_mode AS "signatureMode",COALESCE(signature_data,'') AS "signatureData",correction_color AS "correctionColor"`,
+        [user.school_id, user.teacher_id, input.signatureMode, signatureData, existing?.signature_data || null, input.correctionColor])).rows[0]
+      })
+      if (!saved) { json(res, 400, { error: 'teacher_signature_required' }); return true }
+      json(res, 200, saved)
+      return true
+    }
+    json(res, 405, { error: 'method_not_allowed' })
+    return true
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/student-portal/teacher/portfolio/corrections') {
+    if (!teacherOnly()) { json(res, 403, { error: 'forbidden' }); return true }
+    const input = await body(req)
+    const assignmentId = String(input.assignmentId || '')
+    const assignmentIds = Array.isArray(input.assignmentIds)
+      ? [...new Set(input.assignmentIds.map(value => String(value || '')))]
+      : assignmentId ? [assignmentId] : []
+    const studentId = input.studentId == null ? null : clean(input.studentId, 100)
+    const slotNumber = input.slotNumber == null ? null : Number(input.slotNumber)
+    const note = typeof input.note === 'string' ? clean(input.note, 160) : null
+    if (!assignmentIds.length || assignmentIds.length > 100 || assignmentIds.some(id => !validUuid(id)) || note === null || (input.studentId != null && !studentId)
+      || (slotNumber !== null && (!studentId || !Number.isInteger(slotNumber) || slotNumber < 1 || slotNumber > PORTFOLIO_SLOT_COUNT))) {
+      json(res, 400, { error: 'invalid_portfolio_correction' })
+      return true
+    }
+    const teacherName = clean(user.display_name, 200) || 'المعلم'
+    const corrections = await scoped(user.school_id, async client => {
+      const settings = (await client.query(`SELECT correction_color AS color FROM teacher_portfolio_correction_settings
+        WHERE school_id=$1 AND teacher_id=$2::uuid`, [user.school_id, user.teacher_id])).rows[0]
+      return (await client.query(`WITH targets AS (
+          SELECT file.student_id AS "studentId",file.assignment_id AS "assignmentId",file.slot_number AS "slotNumber"
+          FROM student_portfolio_files file
+          JOIN lesson_schedule_assignments assignment ON assignment.school_id=file.school_id AND assignment.id=file.assignment_id
+          WHERE file.school_id=$1 AND file.assignment_id=ANY($2::uuid[]) AND assignment.teacher_id=$3::uuid
+            AND ($7::text IS NULL OR file.student_id=$7)
+            AND ($8::smallint IS NULL OR file.slot_number=$8)
+        )
+        INSERT INTO student_portfolio_corrections(school_id,student_id,assignment_id,slot_number,teacher_id,teacher_name,note,color,corrected_at)
+        SELECT $1,targets."studentId",targets."assignmentId",targets."slotNumber",$3,$6,$4,$5,now() FROM targets
+        ON CONFLICT(school_id,student_id,assignment_id,slot_number) DO UPDATE SET
+          teacher_id=EXCLUDED.teacher_id,teacher_name=EXCLUDED.teacher_name,note=EXCLUDED.note,
+          color=EXCLUDED.color,corrected_at=now()
+        RETURNING assignment_id::text AS "assignmentId",student_id AS "studentId",slot_number AS "slotNumber",
+          teacher_name AS "teacherName",note,color,corrected_at AS "correctedAt"`,
+      [user.school_id, assignmentIds, user.teacher_id, note, settings?.color || DEFAULT_PORTFOLIO_CORRECTION_COLOR, teacherName, studentId, slotNumber])).rows
+    })
+    if (!corrections.length) { json(res, 404, { error: 'portfolio_files_not_found_or_forbidden' }); return true }
+    json(res, 200, { corrections })
+    return true
+  }
+
   if (req.method === 'GET' && url.pathname === '/api/student-portal/portfolio/file') {
     if (!['admin', 'vice_principal', 'teacher', 'student', 'activity_leader'].includes(user.role)) { json(res, 403, { error: 'forbidden' }); return true }
     const assignmentId = String(url.searchParams.get('assignmentId') || '')
@@ -543,6 +695,9 @@ export async function handleStudentPortalRequest(context) {
     const saved = await scoped(user.school_id, async client => {
       const subjects = await studentSubjects(client, user.school_id, user.student_id)
       if (!subjects?.subjects.some(subject => subject.assignmentId === assignmentId)) return null
+      await client.query(`DELETE FROM student_portfolio_corrections
+        WHERE school_id=$1 AND student_id=$2 AND assignment_id=$3::uuid AND slot_number=$4`,
+      [user.school_id, user.student_id, assignmentId, slotNumber])
       const result = await client.query(`INSERT INTO student_portfolio_files(school_id,student_id,assignment_id,slot_number,file_data,file_name,file_type,uploaded_at)
         VALUES($1,$2,$3::uuid,$4,$5,$6,$7,now())
         ON CONFLICT(school_id,student_id,assignment_id,slot_number) DO UPDATE SET file_data=EXCLUDED.file_data,file_name=EXCLUDED.file_name,file_type=EXCLUDED.file_type,uploaded_at=now()

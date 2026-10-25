@@ -1,7 +1,9 @@
 export type Account = { email: string; displayName: string; role: 'admin' | 'staff' | 'teacher' | 'administrator' | 'student' | 'counselor' | 'vice_principal' | 'activity_leader'; schoolId: string; teacherId?: string; administratorId?: string; studentId?: string; counselorId?: string; vicePrincipalId?: string; activityLeaderId?: string; lessonFlowAccess?: boolean; studentAttendanceCooperationAccess?: boolean; mustChangePassword?: boolean }
 export type LoginChoice = { userId: string; schoolId: string; role: Account['role']; schoolName: string }
 export type StudentPortalAccount = { studentId: string; name: string; grade: string; classroom: string; phone: string; identityNumber: string; eligible: boolean; accountCreated: boolean; accountActive: boolean; mustChangePassword: boolean; attendanceCooperationAccess: boolean }
-export type StudentPortfolioSlot = { slotNumber: number; fileUrl: string; fileName: string; fileType: string; uploadedAt: string | null }
+export type StudentPortfolioCorrection = { assignmentId: string; studentId: string; slotNumber: number; teacherName: string; note: string; color: string; correctedAt: string }
+export type TeacherPortfolioCorrectionSettings = { signatureMode: 'uploaded' | 'generated'; signatureData: string; correctionColor: string }
+export type StudentPortfolioSlot = { slotNumber: number; fileUrl: string; fileName: string; fileType: string; uploadedAt: string | null; correction?: StudentPortfolioCorrection | null }
 export type StudentAccountGeneration = { ok: boolean; jobId: string; total: number; processed: number; created: number; skipped: number; failed: number; status: 'running' | 'completed' | 'failed'; defaultPassword: string }
 export type StudentPortfolioSubject = { assignmentId: string; subject: string; teacherName: string; grade: string; classroom: string; slots: StudentPortfolioSlot[] }
 export type StudentPortfolioGroup = { assignmentId: string; subject: string; teacherName: string; grade: string; classroom: string; studentCount: number; submittedFiles: number }
@@ -408,6 +410,9 @@ export const api = {
   activityLeaderPortfolioEntries: (assignmentId: string) => request<StudentPortfolioEntries>(`/student-portal/activity-leader/portfolio/entries?assignmentId=${encodeURIComponent(assignmentId)}`),
   teacherPortfolioGroups: () => request<{ groups: StudentPortfolioGroup[] }>('/student-portal/teacher/portfolio/groups'),
   teacherPortfolioEntries: (assignmentId: string) => request<StudentPortfolioEntries>(`/student-portal/teacher/portfolio/entries?assignmentId=${encodeURIComponent(assignmentId)}`),
+  teacherPortfolioCorrectionSettings: () => request<TeacherPortfolioCorrectionSettings>('/student-portal/teacher/portfolio/correction-settings'),
+  saveTeacherPortfolioCorrectionSettings: (settings: TeacherPortfolioCorrectionSettings) => request<TeacherPortfolioCorrectionSettings>('/student-portal/teacher/portfolio/correction-settings', { method: 'PUT', body: JSON.stringify(settings) }),
+  correctTeacherPortfolioFiles: (assignmentId: string, input: { note: string; studentId?: string; slotNumber?: number; assignmentIds?: string[] }) => request<{ corrections: StudentPortfolioCorrection[] }>('/student-portal/teacher/portfolio/corrections', { method: 'POST', body: JSON.stringify({ assignmentId, ...input }) }),
   studentPortalDashboard: () => request<StudentPortalDashboard>('/student-portal/student/dashboard'),
   studentCooperationStatus: () => request<StudentCooperationStatus>('/student-portal/student/cooperation/status'),
   scanStudentCooperation: (code: string) => request<StudentCooperationScan>('/student-portal/student/cooperation/scan', { method: 'POST', body: JSON.stringify({ code }) }),

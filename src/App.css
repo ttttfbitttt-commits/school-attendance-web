@@ -5834,3 +5834,43 @@ body.referral-print-mode .referral-official-sheet{width:210mm!important;height:2
 .absence-message-log{margin-top:18px;padding:16px;border:1px solid #c9dff0;border-radius:14px;background:#fff}.absence-message-log>header{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}.absence-message-log-actions{display:flex;flex-wrap:wrap;gap:8px}.absence-message-log-list{display:grid;gap:8px;margin-top:12px}.absence-message-log-list article{display:grid;grid-template-columns:minmax(130px,1fr) auto;gap:4px 12px;padding:11px;border:1px solid #dbe8f2;border-radius:10px;background:#f8fbfd}.absence-message-log-list article small{grid-column:1/-1;line-height:1.6}.absence-message-log-list article time{font-size:.82rem;color:#64748b}@media(max-width:700px){.absence-message-log>header{display:block}.absence-message-log-actions{margin-top:10px}.absence-message-log-list article{grid-template-columns:1fr}.absence-message-log-list article span,.absence-message-log-list article time{font-size:.85rem}}
 .absence-case-total{color:#b42318;font-size:1.1em}.absence-days-badge{display:inline-block;margin-inline-start:10px;color:#b42318;font-size:.9em;font-weight:700
 }
+
+.portfolio-correction-settings{display:grid;gap:13px;padding:16px;border:1px solid #f0c8c3;border-radius:15px;background:linear-gradient(145deg,#fff,#fff8f7)}
+.portfolio-correction-settings-head,.portfolio-correction-settings-actions{display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px}
+.portfolio-correction-settings-head h3{margin:0;color:#173d5b;font-size:16px}
+.portfolio-correction-settings-head p,.portfolio-signature-help{margin:4px 0 0;color:#6b8192;font-size:12px;line-height:1.7}
+.portfolio-correction-color{display:flex;align-items:center;gap:8px;color:#415e73;font-size:12px;font-weight:800}
+.portfolio-correction-color input{width:42px;height:36px;padding:3px;border:1px solid #d8e3eb;border-radius:8px;background:#fff;cursor:pointer}
+.portfolio-signature-modes{display:flex;flex-wrap:wrap;gap:10px}
+.portfolio-signature-modes label{display:flex;align-items:center;gap:7px;padding:9px 12px;border:1px solid #dce7ef;border-radius:10px;background:#fff;color:#36566e;font-size:12px;font-weight:800;cursor:pointer}
+.portfolio-signature-modes input{accent-color:#d62828}
+.portfolio-signature-upload{display:flex;align-items:center;flex-wrap:wrap;gap:12px;color:#637b8d;font-size:12px}
+.portfolio-signature-upload .outline-button{position:relative;overflow:hidden}
+.portfolio-signature-upload input{position:absolute;inset:0;width:100%;height:100%;opacity:0;cursor:pointer}
+.portfolio-signature-upload img{width:180px;height:72px;object-fit:contain;padding:6px;border:1px dashed #e0b7b2;border-radius:9px;background-color:#fff;background-image:linear-gradient(45deg,#f3f5f7 25%,transparent 25%),linear-gradient(-45deg,#f3f5f7 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#f3f5f7 75%),linear-gradient(-45deg,transparent 75%,#f3f5f7 75%);background-size:12px 12px;background-position:0 0,0 6px,6px -6px,-6px 0}
+.portfolio-correction-note{display:grid;gap:6px}
+.portfolio-correction-note label{color:#415e73;font-size:12px;font-weight:800}
+.portfolio-correction-note textarea{min-height:68px;resize:vertical;padding:10px 12px;border:1px solid #d4e1e9;border-radius:10px;background:#fff;color:#23445e;font:inherit}
+.portfolio-correction-settings-actions .portfolio-correct-all,.portfolio-correction-student,.portfolio-correction-slot-action{display:inline-flex;align-items:center;justify-content:center;gap:5px;border:1px solid #bd3930;border-radius:9px;background:#d62828;color:#fff;font:inherit;font-size:12px;font-weight:800;cursor:pointer}
+.portfolio-correction-settings-actions .portfolio-correct-all{min-height:40px;padding:8px 13px}
+.portfolio-correction-settings-actions .portfolio-correct-all:disabled,.portfolio-correction-student:disabled,.portfolio-correction-slot-action:disabled{opacity:.55;cursor:not-allowed}
+.portfolio-correction-settings-actions .outline-button{display:inline-flex;align-items:center;gap:6px}
+.portfolio-correction-message{display:flex;align-items:center;gap:6px;margin:0;color:#267052;font-size:12px;font-weight:800}
+.student-portfolio-student-name{display:flex;align-items:center;flex-wrap:wrap;gap:8px}
+.portfolio-correction-student{min-height:32px;padding:5px 9px}
+.portfolio-correction-slot-action{min-height:30px;margin-top:5px;padding:5px 9px}
+.portfolio-corrected-label{color:#a62b24;font-weight:800}
+.portfolio-preview-image-wrap{position:relative;display:grid;place-items:center;max-width:100%;max-height:calc(100dvh - 195px)}
+.portfolio-preview-content.image .portfolio-preview-image-wrap>img{display:block;max-width:100%;max-height:calc(100dvh - 195px);object-fit:contain;border-radius:9px;background:#fff}
+.portfolio-preview-pdf-wrap{position:relative;width:100%;height:100%;min-height:560px}
+.portfolio-preview-content.pdf .portfolio-preview-pdf-wrap iframe{display:block;width:100%;height:100%;min-height:560px;border:0;background:#fff}
+.portfolio-preview-download-wrap{position:relative;max-width:360px;padding:30px;text-align:center;color:#41647c}
+.portfolio-preview-download-wrap svg{color:#e05c3c}
+.portfolio-preview-download-wrap h2{margin:13px 0 6px;color:#163d5f;font-size:19px}
+.portfolio-preview-download-wrap p{margin:0;font-size:13px;line-height:1.8}
+.portfolio-correction-stamp{position:absolute;z-index:5;left:14px;right:auto;bottom:14px;display:grid;justify-items:start;gap:3px;max-width:min(250px,70%);padding:8px 11px;border:1px solid currentColor;border-radius:9px;background:rgba(255,255,255,.9);box-shadow:0 2px 8px rgba(25,35,45,.16);text-align:right;font-size:12px;line-height:1.45}
+.portfolio-correction-stamp strong{font-family:"Segoe Print","Comic Sans MS","Aref Ruqaa","Amiri","Traditional Arabic",cursive;font-size:16px;font-style:italic}
+.portfolio-correction-stamp time{font-size:10px}
+.portfolio-correction-stamp img{display:block;width:110px;height:42px;object-fit:contain;object-position:right center}
+.portfolio-correction-signature{font-family:"Segoe Print","Comic Sans MS","Aref Ruqaa","Amiri","Traditional Arabic",cursive;font-size:19px;font-style:italic;transform:rotate(-4deg)}
+@media(max-width:600px){.portfolio-correction-settings{padding:12px}.portfolio-correction-settings-actions{align-items:stretch;flex-direction:column}.portfolio-correction-settings-actions button{justify-content:center}.portfolio-correction-stamp{left:8px;bottom:8px;font-size:11px}.portfolio-preview-image-wrap,.portfolio-preview-content.image .portfolio-preview-image-wrap>img{max-height:calc(100dvh - 165px)}.portfolio-preview-pdf-wrap,.portfolio-preview-content.pdf .portfolio-preview-pdf-wrap iframe{min-height:0;height:100%}}

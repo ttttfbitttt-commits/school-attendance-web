@@ -1,10 +1,32 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ArrowRight, BookOpenCheck, FileText, FolderOpen, Image, Layers3, Printer, RefreshCw, Users } from 'lucide-react'
-import { api, type StudentPortfolioEntries, type StudentPortfolioGroup } from './api'
+import { ArrowRight, BookOpenCheck, Check, FileText, FolderOpen, Image, Layers3, PenLine, Printer, RefreshCw, Save, Upload, Users } from 'lucide-react'
+import { api, type StudentPortfolioCorrection, type StudentPortfolioEntries, type StudentPortfolioGroup, type TeacherPortfolioCorrectionSettings } from './api'
 import { PortfolioFilePreview, type PortfolioPreviewFile } from './PortfolioFilePreview'
 import { openPrintDocument } from './SchoolFeatures'
 
 const escapeHtml = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character] || character))
+const DEFAULT_CORRECTION_SETTINGS: TeacherPortfolioCorrectionSettings = { signatureMode: 'generated', signatureData: '', correctionColor: '#d62828' }
+
+async function prepareSignatureImage(file: File) {
+  const image = await createImageBitmap(file)
+  const scale = Math.min(1, 1600 / image.width, 800 / image.height)
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.max(1, Math.round(image.width * scale))
+  canvas.height = Math.max(1, Math.round(image.height * scale))
+  const context = canvas.getContext('2d')
+  if (!context) throw new Error('تعذر تجهيز صورة التوقيع.')
+  context.fillStyle = '#fff'
+  context.fillRect(0, 0, canvas.width, canvas.height)
+  context.drawImage(image, 0, 0, canvas.width, canvas.height)
+  image.close()
+  const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob(value => value ? resolve(value) : reject(new Error('تعذر تجهيز صورة التوقيع.')), 'image/jpeg', 0.88))
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader()
+    reader.onerror = () => reject(reader.error || new Error('تعذر قراءة صورة التوقيع.'))
+    reader.onload = () => typeof reader.result === 'string' ? resolve(reader.result) : reject(new Error('تعذر قراءة صورة التوقيع.'))
+    reader.readAsDataURL(blob)
+  })
+}
 
 const gradeRank = (grade: string) => {
   const normalized = String(grade || '').trim().replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه')
@@ -34,7 +56,14 @@ export function StudentPortfolioBoard({ scope = 'school', schoolName = 'المد
   const [entries, setEntries] = useState<StudentPortfolioEntries | null>(null)
   const [busy, setBusy] = useState(true)
   const [error, setError] = useState('')
-  const [preview, setPreview] = useState<PortfolioPreviewFile | null>(null)
+  const [preview, setPreview] = useState<(PortfolioPreviewFile & { correction?: StudentPortfolioCorrection | null; studentId: string }) | null>(null)
+  const [correctionSettings, setCorrectionSettings] = useState<TeacherPortfolioCorrectionSettings>(DEFAULT_CORRECTION_SETTINGS)
+  const [correctionNote, setCorrectionNote] = useState('')
+  const [correctionMessage, setCorrectionMessage] = useState('')
+  const [savingCorrectionSettings, setSavingCorrectionSettings] = useState(false)
+  const [correctingFiles, setCorrectingFiles] = useState(false)
+  const [readingSignature, setReadingSignature] = useState(false)
+  const [correctionSettingsReady, setCorrectionSettingsReady] = useState(scope !== 'teacher')
 
   const loadGroups = async () => {
     setBusy(true)
@@ -50,6 +79,19 @@ export function StudentPortfolioBoard({ scope = 'school', schoolName = 'المد
   }
 
   useEffect(() => { void loadGroups() }, [scope])
+  useEffect(() => {
+    if (scope !== 'teacher') { setCorrectionSettingsReady(true); return }
+    let active = true
+    setCorrectionSettingsReady(false)
+    api.teacherPortfolioCorrectionSettings()
+      .then(settings => {
+        if (!active) return
+        setCorrectionSettings(settings)
+        setCorrectionSettingsReady(true)
+      })
+      .catch(() => { if (active) setCorrectionMessage('تعذر تحميل إعدادات التوقيع والتصحيح.') })
+    return () => { active = false }
+  }, [scope])
   useEffect(() => {
     if (!selectedId) { setEntries(null); return }
     let active = true
@@ -81,6 +123,63 @@ export function StudentPortfolioBoard({ scope = 'school', schoolName = 'المد
     .filter(group => `${group.grade}:${group.classroom}` === selectedClassroom)
     .sort((left, right) => left.subject.localeCompare(right.subject, 'ar', { numeric: true, sensitivity: 'base' }) || left.teacherName.localeCompare(right.teacherName, 'ar', { numeric: true, sensitivity: 'base' })), [groups, selectedClassroom])
   const chooseClassroom = (key: string) => { setSelectedClassroom(key); setSelectedId(''); setEntries(null) }
+  const submittedFileCount = entries?.students.reduce((count, student) => count + student.slots.filter(slot => slot.fileUrl).length, 0) || 0
+  const classroomFileCount = classSubjects.reduce((count, group) => count + group.submittedFiles, 0)
+
+  const saveCorrectionSettings = async () => {
+    setSavingCorrectionSettings(true)
+    setCorrectionMessage('')
+    try {
+      const saved = await api.saveTeacherPortfolioCorrectionSettings(correctionSettings)
+      setCorrectionSettings(saved)
+      setCorrectionMessage('تم حفظ إعدادات التصحيح والتوقيع.')
+    } catch {
+      setCorrectionMessage('تعذر حفظ الإعدادات. تأكد من رفع صورة التوقيع عند اختيار التوقيع المرفوع.')
+    } finally { setSavingCorrectionSettings(false) }
+  }
+
+  const updateSignatureImage = async (file?: File) => {
+    if (!file) return
+    setReadingSignature(true)
+    setCorrectionMessage('')
+    try {
+      const signatureData = await prepareSignatureImage(file)
+      setCorrectionSettings(current => ({ ...current, signatureMode: 'uploaded', signatureData }))
+      setCorrectionMessage('تم تجهيز الصورة. احفظ الإعدادات لتثبيت التوقيع بعد إزالة الخلفية وقص الهوامش.')
+    } catch {
+      setCorrectionMessage('تعذر تجهيز الصورة. اختر صورة PNG أو JPG أو WebP واضحة للتوقيع.')
+    } finally { setReadingSignature(false) }
+  }
+
+  const correctPortfolioFiles = async (studentId?: string, slotNumber?: number, assignmentIds?: string[]) => {
+    if (!entries || scope !== 'teacher' || !correctionSettingsReady) return
+    setCorrectingFiles(true)
+    setCorrectionMessage('')
+    try {
+      const savedSettings = await api.saveTeacherPortfolioCorrectionSettings(correctionSettings)
+      setCorrectionSettings(savedSettings)
+      const result = await api.correctTeacherPortfolioFiles(entries.assignmentId, { note: correctionNote, studentId, slotNumber, assignmentIds })
+      const corrections = new Map(result.corrections.map(correction => [`${correction.assignmentId}:${correction.studentId}:${correction.slotNumber}`, correction]))
+      setEntries(current => current ? {
+        ...current,
+        students: current.students.map(student => ({
+          ...student,
+          slots: student.slots.map(slot => {
+            const correction = corrections.get(`${current.assignmentId}:${student.id}:${slot.slotNumber}`)
+            return correction ? { ...slot, correction } : slot
+          }),
+        })),
+      } : current)
+      setPreview(current => {
+        if (!current) return current
+        const correction = corrections.get(`${entries.assignmentId}:${current.studentId}:${current.slotNumber}`)
+        return correction ? { ...current, correction } : current
+      })
+      setCorrectionMessage(`تم تصحيح ${result.corrections.length} ملف.`)
+    } catch {
+      setCorrectionMessage('تعذر حفظ التصحيح. تأكد من اختيار توقيع محفوظ ومن صلاحية الملفات.')
+    } finally { setCorrectingFiles(false) }
+  }
 
   return <section className="student-portfolio-admin" dir="rtl">
     <div className="student-portfolio-head">
@@ -100,16 +199,30 @@ export function StudentPortfolioBoard({ scope = 'school', schoolName = 'المد
       {selectedId && !entries && <p className="teacher-empty">جارٍ تحميل طلاب المادة…</p>}
       {entries && <section className="student-portfolio-entries">
         <header><div><span>{entries.grade} · الفصل {entries.classroom}</span><h3>{entries.subject}</h3><p>المعلم: {entries.teacherName}</p></div><div className="teacher-report-actions"><strong>{entries.students.length} طالبًا</strong>{scope === 'activityLeader' && <button type="button" className="outline-button" onClick={() => openPrintDocument(`ملف إنجاز الطلاب - ${entries.subject}`, portfolioReportHtml(entries), schoolName, 'landscape')}><Printer size={16} />طباعة / حفظ PDF</button>}</div></header>
+        {scope === 'teacher' && <section className="portfolio-correction-settings" aria-label="إعدادات التصحيح">
+          <div className="portfolio-correction-settings-head"><div><h3>إعدادات التوقيع والتصحيح</h3><p>سيُحفظ توقيعك ولون التصحيح لاستخدامهما في ملفات فصولك.</p></div><label className="portfolio-correction-color">لون التصحيح<input type="color" disabled={!correctionSettingsReady} value={correctionSettings.correctionColor} onChange={event => setCorrectionSettings(current => ({ ...current, correctionColor: event.target.value }))} /></label></div>
+          <div className="portfolio-signature-modes">
+            <label><input type="radio" name="portfolio-signature-mode" disabled={!correctionSettingsReady} checked={correctionSettings.signatureMode === 'uploaded'} onChange={() => setCorrectionSettings(current => ({ ...current, signatureMode: 'uploaded' }))} /> توقيعي المرفوع</label>
+            <label><input type="radio" name="portfolio-signature-mode" disabled={!correctionSettingsReady} checked={correctionSettings.signatureMode === 'generated'} onChange={() => setCorrectionSettings(current => ({ ...current, signatureMode: 'generated' }))} /> توقيع بمظهر يدوي</label>
+          </div>
+          {correctionSettings.signatureMode === 'uploaded' ? <div className="portfolio-signature-upload">
+            <label className="outline-button"><Upload size={16} />{readingSignature ? 'جارٍ تجهيز الصورة…' : 'رفع صورة التوقيع'}<input type="file" accept="image/png,image/jpeg,image/webp" disabled={!correctionSettingsReady || readingSignature} onChange={event => { void updateSignatureImage(event.target.files?.[0]); event.currentTarget.value = '' }} /></label>
+            {correctionSettings.signatureData ? <img src={correctionSettings.signatureData} alt="معاينة التوقيع" /> : <span>ارفع توقيعاً على ورقة بيضاء. ستُزال الخلفية وتُقص الحواف تلقائياً.</span>}
+          </div> : <p className="portfolio-signature-help">سيُكتب اسم المعلم بخط عربي ذي مظهر يدوي؛ هذا أسلوب بصري وليس توقيعاً مرسوماً فعلياً.</p>}
+          <div className="portfolio-correction-note"><label htmlFor="portfolio-correction-note">عبارة التصحيح (اختيارية)</label><textarea id="portfolio-correction-note" disabled={!correctionSettingsReady} value={correctionNote} maxLength={160} onChange={event => setCorrectionNote(event.target.value)} placeholder="مثال: أحسنت، بارك الله فيك" /></div>
+          <div className="portfolio-correction-settings-actions"><button type="button" className="outline-button" onClick={() => void saveCorrectionSettings()} disabled={!correctionSettingsReady || savingCorrectionSettings || readingSignature}><Save size={16} />{savingCorrectionSettings ? 'جارٍ الحفظ…' : 'حفظ الإعدادات'}</button><button type="button" className="portfolio-correct-all" onClick={() => void correctPortfolioFiles(undefined, undefined, classSubjects.map(group => group.assignmentId))} disabled={!correctionSettingsReady || correctingFiles || !classroomFileCount || (correctionSettings.signatureMode === 'uploaded' && !correctionSettings.signatureData)}><PenLine size={16} />{correctingFiles ? 'جارٍ التصحيح…' : `تصحيح ملفات الفصل (${classroomFileCount})`}</button><button type="button" className="portfolio-correct-all portfolio-correct-subject" onClick={() => void correctPortfolioFiles()} disabled={!correctionSettingsReady || correctingFiles || !submittedFileCount || (correctionSettings.signatureMode === 'uploaded' && !correctionSettings.signatureData)}><PenLine size={16} />تصحيح ملفات المادة ({submittedFileCount})</button></div>
+          {correctionMessage && <p className="portfolio-correction-message" role="status"><Check size={15} />{correctionMessage}</p>}
+        </section>}
         <div className="student-portfolio-students">
           {entries.students.map(student => <article key={student.id}>
-            <div className="student-portfolio-student-name"><b>{student.name}</b><span dir="ltr">{student.identityNumber}</span></div>
+            <div className="student-portfolio-student-name"><b>{student.name}</b><span dir="ltr">{student.identityNumber}</span>{scope === 'teacher' && <button type="button" className="portfolio-correction-student" onClick={() => void correctPortfolioFiles(student.id)} disabled={!correctionSettingsReady || correctingFiles || !student.slots.some(slot => slot.fileUrl) || (correctionSettings.signatureMode === 'uploaded' && !correctionSettings.signatureData)}><PenLine size={14} />تصحيح ملفات الطالب</button>}</div>
             <div className="student-portfolio-slot-list">{student.slots.map(slot => <div className={`student-portfolio-slot ${slot.fileUrl ? 'filled' : ''}`} key={slot.slotNumber}>
-              {slot.fileUrl ? slot.fileType.startsWith('image/') ? <button type="button" className="student-portfolio-image-button" onClick={() => setPreview(slot)}><img src={slot.fileUrl} alt={`إنجاز ${student.name} ${slot.slotNumber}`} /></button> : <button type="button" className="student-portfolio-file-link" onClick={() => setPreview(slot)}><FileText size={20} /><span>{slot.fileName || 'فتح الملف'}</span></button> : <span>المربع {slot.slotNumber}<small>لم يُرفع ملف</small></span>}
+              {slot.fileUrl ? <>{slot.fileType.startsWith('image/') ? <button type="button" className="student-portfolio-image-button" onClick={() => setPreview({ ...slot, studentId: student.id })}><img src={slot.fileUrl} alt={`إنجاز ${student.name} ${slot.slotNumber}`} /></button> : <button type="button" className="student-portfolio-file-link" onClick={() => setPreview({ ...slot, studentId: student.id })}><FileText size={20} /><span>{slot.fileName || 'فتح الملف'}</span></button>}{scope === 'teacher' && <button type="button" className="portfolio-correction-slot-action" onClick={() => void correctPortfolioFiles(student.id, slot.slotNumber)} disabled={!correctionSettingsReady || correctingFiles || (correctionSettings.signatureMode === 'uploaded' && !correctionSettings.signatureData)}><PenLine size={13} />{slot.correction ? 'تحديث التصحيح' : 'تصحيح'}</button>}{slot.correction && <small className="portfolio-corrected-label">تم التصحيح</small>}</> : <span>المربع {slot.slotNumber}<small>لم يُرفع ملف</small></span>}
             </div>)}</div>
           </article>)}
         </div>
       </section>}
     </>}
-    {preview && <PortfolioFilePreview file={preview} onClose={() => setPreview(null)} />}
+    {preview && <PortfolioFilePreview file={preview} correction={scope === 'teacher' ? preview.correction : null} signatureMode={correctionSettings.signatureMode} signatureData={correctionSettings.signatureData} schoolName={schoolName} onClose={() => setPreview(null)} />}
   </section>
 }
