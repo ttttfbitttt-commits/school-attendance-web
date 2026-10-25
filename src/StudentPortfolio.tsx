@@ -89,9 +89,15 @@ function portfolioSignatureSvg(color: string) {
 }
 
 async function loadPortfolioCanvasImage(source: string) {
-  const response = await fetch(source, { credentials: 'include' })
-  if (!response.ok) throw new Error(`تعذر تحميل الصورة (${response.status}).`)
-  return createImageBitmap(await response.blob())
+  const image = new window.Image()
+  image.decoding = 'async'
+  image.src = source
+  try {
+    await image.decode()
+    return await createImageBitmap(image)
+  } catch {
+    throw new Error('تعذر تحميل إحدى صور الفصل أو التوقيع.')
+  }
 }
 
 async function portfolioImageWithCorrection(file: StudentPortfolioEntries['students'][number]['slots'][number], correction: StudentPortfolioCorrection | null | undefined, signatureMode: 'uploaded' | 'generated', signatureData: string) {
