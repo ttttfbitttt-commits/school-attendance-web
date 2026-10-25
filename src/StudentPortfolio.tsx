@@ -74,14 +74,11 @@ function portfolioTeacherNameParts(name: string) {
   return parts.length > 1 ? `${parts[0]} ${parts[parts.length - 1]}` : parts[0] || name
 }
 
-function portfolioHijriDate(value: string) {
+function portfolioHijriDateParts(value: string) {
   const parts = Object.fromEntries(new Intl.DateTimeFormat('ar-SA-u-ca-islamic-umalqura-nu-arab', {
     day: '2-digit', month: '2-digit', year: 'numeric', timeZone: 'Asia/Riyadh',
   }).formatToParts(new Date(value)).filter(part => part.type !== 'literal').map(part => [part.type, part.value]))
-  const day = String(parts.day || '')
-  const month = String(parts.month || '')
-  const year = String(parts.year || '')
-  return `${day}/${month}/${year} هـ`
+  return [String(parts.day || ''), String(parts.month || ''), String(parts.year || '')]
 }
 
 function portfolioSignatureSvg(color: string) {
@@ -104,30 +101,20 @@ async function portfolioImageWithCorrection(file: StudentPortfolioEntries['stude
   const image = await loadPortfolioCanvasImage(file.fileUrl)
   try {
     const landscape = image.width > image.height
-    const pageWidth = landscape ? 2105 : 1488
-    const pageHeight = landscape ? 1488 : 2105
-    const margin = 52
-    const scale = Math.min((pageWidth - margin * 2) / image.width, (pageHeight - margin * 2) / image.height)
-    const imageWidth = image.width * scale
-    const imageHeight = image.height * scale
-    const imageX = (pageWidth - imageWidth) / 2
-    const imageY = (pageHeight - imageHeight) / 2
     const canvas = document.createElement('canvas')
-    canvas.width = pageWidth
-    canvas.height = pageHeight
+    canvas.width = image.width
+    canvas.height = image.height
     const context = canvas.getContext('2d')
     if (!context) throw new Error('تعذر تجهيز صفحة PDF.')
-    context.fillStyle = '#fff'
-    context.fillRect(0, 0, pageWidth, pageHeight)
-    context.drawImage(image, imageX, imageY, imageWidth, imageHeight)
+    context.drawImage(image, 0, 0)
 
     if (correction) {
-      const stampScale = Math.min(1, imageWidth / 700, imageHeight / 380)
+      const stampScale = Math.min(image.width * 0.3 / 260, image.height * 0.65 / 82, 1.25)
       const padding = 10 * stampScale
       const stampWidth = 260 * stampScale
       const stampHeight = 82 * stampScale
-      const stampX = imageX + 14 * stampScale
-      const stampY = imageY + imageHeight - stampHeight - 14 * stampScale
+      const stampX = 12 * stampScale
+      const stampY = image.height - stampHeight - 14 * stampScale
       context.save()
       context.strokeStyle = correction.color
       context.globalAlpha = 0.42
@@ -137,11 +124,11 @@ async function portfolioImageWithCorrection(file: StudentPortfolioEntries['stude
 
       context.save()
       context.fillStyle = correction.color
-      context.textAlign = 'right'
-      context.direction = 'rtl'
       context.font = `bold ${Math.max(10, 16 * stampScale)}px Tahoma, Arial, sans-serif`
-      if (correction.note) context.fillText(correction.note, stampX + stampWidth - padding, stampY + 19 * stampScale, stampWidth - padding * 2)
-      context.fillText(portfolioTeacherNameParts(correction.teacherName), stampX + stampWidth - padding, stampY + 38 * stampScale, stampWidth - padding * 2)
+      context.textAlign = 'left'
+      context.direction = 'rtl'
+      if (correction.note) context.fillText(correction.note, stampX + padding, stampY + 19 * stampScale, stampWidth - padding * 2)
+      context.fillText(portfolioTeacherNameParts(correction.teacherName), stampX + padding, stampY + 38 * stampScale, stampWidth - padding * 2)
       context.restore()
 
       const signatureImage = signatureMode === 'uploaded' && signatureData
@@ -173,13 +160,20 @@ async function portfolioImageWithCorrection(file: StudentPortfolioEntries['stude
       context.save()
       context.fillStyle = correction.color
       context.textAlign = 'right'
-      context.direction = 'rtl'
+      context.direction = 'ltr'
       context.font = `bold ${Math.max(9, 12 * stampScale)}px Tahoma, Arial, sans-serif`
-      context.fillText(portfolioHijriDate(correction.correctedAt), stampX + stampWidth - padding, stampY + stampHeight - 7 * stampScale, stampWidth - padding * 2)
+      let dateX = stampX + stampWidth - padding
+      const [day, month, year] = portfolioHijriDateParts(correction.correctedAt)
+      for (const segment of [day, '/', month, '/', year, 'هـ']) {
+        context.fillText(segment, dateX, stampY + stampHeight - 7 * stampScale, stampWidth - padding * 2)
+        dateX -= context.measureText(segment).width + 2 * stampScale
+      }
       context.restore()
     }
 
-    return { data: canvas.toDataURL('image/jpeg', 0.92), landscape }
+    const imageType = file.fileType === 'image/png' ? 'image/png' : 'image/jpeg'
+    const data = imageType === 'image/png' ? canvas.toDataURL(imageType) : canvas.toDataURL(imageType, 0.96)
+    return { data, imageType, landscape, width: canvas.width, height: canvas.height }
   } finally {
     image.close()
   }
@@ -405,7 +399,15 @@ export function StudentPortfolioBoard({ scope = 'school', schoolName = 'المد
         const orientation = page.landscape ? 'landscape' : 'portrait'
         if (!pdf) pdf = new jsPDF({ orientation, unit: 'mm', format: 'a4', compress: true })
         else pdf.addPage('a4', orientation)
-        pdf.addImage(page.data, 'JPEG', 0, 0, page.landscape ? 297 : 210, page.landscape ? 210 : 297, `portfolio-page-${index}`, 'FAST')
+        const pageWidth = page.landscape ? 297 : 210
+        const pageHeight = page.landscape ? 210 : 297
+        const margin = 3
+        const sourceAspectRatio = page.width / page.height
+        const maxWidth = pageWidth - margin * 2
+        const maxHeight = pageHeight - margin * 2
+        const imageWidth = Math.min(maxWidth, maxHeight * sourceAspectRatio)
+        const imageHeight = imageWidth / sourceAspectRatio
+        pdf.addImage(page.data, page.imageType === 'image/png' ? 'PNG' : 'JPEG', (pageWidth - imageWidth) / 2, (pageHeight - imageHeight) / 2, imageWidth, imageHeight, `portfolio-page-${index}`, 'FAST')
       }
       if (!pdf) throw new Error('تعذر إنشاء ملف PDF.')
       if (pdf.getNumberOfPages() !== files.length) throw new Error('عدد صفحات PDF لا يطابق عدد الصور.')
