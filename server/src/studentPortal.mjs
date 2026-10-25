@@ -1,4 +1,5 @@
 import sharp from 'sharp'
+import { readFileSync } from 'node:fs'
 
 const DEFAULT_STUDENT_PASSWORD = '12345678'
 const validUuid = value => /^[0-9a-f-]{36}$/i.test(String(value || ''))
@@ -10,6 +11,8 @@ const portfolioUploadImageTypes = new Set(['image/png', 'image/jpeg', 'image/web
 const MAX_PORTFOLIO_IMAGE_BYTES = 1_000_000
 const PORTFOLIO_SLOT_COUNT = 8
 const DEFAULT_PORTFOLIO_CORRECTION_COLOR = '#d62828'
+const DEFAULT_TEACHER_SIGNATURE_DATA = `data:image/png;base64,${readFileSync(new URL('./default-teacher-signature.png', import.meta.url)).toString('base64')}`
+const defaultTeacherSignatureData = async () => { const processed = await processTeacherSignature(DEFAULT_TEACHER_SIGNATURE_DATA); return processed || DEFAULT_TEACHER_SIGNATURE_DATA }
 const classroomKey = value => clean(value, 260).normalize('NFKC').replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه').replace(/[\u064B-\u065F\u0670ـ]/g, '').replace(/[^\p{L}\p{N}]+/gu, ' ').replace(/\s+/g, ' ').trim()
 const portfolioFileUrl = (assignmentId, studentId, slotNumber) => `/api/student-portal/portfolio/file?assignmentId=${encodeURIComponent(assignmentId)}&studentId=${encodeURIComponent(studentId)}&slotNumber=${encodeURIComponent(slotNumber)}`
 
@@ -506,7 +509,12 @@ export async function handleStudentPortalRequest(context) {
     if (req.method === 'GET') {
       let settings = await scoped(user.school_id, async client => (await client.query(`SELECT signature_mode AS "signatureMode",COALESCE(signature_data,'') AS "signatureData",correction_color AS "correctionColor"
         FROM teacher_portfolio_correction_settings WHERE school_id=$1 AND teacher_id=$2::uuid`, [user.school_id, user.teacher_id])).rows[0])
-      if (settings?.signatureData) {
+      const defaultSignature = await defaultTeacherSignatureData()
+      if (!settings) {
+        settings = { signatureMode: 'uploaded', signatureData: defaultSignature, signatureIsDefault: true, correctionColor: DEFAULT_PORTFOLIO_CORRECTION_COLOR }
+      } else if (!settings.signatureData) {
+        settings = { ...settings, signatureData: defaultSignature, signatureIsDefault: true }
+      } else {
         let signatureData
         try {
           signatureData = await processTeacherSignature(settings.signatureData)
@@ -524,23 +532,26 @@ export async function handleStudentPortalRequest(context) {
             RETURNING signature_mode AS "signatureMode",signature_data AS "signatureData",correction_color AS "correctionColor"`,
           [user.school_id, user.teacher_id, signatureData])).rows[0])
         }
+        settings = { ...settings, signatureData: signatureData || defaultSignature, signatureIsDefault: false }
       }
-      json(res, 200, settings || { signatureMode: 'generated', signatureData: '', correctionColor: DEFAULT_PORTFOLIO_CORRECTION_COLOR })
+      json(res, 200, settings || { signatureMode: 'uploaded', signatureData: defaultSignature, signatureIsDefault: true, correctionColor: DEFAULT_PORTFOLIO_CORRECTION_COLOR })
       return true
     }
     if (req.method === 'PUT') {
       const input = await body(req)
       if (!['uploaded', 'generated'].includes(input.signatureMode) || typeof input.correctionColor !== 'string' || !/^#[0-9a-f]{6}$/i.test(input.correctionColor)
-        || (input.signatureData !== undefined && typeof input.signatureData !== 'string')) {
+        || (input.signatureData !== undefined && typeof input.signatureData !== 'string')
+        || (input.signatureIsDefault !== undefined && typeof input.signatureIsDefault !== 'boolean')) {
         json(res, 400, { error: 'invalid_portfolio_correction_settings' })
         return true
       }
-      const signatureData = input.signatureData ? await processTeacherSignature(input.signatureData) : null
+      const usesDefaultSignature = input.signatureIsDefault === true
+      const signatureData = input.signatureData && !usesDefaultSignature ? await processTeacherSignature(input.signatureData) : null
       if (input.signatureData && !signatureData) { json(res, 400, { error: 'invalid_teacher_signature_image' }); return true }
       const saved = await scoped(user.school_id, async client => {
         const existing = (await client.query(`SELECT signature_data FROM teacher_portfolio_correction_settings
           WHERE school_id=$1 AND teacher_id=$2::uuid`, [user.school_id, user.teacher_id])).rows[0]
-        if (input.signatureMode === 'uploaded' && !signatureData && !existing?.signature_data) return null
+        if (input.signatureMode === 'uploaded' && !signatureData && !existing?.signature_data && !usesDefaultSignature) return null
         return (await client.query(`INSERT INTO teacher_portfolio_correction_settings(school_id,teacher_id,signature_mode,signature_data,correction_color,updated_at)
           VALUES($1,$2::uuid,$3,COALESCE($4,$5),$6,now())
           ON CONFLICT(school_id,teacher_id) DO UPDATE SET signature_mode=EXCLUDED.signature_mode,
@@ -550,7 +561,11 @@ export async function handleStudentPortalRequest(context) {
         [user.school_id, user.teacher_id, input.signatureMode, signatureData, existing?.signature_data || null, input.correctionColor])).rows[0]
       })
       if (!saved) { json(res, 400, { error: 'teacher_signature_required' }); return true }
-      json(res, 200, saved)
+      json(res, 200, {
+        ...saved,
+        signatureData: saved.signatureData || (usesDefaultSignature ? DEFAULT_TEACHER_SIGNATURE_DATA : ''),
+        signatureIsDefault: !saved.signatureData && usesDefaultSignature,
+      })
       return true
     }
     json(res, 405, { error: 'method_not_allowed' })

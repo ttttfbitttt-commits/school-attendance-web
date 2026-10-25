@@ -5,7 +5,7 @@ import { PortfolioFilePreview, type PortfolioPreviewFile } from './PortfolioFile
 import { openPrintDocument } from './SchoolFeatures'
 
 const escapeHtml = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character] || character))
-const DEFAULT_CORRECTION_SETTINGS: TeacherPortfolioCorrectionSettings = { signatureMode: 'generated', signatureData: '', correctionColor: '#d62828' }
+const DEFAULT_CORRECTION_SETTINGS: TeacherPortfolioCorrectionSettings = { signatureMode: 'uploaded', signatureData: '', signatureIsDefault: true, correctionColor: '#d62828' }
 
 async function prepareSignatureImage(file: File) {
   const image = await createImageBitmap(file)
@@ -169,7 +169,7 @@ export function StudentPortfolioBoard({ scope = 'school', schoolName = 'المد
     setCorrectionMessage('')
     try {
       const signatureData = await prepareSignatureImage(file)
-      setCorrectionSettings(current => ({ ...current, signatureMode: 'uploaded', signatureData }))
+      setCorrectionSettings(current => ({ ...current, signatureMode: 'uploaded', signatureData, signatureIsDefault: false }))
       setCorrectionMessage('تم تفريغ الخلفية البيضاء وقص الهوامش. احفظ الإعدادات لتثبيت التوقيع.')
     } catch {
       setCorrectionMessage('تعذر تجهيز الصورة. اختر صورة PNG أو JPG أو WebP واضحة للتوقيع.')
