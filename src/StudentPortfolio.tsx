@@ -15,11 +15,36 @@ async function prepareSignatureImage(file: File) {
   canvas.height = Math.max(1, Math.round(image.height * scale))
   const context = canvas.getContext('2d')
   if (!context) throw new Error('تعذر تجهيز صورة التوقيع.')
-  context.fillStyle = '#fff'
-  context.fillRect(0, 0, canvas.width, canvas.height)
   context.drawImage(image, 0, 0, canvas.width, canvas.height)
   image.close()
-  const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob(value => value ? resolve(value) : reject(new Error('تعذر تجهيز صورة التوقيع.')), 'image/jpeg', 0.88))
+  const imageData = context.getImageData(0, 0, canvas.width, canvas.height)
+  let left = canvas.width
+  let top = canvas.height
+  let right = -1
+  let bottom = -1
+  for (let y = 0; y < canvas.height; y += 1) {
+    for (let x = 0; x < canvas.width; x += 1) {
+      const offset = (y * canvas.width + x) * 4
+      const darkness = 255 - (imageData.data[offset] + imageData.data[offset + 1] + imageData.data[offset + 2]) / 3
+      const alpha = Math.round(imageData.data[offset + 3] * Math.max(0, Math.min(1, (darkness - 38) / 50)))
+      imageData.data[offset + 3] = alpha
+      if (alpha > 16) {
+        left = Math.min(left, x)
+        top = Math.min(top, y)
+        right = Math.max(right, x)
+        bottom = Math.max(bottom, y)
+      }
+    }
+  }
+  if (right < left || bottom < top) throw new Error('لم يتم العثور على توقيع واضح في الصورة.')
+  const trimmed = document.createElement('canvas')
+  trimmed.width = right - left + 1
+  trimmed.height = bottom - top + 1
+  const trimmedContext = trimmed.getContext('2d')
+  if (!trimmedContext) throw new Error('تعذر تجهيز صورة التوقيع.')
+  context.putImageData(imageData, 0, 0)
+  trimmedContext.drawImage(canvas, left, top, trimmed.width, trimmed.height, 0, 0, trimmed.width, trimmed.height)
+  const blob = await new Promise<Blob>((resolve, reject) => trimmed.toBlob(value => value ? resolve(value) : reject(new Error('تعذر تجهيز صورة التوقيع.')), 'image/png'))
   return new Promise<string>((resolve, reject) => {
     const reader = new FileReader()
     reader.onerror = () => reject(reader.error || new Error('تعذر قراءة صورة التوقيع.'))
@@ -145,7 +170,7 @@ export function StudentPortfolioBoard({ scope = 'school', schoolName = 'المد
     try {
       const signatureData = await prepareSignatureImage(file)
       setCorrectionSettings(current => ({ ...current, signatureMode: 'uploaded', signatureData }))
-      setCorrectionMessage('تم تجهيز الصورة. احفظ الإعدادات لتثبيت التوقيع بعد إزالة الخلفية وقص الهوامش.')
+      setCorrectionMessage('تم تفريغ الخلفية البيضاء وقص الهوامش. احفظ الإعدادات لتثبيت التوقيع.')
     } catch {
       setCorrectionMessage('تعذر تجهيز الصورة. اختر صورة PNG أو JPG أو WebP واضحة للتوقيع.')
     } finally { setReadingSignature(false) }
