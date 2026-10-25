@@ -321,7 +321,7 @@ async function configureDatabaseRoles() {
     teacher_classroom_student_maps, teacher_lesson_sessions, teacher_lesson_student_records,
     teacher_sheet_configs, teacher_sheet_entries, teacher_evidence_records, teacher_evidence_images, behavior_incidents, behavior_student_records,
     behavior_action_steps, behavior_score_movements, behavior_audit_logs, student_referrals, administrative_staff,
-    student_referral_events, teacher_attendance_contributions, student_portfolio_files, student_counselors, student_counselor_grade_assignments,
+    student_referral_events, teacher_attendance_contributions, student_portfolio_files, teacher_portfolio_correction_settings, student_portfolio_corrections, student_counselors, student_counselor_grade_assignments,
     school_vice_principals, vice_principal_grade_assignments, school_activity_leaders, activity_leader_activity_recipients TO attendance_app`)
   await adminPool.query('GRANT SELECT ON behavior_catalog_rules TO attendance_app')
   await adminPool.query('GRANT USAGE, SELECT ON SEQUENCE behavior_audit_logs_id_seq TO attendance_app')
@@ -376,6 +376,8 @@ async function enforceTenantRowSecurity() {
     ['teacher_attendance_contributions', 'school_id', 'teacher_attendance_contributions_school_scope'],
     ['administrative_staff', 'school_id', 'administrative_staff_school_scope'],
     ['student_portfolio_files', 'school_id', 'student_portfolio_files_school_scope'],
+    ['teacher_portfolio_correction_settings', 'school_id', 'teacher_portfolio_correction_settings_school_scope'],
+    ['student_portfolio_corrections', 'school_id', 'student_portfolio_corrections_school_scope'],
     ['student_counselors', 'school_id', 'student_counselors_school_scope'],
     ['student_counselor_grade_assignments', 'school_id', 'student_counselor_grade_assignments_school_scope'],
     ['school_vice_principals', 'school_id', 'school_vice_principals_school_scope'],
