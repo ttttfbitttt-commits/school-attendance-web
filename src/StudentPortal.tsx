@@ -26,13 +26,41 @@ const canvasToWebp = (canvas: HTMLCanvasElement, quality: number) => new Promise
   canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('تعذر تجهيز الصورة.')), 'image/webp', quality)
 })
 
-const readImage = (file: File) => new Promise<HTMLImageElement>((resolve, reject) => {
-  const url = URL.createObjectURL(file)
+const readAsDataUrl = async (file: Blob) => {
+  // FileReader is unavailable in some embedded/iOS browser contexts. Reading
+  // the Blob directly keeps uploads working in Chrome/Safari on mobile.
+  const bytes = new Uint8Array(await file.arrayBuffer())
+  let binary = ''
+  const chunkSize = 0x8000
+  for (let index = 0; index < bytes.length; index += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize))
+  }
+  return `data:${file.type || 'application/octet-stream'};base64,${btoa(binary)}`
+}
+
+const loadImage = (source: string) => new Promise<HTMLImageElement>((resolve, reject) => {
   const image = new Image()
-  image.onload = () => { URL.revokeObjectURL(url); resolve(image) }
-  image.onerror = () => { URL.revokeObjectURL(url); reject(new Error('تعذر قراءة الصورة. اختر صورة بصيغة JPG أو PNG أو WEBP.')) }
-  image.src = url
+  image.onload = () => resolve(image)
+  image.onerror = () => reject(new Error('تعذر قراءة الصورة.'))
+  image.src = source
 })
+
+const readImage = async (file: File) => {
+  const objectUrl = URL.createObjectURL(file)
+  try {
+    return await loadImage(objectUrl)
+  } catch {
+    // بعض إصدارات Safari على الجوال تفشل أحيانًا في فك JPEG من رابط Blob،
+    // رغم أن الملف صحيح. إعادة القراءة كسلسلة بيانات تتجاوز هذا الخلل.
+    try {
+      return await loadImage(await readAsDataUrl(file))
+    } catch {
+      throw new Error('تعذر قراءة الصورة في المتصفح. اختر JPG أو PNG أو WEBP محفوظة كصورة عادية، وليس ملفًا مضمنًا أو بصيغة HEIC.')
+    }
+  } finally {
+    URL.revokeObjectURL(objectUrl)
+  }
+}
 
 const optimizePortfolioImage = async (file: File) => {
   const image = await readImage(file)
@@ -52,18 +80,6 @@ const optimizePortfolioImage = async (file: File) => {
     quality = Math.max(0.5, quality - 0.07)
   }
   throw new Error('تعذر ضغط الصورة إلى الحجم المسموح. اختر صورة أصغر.')
-}
-
-const readAsDataUrl = async (file: Blob) => {
-  // FileReader is unavailable in some embedded/iOS browser contexts. Reading
-  // the Blob directly keeps uploads working in Chrome/Safari on mobile.
-  const bytes = new Uint8Array(await file.arrayBuffer())
-  let binary = ''
-  const chunkSize = 0x8000
-  for (let index = 0; index < bytes.length; index += chunkSize) {
-    binary += String.fromCharCode(...bytes.subarray(index, index + chunkSize))
-  }
-  return `data:${file.type || 'application/octet-stream'};base64,${btoa(binary)}`
 }
 
 const portfolioImageName = (fileName: string) => `${fileName.replace(/\.[^.]+$/, '').trim() || 'صورة-إنجاز'}.webp`
