@@ -498,8 +498,15 @@ export async function handleFeatureRequest(context) {
         ) totals ON true
         LEFT JOIN absence_follow_up_cases follow_up ON follow_up.school_id=a.school_id
           AND follow_up.student_id=a.student_id AND follow_up.absence_date=a.absence_date
-        WHERE a.school_id=$1 AND a.absence_date=$2::date AND a.status IN ('unexcused','excused','special')
+        WHERE a.school_id=$1 AND a.status IN ('unexcused','excused','special')
           AND s.grade=ANY($3::text[])
+          AND follow_up.absence_date IS NOT NULL AND follow_up.absence_date<=$2::date
+          AND follow_up.absence_date=(
+            SELECT MAX(latest_case.absence_date)
+            FROM absence_follow_up_cases latest_case
+            WHERE latest_case.school_id=follow_up.school_id AND latest_case.student_id=follow_up.student_id
+              AND latest_case.absence_date<=$2::date
+          )
           AND totals."absenceDays" >= 3
           AND NOT EXISTS (
             SELECT 1 FROM attendance_logs attendance

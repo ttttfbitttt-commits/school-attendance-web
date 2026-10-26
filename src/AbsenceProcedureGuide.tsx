@@ -224,7 +224,7 @@ export function ViceApprovedAbsenceProcedureQueue({ schoolName = '' }: { schoolN
       <div><span>متابعة الوكيل</span><h3 id="vice-absence-queue-title">حالات بانتظار تواصل ولي الأمر</h3><p>تظهر هنا حالات الغياب المعتمدة فقط لمرحلتك. لا تعدّل هذه القائمة سجل الحضور أو ترسل رسائل.</p></div>
       <button type="button" className="outline-button" onClick={() => void load()} disabled={loading}><RefreshCw size={16} />تحديث القائمة</button>
     </header>
-    <div className="vice-absence-queue-tools"><label>تاريخ الغياب المعتمد<input type="date" value={date} max={riyadhToday()} onChange={event => { const next = event.target.value; setDate(next); if (next) void load(next) }} /></label>{queue?.grade && <span>مرحلتك: <b>{queue.grade}</b></span>}</div>
+    <div className="vice-absence-queue-tools"><label>عرض الحالات حتى تاريخ<input type="date" value={date} max={riyadhToday()} onChange={event => { const next = event.target.value; setDate(next); if (next) void load(next) }} /></label>{queue?.grade && <span>مرحلتك: <b>{queue.grade}</b></span>}</div>
     {error && <p className="teacher-notice error">{error}</p>}
     {notice && <p className="teacher-notice success">{notice}</p>}
     {loading ? <p className="teacher-empty">جارٍ تحميل حالات الغياب المعتمدة…</p> : <>
