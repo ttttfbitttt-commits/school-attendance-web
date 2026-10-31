@@ -305,9 +305,9 @@ function incidentPrintHtml(
   return `<main class="sheet">
     <header class="moe-header">
       <img class="moe-header-template" src="${headerUrl}" alt="ترويسة وزارة التعليم">
-      <span class="moe-header-region">${administrationName}</span>
-      <span class="moe-header-office">${officeName}</span>
-      <span class="moe-header-school">${escapeHtml(schoolName)}</span>
+      <span class="moe-header-region">الإدارة العامة للتعليم بمنطقة: ${administrationName}</span>
+      <span class="moe-header-office">مكتب التعليم: ${officeName}</span>
+      <span class="moe-header-school">مدرسة: ${escapeHtml(schoolName)}</span>
     </header>
     <div class="form-code">نموذج رقم (18)<br><span class="code">رمز النموذج: (و.م.ع.ن - 02 - 02)</span></div>
     <h1 class="form-title">تنبيه عن تأخر / انصراف</h1>

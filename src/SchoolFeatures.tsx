@@ -81,10 +81,10 @@ export function openOfficialFormDocument(title: string, contents: string) {
   </style><style>
     .moe-header{position:relative;width:100%;aspect-ratio:541/112;margin:0 0 3mm;direction:rtl}
     .moe-header-template{position:absolute;inset:0;display:block;width:100%;height:100%}
-    .moe-header-region,.moe-header-office,.moe-header-school{position:absolute;display:grid;place-items:center;overflow:hidden;text-align:center;white-space:nowrap;font-family:"Traditional Arabic","Times New Roman",serif;font-weight:700}
-    .moe-header-region{top:22%;left:22%;width:23%;height:20%;background:#003b49;color:#fff;font-size:12pt}
-    .moe-header-office{top:40%;left:19%;width:18.4%;height:19%;background:#003b49;color:#1bb5aa;font-size:11pt}
-    .moe-header-school{top:69%;left:34.5%;width:23.2%;height:20%;background:#003b49;color:#fff;font-size:12pt}
+    .moe-header-region,.moe-header-office,.moe-header-school{position:absolute;display:grid;place-items:center;overflow:hidden;text-align:center;white-space:nowrap;direction:rtl;font-family:"Traditional Arabic","Times New Roman",serif;font-weight:700}
+    .moe-header-region{top:8%;left:7%;width:55%;height:27%;color:#fff;font-size:11pt}
+    .moe-header-office{top:40%;left:9%;width:42%;height:19%;color:#1bb5aa;font-size:11pt}
+    .moe-header-school{top:69%;left:29%;width:39%;height:22%;color:#fff;font-size:11pt}
   </style><style>
     .preview-actions{position:fixed;z-index:1000;top:8px;left:8px;right:8px;display:flex;justify-content:center;gap:8px;padding:8px;background:rgba(15,23,42,.92);border-radius:10px;font-family:Tahoma,Arial,sans-serif}
     .preview-actions button{min-height:42px;padding:8px 16px;border:0;border-radius:7px;background:#fff;color:#123b63;font:700 14px Tahoma,Arial,sans-serif}
