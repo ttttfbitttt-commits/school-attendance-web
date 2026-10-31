@@ -30,7 +30,7 @@ import {
 } from './api'
 import { HijriDatePicker } from './HijriDatePicker'
 import { formatHijriDate } from './dateUtils'
-import { downloadWorkbook, openOfficialFormDocument, openPrintDocument } from './SchoolFeatures'
+import { downloadWorkbook, openOfficialFormDocument, openPrintDocument, prependReportHeaderToWorksheet } from './SchoolFeatures'
 
 const jsQR = ((jsQRNs as unknown as { default?: unknown }).default || jsQRNs) as (data: Uint8ClampedArray, width: number, height: number) => { data: string } | null
 const SCAN_INTERVAL_MS = 150
@@ -594,6 +594,7 @@ export function LessonFlowCenter({
         const item = await api.lessonSchedule(classroom.id).catch(() => null)
         if (!item) continue
         const worksheet = XLSX.utils.aoa_to_sheet([['اليوم', 'الحصة', 'المعلم', 'رقم الهوية', 'المادة', 'حالة الربط'], ...scheduleExportRows(item)])
+        prependReportHeaderToWorksheet(worksheet, `جدول فصل ${item.classroom.name}`, schoolName)
         XLSX.utils.book_append_sheet(workbook, worksheet, classroom.name.slice(0, 25) || 'فصل')
       }
       XLSX.writeFile(workbook, 'جداول_الفصول.xlsx')

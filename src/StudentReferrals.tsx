@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ArrowRight, CheckCircle2, Clock3, Eye, FileSpreadsheet, FileText, Printer, RefreshCw, Search, Send, X } from 'lucide-react'
 import { api, type StudentReferral, type StudentReferralReason, type StudentReferralStatus, type TeacherLessonStudent, type TeacherPortalScheduleItem } from './api'
-import { downloadWorkbook } from './SchoolFeatures'
+import { brandReportHtmlDocument, downloadWorkbook } from './SchoolFeatures'
 import { formatHijriDate, formatHijriDateTime, numericHijriParts } from './dateUtils'
 
 const reasonLabels: Record<StudentReferralReason, string> = {
@@ -22,10 +22,10 @@ const periodLabel = (period: number) => `الحصة ${['', 'الأولى', 'ال
 const hijriFormDate = (value: string | Date) => { const parts = numericHijriParts(value); return `${parts.day} / ${parts.month} / ${parts.year}` }
 const esc = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char] || char))
 
-function openHtmlReport(html: string) {
+function openHtmlReport(html: string, schoolName: string) {
   const popup = window.open('', '_blank')
   if (!popup) return false
-  const url = URL.createObjectURL(new Blob([html], { type: 'text/html;charset=utf-8' }))
+  const url = URL.createObjectURL(new Blob([brandReportHtmlDocument(html, schoolName)], { type: 'text/html;charset=utf-8' }))
   popup.location.href = url
   setTimeout(() => URL.revokeObjectURL(url), 600000)
   return true
@@ -38,7 +38,7 @@ function exportReferralExcel(referrals: StudentReferral[], schoolName: string) {
 
 function exportReferralPdf(referrals: StudentReferral[], schoolName: string) {
   const rows = referrals.map(item => `<tr><td>${esc(item.referenceNumber)}</td><td>${esc(formatHijriDate(item.date))}</td><td>${esc(item.teacherName)}</td><td>${esc(item.studentName)}</td><td>${esc(`${item.grade} ${item.classroom}`.trim())}</td><td>${esc(item.reason === 'other' ? item.otherReason : reasonLabels[item.reason])}</td><td>${esc(statusLabels[item.status])}</td></tr>`).join('')
-  return openHtmlReport(`<!doctype html><html dir="rtl"><head><meta charset="utf-8"><title>سجل إحالات الطلاب</title><style>@page{size:A4 landscape;margin:10mm}*{box-sizing:border-box}body{font-family:Tahoma,Arial;color:#102a43;margin:0}.head{text-align:center;border-bottom:3px solid #1778c8;padding-bottom:10px}.head h1{margin:4px}.meta{display:flex;justify-content:space-between;margin:12px 0;font-size:12px}table{width:100%;border-collapse:collapse;font-size:11px}th,td{border:1px solid #aac1d4;padding:6px;text-align:right}th{background:#1176bb;color:#fff}tr{break-inside:avoid}.actions{position:sticky;top:0;background:#102a43;padding:8px;display:flex;gap:8px}.actions button{border:0;border-radius:7px;padding:9px 14px;cursor:pointer}@media print{.actions{display:none}}</style></head><body><div class="actions"><button onclick="window.print()">طباعة / حفظ PDF</button><button onclick="window.close()">إغلاق</button></div><div class="head"><h1>سجل إحالات الطلاب</h1><strong>${esc(schoolName)}</strong></div><div class="meta"><span>عدد الإحالات: ${referrals.length}</span><span>تاريخ الاستخراج: ${esc(formatHijriDate(new Date()))}</span></div><table><thead><tr><th>الرقم</th><th>التاريخ</th><th>المعلم</th><th>الطالب</th><th>الصف والفصل</th><th>السبب</th><th>الحالة</th></tr></thead><tbody>${rows}</tbody></table></body></html>`)
+  return openHtmlReport(`<!doctype html><html dir="rtl"><head><meta charset="utf-8"><title>سجل إحالات الطلاب</title><style>@page{size:A4 landscape;margin:10mm}*{box-sizing:border-box}body{font-family:Tahoma,Arial;color:#102a43;margin:0}.head{text-align:center;border-bottom:3px solid #1778c8;padding-bottom:10px}.head h1{margin:4px}.meta{display:flex;justify-content:space-between;margin:12px 0;font-size:12px}table{width:100%;border-collapse:collapse;font-size:11px}th,td{border:1px solid #aac1d4;padding:6px;text-align:right}th{background:#1176bb;color:#fff}tr{break-inside:avoid}.actions{position:sticky;top:0;background:#102a43;padding:8px;display:flex;gap:8px}.actions button{border:0;border-radius:7px;padding:9px 14px;cursor:pointer}@media print{.actions{display:none}}</style></head><body><div class="actions"><button onclick="window.print()">طباعة / حفظ PDF</button><button onclick="window.close()">إغلاق</button></div><div class="head"><h1>سجل إحالات الطلاب</h1><strong>${esc(schoolName)}</strong></div><div class="meta"><span>عدد الإحالات: ${referrals.length}</span><span>تاريخ الاستخراج: ${esc(formatHijriDate(new Date()))}</span></div><table><thead><tr><th>الرقم</th><th>التاريخ</th><th>المعلم</th><th>الطالب</th><th>الصف والفصل</th><th>السبب</th><th>الحالة</th></tr></thead><tbody>${rows}</tbody></table></body></html>`, schoolName)
 }
 
 export function ReferralOfficialPreview({ referral, onClose }: { referral: StudentReferral; onClose: () => void }) {

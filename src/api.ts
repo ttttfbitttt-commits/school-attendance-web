@@ -21,6 +21,7 @@ export type CounselorPortalDashboard = { schoolName: string; mustChangePassword:
 export type AdministratorAttendanceStudent = { id: string; name: string; phone: string; grade: string; classroom: string }
 export type AdministratorAttendanceRecord = { studentId: string; date: string; time: string; status: 'present' | 'late'; name: string; grade: string; classroom: string; phone: string; recordedBy?: string }
 export type SchoolPreferences = { attendanceMode: 'auto' | 'present' | 'late'; cutoffTime: string; gradeAliases: Record<string, string> }
+export type ReportSchoolBrand = { schoolName: string; generalEducationAdministration: string; educationOffice: string }
 export type SchoolProfile = { schoolName: string; principalName: string; generalEducationAdministration: string; educationOffice: string; academicYear: string; semester: string; preferences: SchoolPreferences }
 export type SchoolStorageUsage = { totalBytes: number; recordsBytes: number; portfolioBytes: number; portfolioFiles: number; records: number }
 export type PlatformSchoolUsage = {
@@ -383,6 +384,7 @@ export const api = {
   verifySchoolEmail: (token: string) => request<{ user: Account; school: { id: string; name: string } }>('/auth/verify-email', { method: 'POST', body: JSON.stringify({ token }) }),
   logout: () => request<{ ok: boolean }>('/auth/logout', { method: 'POST' }),
   changeSchoolPassword: (currentPassword: string, newPassword: string) => request<{ ok: boolean }>('/auth/school-password', { method: 'POST', body: JSON.stringify({ currentPassword, newPassword }) }),
+  reportSchoolBrand: () => request<{ school: ReportSchoolBrand }>('/report-header'),
   downloadSchoolBackup: schoolBackupDownload,
   previewSchoolBackup: (currentPassword: string, backupPassword: string, archive: string) => request<{ snapshot: SchoolBackupSnapshot }>('/school-backup/preview', { method: 'POST', body: JSON.stringify({ currentPassword, backupPassword, archive }) }),
   restoreSchoolBackup: (currentPassword: string, backupPassword: string, archive: string, confirmSchoolName: string) => request<{ ok: boolean; snapshot: SchoolBackupSnapshot; reloginRequired: boolean }>('/school-backup/restore', { method: 'POST', body: JSON.stringify({ currentPassword, backupPassword, archive, confirmSchoolName }) }),

@@ -1,4 +1,5 @@
 import type { StudentPortfolioCorrection, StudentPortfolioSlot } from './api'
+import { getReportSchoolBrand } from './SchoolFeatures'
 
 type SignatureMode = 'uploaded' | 'generated'
 type PortfolioPdfImage = {
@@ -121,12 +122,48 @@ async function imageWithCorrection(file: StudentPortfolioSlot, correction: Stude
 export async function savePortfolioImagesPdf(files: PortfolioPdfImage[], fileName: string, signatureMode: SignatureMode, signatureData: string) {
   const { jsPDF } = await import('jspdf')
   if (!files.length) throw new Error('لا توجد صور مرفوعة لتصديرها.')
-  let pdf: InstanceType<typeof jsPDF> | null = null
+  const school = getReportSchoolBrand()
+  const response = await fetch('/moe-school-header.png')
+  if (!response.ok) throw new Error('تعذر تحميل ترويسة وزارة التعليم.')
+  const headerUrl = URL.createObjectURL(await response.blob())
+  let header: ImageBitmap
+  try {
+    header = await loadImage(headerUrl)
+  } finally {
+    URL.revokeObjectURL(headerUrl)
+  }
+  const headerCanvas = document.createElement('canvas')
+  headerCanvas.width = header.width
+  headerCanvas.height = header.height
+  const headerContext = headerCanvas.getContext('2d')
+  if (!headerContext) {
+    header.close()
+    throw new Error('تعذر تجهيز ترويسة التقرير.')
+  }
+  headerContext.drawImage(header, 0, 0)
+  header.close()
+  headerContext.direction = 'rtl'
+  headerContext.textAlign = 'center'
+  headerContext.textBaseline = 'middle'
+  headerContext.font = 'bold 47px Arial, Tahoma, sans-serif'
+  headerContext.fillStyle = '#ffffff'
+  const region = school.generalEducationAdministration.trim().replace(/^الإدارة العامة للتعليم(?:\s+بمنطقة)?\s*/, '') || '................'
+  const office = school.educationOffice.trim().replace(/^مكتب التعليم\s*/, '') || '................'
+  headerContext.fillText(`الإدارة العامة للتعليم بمنطقة: ${region}`, header.width * 0.345, header.height * 0.215, header.width * 0.55)
+  headerContext.fillStyle = '#36e0c6'
+  headerContext.fillText(`مكتب التعليم: ${office}`, header.width * 0.30, header.height * 0.49, header.width * 0.42)
+  headerContext.fillStyle = '#ffffff'
+  headerContext.fillText(`مدرسة: ${school.schoolName || '................'}`, header.width * 0.485, header.height * 0.80, header.width * 0.39)
+  const headerImage = headerCanvas.toDataURL('image/png')
+  const pdf: InstanceType<typeof jsPDF> = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4', compress: true })
+  pdf.addImage(headerImage, 'PNG', 10, 10, 190, 39.3, 'portfolio-school-header', 'FAST')
+  pdf.setFontSize(16)
+  pdf.setTextColor(12, 66, 119)
+  pdf.text('ملف إنجاز الطلاب', 105, 59, { align: 'center' })
   for (const [index, file] of files.entries()) {
     const page = await imageWithCorrection(file.slot, file.correction, signatureMode, signatureData)
     const orientation = page.landscape ? 'landscape' : 'portrait'
-    if (!pdf) pdf = new jsPDF({ orientation, unit: 'mm', format: 'a4', compress: true })
-    else pdf.addPage('a4', orientation)
+    pdf.addPage('a4', orientation)
     const pageWidth = page.landscape ? 297 : 210
     const pageHeight = page.landscape ? 210 : 297
     const margin = 3
@@ -137,6 +174,6 @@ export async function savePortfolioImagesPdf(files: PortfolioPdfImage[], fileNam
     const imageHeight = imageWidth / sourceAspectRatio
     pdf.addImage(page.data, page.imageType === 'image/png' ? 'PNG' : 'JPEG', (pageWidth - imageWidth) / 2, (pageHeight - imageHeight) / 2, imageWidth, imageHeight, `portfolio-page-${index}`, 'FAST')
   }
-  if (!pdf || pdf.getNumberOfPages() !== files.length) throw new Error('تعذر إنشاء ملف PDF كامل.')
+  if (pdf.getNumberOfPages() !== files.length + 1) throw new Error('تعذر إنشاء ملف PDF كامل.')
   pdf.save(fileName)
 }

@@ -12,6 +12,9 @@ export type FeatureAttendance = { studentId: string; status: 'present' | 'late';
 const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Riyadh' }).format(new Date())
 const reportWeekday = (weekday: number) => ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'][weekday - 1] || '—'
 const escapeHtml = (value: unknown) => String(value ?? '').replace(/[&<>'"]/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[character] || character))
+const REPORT_BRAND_STORAGE_KEY = 'attendance-report-school-brand'
+const REPORT_HEADER_ROWS = 6
+let activeReportSchoolBrand: (ReportSchoolBrand & { schoolId: string }) | null = null
 const maskPhone = (phone: string) => phone.length > 4 ? `${phone.slice(0, 3)}••••${phone.slice(-3)}` : phone
 const formatDateTime = (value: string) => formatHijriDateTime(value)
 type MessageKind = 'late' | 'absence' | 'general' | 'teacher'
@@ -50,19 +53,202 @@ const canonicalAttendanceGrade = (value: string, grades: readonly string[]) => {
   return secondaryGrade === 'اول' ? 'أول ثانوي' : secondaryGrade === 'ثاني' ? 'ثاني ثانوي' : 'ثالث ثانوي'
 }
 
+export type ReportSchoolBrand = {
+  schoolName: string
+  generalEducationAdministration: string
+  educationOffice: string
+}
+
+function reportSchoolNamesMatch(first: string, second: string) {
+  const normalizeName = (value: string) => value.trim().replace(/^مدرسة\s*/, '')
+  return !first || first === 'المدرسة' || normalizeName(first) === normalizeName(second)
+}
+
+export function cacheReportSchoolBrand(schoolId: string, school: ReportSchoolBrand) {
+  activeReportSchoolBrand = { schoolId, ...school }
+  try {
+    localStorage.setItem(REPORT_BRAND_STORAGE_KEY, JSON.stringify({ schoolId, ...school }))
+  } catch (error) {
+    console.error('Unable to cache the school report header.', error)
+  }
+}
+
+export function clearReportSchoolBrand(schoolId?: string) {
+  if (!schoolId || activeReportSchoolBrand?.schoolId === schoolId) activeReportSchoolBrand = null
+  try {
+    if (!schoolId) {
+      localStorage.removeItem(REPORT_BRAND_STORAGE_KEY)
+      return
+    }
+    const stored = JSON.parse(localStorage.getItem(REPORT_BRAND_STORAGE_KEY) || 'null') as { schoolId?: string } | null
+    if (stored?.schoolId === schoolId) localStorage.removeItem(REPORT_BRAND_STORAGE_KEY)
+  } catch (error) {
+    console.error('Unable to clear the cached school report header.', error)
+  }
+}
+
+export function getReportSchoolBrand(schoolName = ''): ReportSchoolBrand {
+  if (activeReportSchoolBrand && reportSchoolNamesMatch(schoolName, activeReportSchoolBrand.schoolName)) {
+    return {
+      schoolName: activeReportSchoolBrand.schoolName || schoolName,
+      generalEducationAdministration: activeReportSchoolBrand.generalEducationAdministration || '',
+      educationOffice: activeReportSchoolBrand.educationOffice || '',
+    }
+  }
+  try {
+    const stored = JSON.parse(localStorage.getItem(REPORT_BRAND_STORAGE_KEY) || 'null') as (ReportSchoolBrand & { schoolId?: string }) | null
+    if (stored && reportSchoolNamesMatch(schoolName, stored.schoolName)) {
+      return {
+        schoolName: stored.schoolName || schoolName,
+        generalEducationAdministration: stored.generalEducationAdministration || '',
+        educationOffice: stored.educationOffice || '',
+      }
+    }
+  } catch (error) {
+    console.error('Unable to read the cached school report header.', error)
+  }
+  return { schoolName, generalEducationAdministration: '', educationOffice: '' }
+}
+
+function reportHeaderValues(schoolName: string) {
+  const school = getReportSchoolBrand(schoolName)
+  const region = school.generalEducationAdministration
+    .trim()
+    .replace(/^الإدارة العامة للتعليم(?:\s+بمنطقة)?\s*/, '') || '................'
+  const office = school.educationOffice.trim().replace(/^مكتب التعليم\s*/, '') || '................'
+  return {
+    schoolName: (school.schoolName || schoolName).trim().replace(/^مدرسة\s*/, '') || '................',
+    region,
+    office,
+  }
+}
+
+export function reportInstitutionHeader(schoolName = '') {
+  const { schoolName: name, region, office } = reportHeaderValues(schoolName)
+  const templateUrl = `${window.location.origin}/moe-school-header.png`
+  return `<header class="report-brand-banner"><img class="report-brand-template" src="${templateUrl}" alt="ترويسة وزارة التعليم"><span class="report-brand-region">الإدارة العامة للتعليم بمنطقة: ${escapeHtml(region)}</span><span class="report-brand-office">مكتب التعليم: ${escapeHtml(office)}</span><span class="report-brand-school">مدرسة: ${escapeHtml(name)}</span></header>`
+}
+
+const reportBrandStyles = `
+.report-brand-banner{position:relative;width:100%;aspect-ratio:541/112;margin:0 auto 3mm;direction:rtl;-webkit-print-color-adjust:exact;print-color-adjust:exact;forced-color-adjust:none}
+.report-brand-template{position:absolute;inset:0;display:block;width:100%;height:100%}
+.report-brand-region,.report-brand-office,.report-brand-school{position:absolute;display:grid;place-items:center;overflow:hidden;text-align:center;white-space:nowrap;direction:rtl;font-family:Arial,Tahoma,sans-serif;font-weight:800;-webkit-print-color-adjust:exact;print-color-adjust:exact;forced-color-adjust:none}
+.report-brand-region{top:8%;left:7%;width:55%;height:27%;color:#fff!important;font-size:11pt}
+.report-brand-office{top:40%;left:9%;width:42%;height:19%;color:#36e0c6!important;font-size:11pt}
+.report-brand-school{top:69%;left:29%;width:39%;height:22%;color:#fff!important;font-size:11pt}
+.report-brand-title{margin:0 0 5mm;color:#0c4277;text-align:center;font-size:18px;line-height:1.4}
+@media print{.report-brand-region,.report-brand-school{color:#fff!important}.report-brand-office{color:#36e0c6!important}}
+`
+
 export function reportBrandHeader(title: string, schoolName: string) {
-  const logoUrl = `${window.location.origin}/moe-logo.png`
-  return `<header class="report-brand"><img src="${logoUrl}" alt="شعار وزارة التعليم" /><div class="report-school">${escapeHtml(schoolName)}</div><h1>${escapeHtml(title)}</h1></header>`
+  return `${reportInstitutionHeader(schoolName)}<h1 class="report-brand-title">${escapeHtml(title)}</h1>`
+}
+
+export function brandReportFragment(contents: string, schoolName = '') {
+  return `<style>${reportBrandStyles}</style>${reportInstitutionHeader(schoolName)}${contents}`
+}
+
+export function addReportBrandToDocument(document: Document, schoolName = '') {
+  const styles = document.createElement('style')
+  styles.textContent = reportBrandStyles
+  document.head.append(styles)
+  const wrapper = document.createElement('div')
+  wrapper.innerHTML = reportInstitutionHeader(schoolName)
+  const banner = wrapper.firstElementChild
+  if (!banner) return
+  const officialForms = document.querySelectorAll('.behavior-official-form')
+  if (officialForms.length) {
+    officialForms.forEach(form => form.insertBefore(banner.cloneNode(true), form.firstChild))
+  } else {
+    document.body.insertBefore(banner, document.body.firstChild)
+  }
+}
+
+export function brandReportHtmlDocument(html: string, schoolName = '') {
+  const alreadyBranded = /class=["'][^"']*\breport-brand-banner\b[^"']*["']/.test(html)
+  const banner = reportInstitutionHeader(schoolName)
+  let brandedHtml = html.replace('</head>', `<style>${reportBrandStyles}</style></head>`)
+  if (alreadyBranded) return brandedHtml
+  if (/class=["'][^"']*behavior-official-form[^"']*["']/.test(brandedHtml)) {
+    brandedHtml = brandedHtml.replace(/(<section class="behavior-official-form">)/g, (section, opening) => `${opening}${banner}`)
+  } else {
+    brandedHtml = brandedHtml.replace(/(<body\b[^>]*>)/i, opening => `${opening}${banner}`)
+  }
+  return brandedHtml
+}
+
+export function reportWorkbookHeaderRows(schoolName: string, reportTitle: string, reportDate?: string | Date): Array<Array<string | number>> {
+  const { schoolName: name, region, office } = reportHeaderValues(schoolName)
+  const dateHeading = reportDate
+    ? `اليوم والتاريخ: ${formatHijriDateWithWeekday(reportDate)}`
+    : `تاريخ التصدير: ${formatHijriDate(today())}`
+  return [
+    [`الإدارة العامة للتعليم بمنطقة: ${region}`],
+    [`مكتب التعليم: ${office}`],
+    [`مدرسة: ${name}`],
+    [reportTitle],
+    [dateHeading],
+    [],
+  ]
+}
+
+export function prependReportHeaderToWorksheet(sheet: XLSX.WorkSheet, reportTitle: string, schoolName = '') {
+  const range = sheet['!ref'] ? XLSX.utils.decode_range(sheet['!ref']) : { s: { r: 0, c: 0 }, e: { r: 0, c: 0 } }
+  const columnCount = Math.max(1, range.e.c - range.s.c + 1)
+  const existingMerges = sheet['!merges'] || []
+  for (let row = range.e.r; row >= range.s.r; row -= 1) {
+    for (let column = range.s.c; column <= range.e.c; column += 1) {
+      const source = XLSX.utils.encode_cell({ r: row, c: column })
+      if (!sheet[source]) continue
+      sheet[XLSX.utils.encode_cell({ r: row + REPORT_HEADER_ROWS, c: column })] = sheet[source]
+      delete sheet[source]
+    }
+  }
+  const headerRows = reportWorkbookHeaderRows(schoolName, reportTitle)
+  XLSX.utils.sheet_add_aoa(sheet, headerRows, { origin: 'A1' })
+  const headerMerges = Array.from({ length: 5 }, (_, row) => ({
+    s: { r: row, c: 0 },
+    e: { r: row, c: columnCount - 1 },
+  }))
+  sheet['!merges'] = [
+    ...headerMerges,
+    ...existingMerges.map(merge => ({
+      s: { r: merge.s.r + REPORT_HEADER_ROWS, c: merge.s.c },
+      e: { r: merge.e.r + REPORT_HEADER_ROWS, c: merge.e.c },
+    })),
+  ]
+  sheet['!ref'] = XLSX.utils.encode_range({
+    s: { r: 0, c: 0 },
+    e: { r: range.e.r + REPORT_HEADER_ROWS, c: Math.max(range.e.c, columnCount - 1) },
+  })
+  if (sheet['!autofilter']?.ref) {
+    const filterRange = XLSX.utils.decode_range(sheet['!autofilter'].ref)
+    sheet['!autofilter'] = { ref: XLSX.utils.encode_range({
+      s: { r: filterRange.s.r + REPORT_HEADER_ROWS, c: filterRange.s.c },
+      e: { r: filterRange.e.r + REPORT_HEADER_ROWS, c: filterRange.e.c },
+    }) }
+  }
+  const views = sheet['!views'] || [{ rightToLeft: true }]
+  sheet['!views'] = views.map(view => ({
+    ...view,
+    rightToLeft: true,
+    ...(view.state === 'frozen' ? { ySplit: (view.ySplit || 0) + REPORT_HEADER_ROWS } : { state: 'frozen', ySplit: REPORT_HEADER_ROWS }),
+  }))
+  sheet['!rows'] = [
+    { hpt: 24 }, { hpt: 22 }, { hpt: 22 }, { hpt: 24 }, { hpt: 20 }, { hpt: 8 },
+    ...(sheet['!rows'] || []),
+  ]
+  return REPORT_HEADER_ROWS
 }
 
 export function openPrintDocument(title: string, contents: string, schoolName: string, orientation: 'portrait' | 'landscape' = 'portrait') {
   const popup = window.open('', '_blank')
   if (!popup) return false
   const brandedContents = contents
-    .replace(/<h1>[\s\S]*?<\/h1>/g, '')
-    .replace(/<section class="page">/g, `<section class="page">${reportBrandHeader(title, schoolName)}`)
+    .replace(/<h1(?:\s[^>]*)?>[\s\S]*?<\/h1>/g, '')
+    .replace(/<section class="([^"]*\bpage\b[^"]*)">/g, section => `${section}${reportBrandHeader(title, schoolName)}`)
   popup.document.write(`<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHtml(title)}</title><style>
-    @page{size:A4 ${orientation};margin:12mm}*{box-sizing:border-box}body{font-family:Tahoma,Arial,sans-serif;color:#172033;margin:0;background:#fff;direction:rtl}.page{min-height:${orientation === 'landscape' ? '180mm' : '265mm'};padding:0 3mm 8mm;page-break-after:always;break-after:page}.page:last-child{page-break-after:auto;break-after:auto}.report-brand{text-align:center;margin:0 auto 7mm;padding:0 0 4mm;border-bottom:1px solid #d7e2ec}.report-brand img{display:block;width:72px;height:56px;object-fit:contain;margin:0 auto 2mm}.report-school{color:#334155;font-size:13px;font-weight:700;margin:0 0 2mm}.report-brand h1{font-size:18px;line-height:1.4;color:#0c4277;margin:0;text-align:center}.heading{color:#334155;line-height:2;font-size:17px}.notice{padding:18px;border-radius:12px;background:#f8fafc;border-right:7px solid #eab308;margin-top:22px}.notice.orange{border-color:#f97316}.notice.red{border-color:#dc2626}.notice.excuse{border-color:#86efac;background:#f0fdf4}.label{font-weight:700;color:#0f3d67}.meta{margin-top:20px;color:#64748b;font-size:12px}.report-date{margin:0 0 5mm;text-align:center;color:#385a79;font-size:13px;font-weight:700}table{width:100%;border-collapse:collapse;font-size:13px;table-layout:auto}thead{display:table-header-group}tr{break-inside:avoid;page-break-inside:avoid}th,td{border:1px solid #cbd5e1;padding:8px;text-align:right}th{background:#eaf2fb;color:#123b63}.page>h1{display:none}.green{background:#dcfce7}.yellow{background:#fef9c3}.orange{background:#ffedd5}.red{background:#fee2e2}@media print{body{margin:0}.page{min-height:0}}
+    @page{size:A4 ${orientation};margin:12mm}*{box-sizing:border-box}body{font-family:Tahoma,Arial,sans-serif;color:#172033;margin:0;background:#fff;direction:rtl}.page{min-height:${orientation === 'landscape' ? '180mm' : '265mm'};padding:0 3mm 8mm;page-break-after:always;break-after:page}.page:last-child{page-break-after:auto;break-after:auto}${reportBrandStyles}.heading{color:#334155;line-height:2;font-size:17px}.notice{padding:18px;border-radius:12px;background:#f8fafc;border-right:7px solid #eab308;margin-top:22px}.notice.orange{border-color:#f97316}.notice.red{border-color:#dc2626}.notice.excuse{border-color:#86efac;background:#f0fdf4}.label{font-weight:700;color:#0f3d67}.meta{margin-top:20px;color:#64748b;font-size:12px}.report-date{margin:0 0 5mm;text-align:center;color:#385a79;font-size:13px;font-weight:700}table{width:100%;border-collapse:collapse;font-size:13px;table-layout:auto}thead{display:table-header-group}tr{break-inside:avoid;page-break-inside:avoid}th,td{border:1px solid #cbd5e1;padding:8px;text-align:right}th{background:#eaf2fb;color:#123b63}.page>h1{display:none}.green{background:#dcfce7}.yellow{background:#fef9c3}.orange{background:#ffedd5}.red{background:#fee2e2}@media print{body{margin:0}.page{min-height:0}}
   </style><style>.preview-actions{position:sticky;top:8px;z-index:10;display:flex;justify-content:center;gap:8px;padding:8px;margin:0 auto 12px;background:rgba(15,23,42,.92);border-radius:10px;font-family:Tahoma,Arial,sans-serif}.preview-actions button{min-height:42px;padding:8px 16px;border:0;border-radius:7px;background:#fff;color:#123b63;font:700 14px Tahoma,Arial,sans-serif}.preview-actions .close-preview{background:#fee2e2;color:#991b1b}@media print{.preview-actions{display:none}}</style></head><body><nav class="preview-actions"><button type="button" onclick="window.print()">طباعة / حفظ PDF</button><button type="button" class="close-preview" onclick="closePreview()">العودة للموقع</button></nav>${brandedContents}<script>function closePreview(){var openerWindow=window.opener;window.close();setTimeout(function(){if(window.closed)return;if(openerWindow&&!openerWindow.closed){window.location.replace(openerWindow.location.href);return}if(window.history.length>1){window.history.back();return}window.location.replace('/')},250)}window.addEventListener('load',function(){setTimeout(function(){window.print()},300)})<\/script></body></html>`)
   popup.document.close()
   return true
@@ -114,19 +300,16 @@ export function openOfficialFormDocument(title: string, contents: string) {
 export function downloadWorkbook(name: string, rows: Array<Array<string | number>>, sheetName = 'تقرير', schoolName = '', reportTitle = name, reportDate?: string | Date) {
   const workbook = XLSX.utils.book_new()
   const columnCount = Math.max(rows[0]?.length || 1, 1)
-  const dateHeading = reportDate
-    ? `اليوم والتاريخ: ${formatHijriDateWithWeekday(reportDate)}`
-    : `تاريخ التصدير: ${formatHijriDate(today())}`
-  const brandedRows: Array<Array<string | number>> = [[schoolName], [reportTitle], [dateHeading], [], ...rows]
+  const brandedRows: Array<Array<string | number>> = [...reportWorkbookHeaderRows(schoolName, reportTitle, reportDate), ...rows]
   const sheet = XLSX.utils.aoa_to_sheet(brandedRows)
   const widths = Array.from({ length: columnCount }, (_, column) => {
     const width = brandedRows.reduce((max, row) => Math.max(max, String(row[column] ?? '').length), 12)
     return { wch: Math.min(42, Math.max(15, width + 2)) }
   })
   sheet['!cols'] = widths
-  sheet['!merges'] = [0, 1, 2].map(row => ({ s: { r: row, c: 0 }, e: { r: row, c: columnCount - 1 } }))
-  sheet['!views'] = [{ rightToLeft: true, state: 'frozen', ySplit: 5 }]
-  sheet['!autofilter'] = { ref: `A5:${XLSX.utils.encode_col(columnCount - 1)}${brandedRows.length}` }
+  sheet['!merges'] = [0, 1, 2, 3, 4].map(row => ({ s: { r: row, c: 0 }, e: { r: row, c: columnCount - 1 } }))
+  sheet['!views'] = [{ rightToLeft: true, state: 'frozen', ySplit: REPORT_HEADER_ROWS }]
+  sheet['!autofilter'] = { ref: `A${REPORT_HEADER_ROWS + 1}:${XLSX.utils.encode_col(columnCount - 1)}${brandedRows.length}` }
   XLSX.utils.book_append_sheet(workbook, sheet, sheetName)
   workbook.Props = { Title: reportTitle, Subject: schoolName, Author: schoolName }
   XLSX.writeFile(workbook, `${name}.xlsx`)

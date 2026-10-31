@@ -17,6 +17,7 @@ import {
   type BehaviorStudent,
   type BehaviorStudentProfile,
 } from './api'
+import { brandReportHtmlDocument, prependReportHeaderToWorksheet } from './SchoolFeatures'
 
 type BehaviorView = 'home' | 'record' | 'records' | 'approvals' | 'distinguished' | 'compensation' | 'reports' | 'permissions'
 type SchoolDetails = { schoolName: string; principalName: string; academicYear: string; semester: string }
@@ -56,13 +57,12 @@ function procedureDetails(record: BehaviorRecord) {
 function openBehaviorOfficialForms(records: BehaviorRecord[], school: SchoolDetails) {
   const popup = window.open('', '_blank')
   if (!popup) return false
-  const logoUrl = window.location.origin + '/moe-logo.png'
   const forms = records.map((record, index) => {
     const title = record.category === 'violation' ? 'نموذج توثيق مخالفة سلوكية' : 'نموذج توثيق سلوك متميز'
     const category = record.category === 'violation' ? 'مخالفة سلوكية' : 'سلوك متميز'
     return [
       '<section class="behavior-official-form">',
-      '<header class="behavior-form-header"><img src="' + escapeHtml(logoUrl) + '" alt="شعار وزارة التعليم" /><div><p>وزارة التعليم</p><h1>' + escapeHtml(title) + '</h1><strong>' + escapeHtml(school.schoolName) + '</strong></div><div class="behavior-form-meta"><span>' + escapeHtml(school.academicYear) + '</span><span>' + escapeHtml(school.semester) + '</span><span>رقم النموذج: ' + (index + 1) + '</span></div></header>',
+      '<header class="behavior-form-header"><h1>' + escapeHtml(title) + '</h1><div class="behavior-form-meta"><span>' + escapeHtml(school.academicYear) + '</span><span>' + escapeHtml(school.semester) + '</span><span>رقم النموذج: ' + (index + 1) + '</span></div></header>',
       '<p class="behavior-form-intro">يوثق هذا النموذج بيانات السجل والإجراء المتخذ، ويستكمل الطالب ووكيل المدرسة بيانات الاسم والتوقيع.</p>',
       '<table class="behavior-form-table"><tbody>',
       '<tr><th>اسم الطالب</th><td>' + escapeHtml(record.name) + '</td><th>الصف / الفصل</th><td>' + escapeHtml(record.grade + ' / ' + record.classroom) + '</td></tr>',
@@ -79,7 +79,7 @@ function openBehaviorOfficialForms(records: BehaviorRecord[], school: SchoolDeta
   }).join('')
   const styles = '@page{size:A4 portrait;margin:10mm}*{box-sizing:border-box}html,body{margin:0;background:#eef3f7;color:#102a43;font-family:Tahoma,Arial,sans-serif;direction:rtl}.behavior-preview-actions{position:sticky;top:0;z-index:10;display:flex;justify-content:center;gap:8px;padding:10px;background:#102a43}.behavior-preview-actions button{min-height:42px;padding:8px 16px;border:0;border-radius:8px;background:#fff;color:#123b63;font:700 14px Tahoma,Arial,sans-serif;cursor:pointer}.behavior-preview-actions .return-button{background:#fee2e2;color:#991b1b}.behavior-official-form{width:min(190mm,calc(100% - 20px));min-height:277mm;margin:12px auto;padding:9mm;border:1.5px solid #163f64;background:#fff;box-shadow:0 3px 15px #102a4320;break-after:page;page-break-after:always}.behavior-official-form:last-of-type{break-after:auto;page-break-after:auto}.behavior-form-header{display:grid;grid-template-columns:42mm 1fr 38mm;gap:5mm;align-items:center;padding-bottom:5mm;border-bottom:2px solid #1c78b6}.behavior-form-header img{width:38mm;height:24mm;object-fit:contain}.behavior-form-header>div:nth-child(2){text-align:center}.behavior-form-header p{margin:0 0 2px;color:#397093;font-weight:700;font-size:14px}.behavior-form-header h1{margin:0;color:#0c4277;font-size:22px;line-height:1.35}.behavior-form-header strong{display:block;margin-top:3px;font-size:14px}.behavior-form-meta{display:grid;gap:5px;text-align:left;color:#425d75;font-size:11px;font-weight:700}.behavior-form-intro{margin:5mm 0;font-size:12px;line-height:1.7;color:#425d75}.behavior-form-table{width:100%;border-collapse:collapse;table-layout:fixed;font-size:13px}.behavior-form-table th,.behavior-form-table td{border:1px solid #8eafc9;padding:3.2mm;text-align:right;vertical-align:top;line-height:1.65;overflow-wrap:anywhere}.behavior-form-table th{width:22%;background:#eaf4fb;color:#123b63;font-weight:800}.behavior-form-table td{font-weight:600}.behavior-form-table .procedure-cell{min-height:20mm;white-space:pre-wrap}.student-handwriting,.vice-handwriting{margin-top:7mm;border:1px solid #a8bfd2;padding:4.5mm}.student-handwriting h2,.vice-handwriting h2{margin:0 0 3mm;color:#0c4277;font-size:16px}.student-handwriting p{margin:0;color:#263f55;font-size:13px;line-height:1.75}.handwriting-grid{display:grid;gap:4mm;margin-top:5mm}.student-fields{grid-template-columns:1.4fr 1fr 1fr}.vice-fields{grid-template-columns:1.6fr 1fr}.handwriting-grid p{display:flex;align-items:flex-end;gap:2mm;min-width:0;margin:0;font-size:13px;font-weight:700}.handwriting-grid span{display:block;flex:1;min-width:0;width:auto;border-bottom:1px dotted #162f47;height:7mm}.vice-handwriting{margin-top:5mm}.behavior-official-form footer{margin-top:auto;padding-top:5mm;color:#60768a;font-size:10px;text-align:center}@media(max-width:600px){.behavior-preview-actions{gap:6px;padding:8px}.behavior-preview-actions button{flex:1;padding:8px 10px;font-size:12px}.behavior-official-form{width:calc(100% - 12px);min-height:0;margin:6px auto;padding:14px 10px}.behavior-form-header{grid-template-columns:1fr;justify-items:center;text-align:center}.behavior-form-header img{width:32mm}.behavior-form-meta{grid-template-columns:repeat(3,1fr);width:100%;text-align:center;font-size:10px}.behavior-form-table{font-size:11px}.behavior-form-table th,.behavior-form-table td{padding:7px 5px}.student-fields,.vice-fields{grid-template-columns:1fr}.handwriting-grid p{white-space:normal}.handwriting-grid span{min-width:0;width:auto}}@media print{html,body{background:#fff}.behavior-preview-actions{display:none}.behavior-official-form{width:190mm;min-height:277mm;margin:0;padding:9mm;box-shadow:none;break-inside:avoid;page-break-inside:avoid}.behavior-form-table th,.behavior-form-table td{-webkit-print-color-adjust:exact;print-color-adjust:exact}}'
   const html = '<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>نماذج توثيق السلوك</title><style>' + styles + '</style></head><body><nav class="behavior-preview-actions"><button type="button" onclick="window.print()">طباعة / حفظ PDF</button><button type="button" class="return-button" onclick="returnToBehavior()">العودة إلى سجل السلوك</button></nav>' + forms + '<script>function returnToBehavior(){if(window.opener&&!window.opener.closed){window.close();return}if(history.length>1){history.back();return}location.replace("/")}</script></body></html>'
-  popup.document.write(html)
+  popup.document.write(brandReportHtmlDocument(html, school.schoolName))
   popup.document.close()
   return true
 }
@@ -249,6 +249,7 @@ export function BehaviorCenter({ school, role }: { school: SchoolDetails; role: 
     sheet['!cols'] = [{ wch: 14 }, { wch: 28 }, { wch: 16 }, { wch: 14 }, { wch: 16 }, { wch: 10 }, { wch: 16 }, { wch: 46 }, { wch: 16 }, { wch: 10 }, { wch: 58 }, { wch: 14 }, { wch: 12 }, { wch: 28 }, { wch: 20 }, { wch: 20 }, { wch: 28 }, { wch: 22 }]
     sheet['!views'] = [{ rightToLeft: true, state: 'frozen', ySplit: 1 }]
     sheet['!autofilter'] = { ref: XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: data.length, c: 17 } }) }
+    prependReportHeaderToWorksheet(sheet, 'سجل السلوك', school.schoolName)
     const workbook = XLSX.utils.book_new()
     XLSX.utils.book_append_sheet(workbook, sheet, 'سجل السلوك')
     XLSX.writeFile(workbook, 'نماذج-السلوك-' + (reportFrom || 'البداية') + '-' + (reportTo || today()) + '.xlsx')

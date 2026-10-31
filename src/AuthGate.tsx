@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
 import { LockKeyhole, School, UserRound } from 'lucide-react'
 import { api, type Account, type LoginChoice } from './api'
+import { cacheReportSchoolBrand, clearReportSchoolBrand } from './SchoolFeatures'
 
 const roleLabel: Record<LoginChoice['role'], string> = {
   admin: 'حساب المدرسة',
@@ -17,6 +18,7 @@ const roleLabel: Record<LoginChoice['role'], string> = {
 export function AuthGate({ children }: { children: (account: Account, logout: () => void) => ReactNode }) {
   const [account, setAccount] = useState<Account | null>(null)
   const [loading, setLoading] = useState(true)
+  const [reportBrandLoading, setReportBrandLoading] = useState(false)
   const [registering, setRegistering] = useState(false)
   const [registrationSent, setRegistrationSent] = useState(false)
   const [verificationToken, setVerificationToken] = useState(() => new URLSearchParams(window.location.hash.slice(1)).get('verify-email') || '')
@@ -36,6 +38,26 @@ export function AuthGate({ children }: { children: (account: Account, logout: ()
   useEffect(() => {
     api.me().then(({ user }) => setAccount(user)).catch(() => {}).finally(() => setLoading(false))
   }, [])
+
+  useEffect(() => {
+    if (!account) {
+      clearReportSchoolBrand()
+      setReportBrandLoading(false)
+      return
+    }
+    let active = true
+    clearReportSchoolBrand()
+    setReportBrandLoading(true)
+    void api.reportSchoolBrand()
+      .then(({ school }) => {
+        if (active) cacheReportSchoolBrand(account.schoolId, school)
+      })
+      .catch(error => console.error('Unable to load the school report header.', error))
+      .finally(() => {
+        if (active) setReportBrandLoading(false)
+      })
+    return () => { active = false }
+  }, [account?.schoolId])
 
   function resetLoginState() {
     setError('')
@@ -127,7 +149,7 @@ export function AuthGate({ children }: { children: (account: Account, logout: ()
     void api.logout().catch(() => {}).finally(() => setAccount(null))
   }
 
-  if (loading) return <div className="auth-loading">جارٍ الاتصال بالنظام الآمن…</div>
+  if (loading || (account && reportBrandLoading)) return <div className="auth-loading">جارٍ الاتصال بالنظام الآمن…</div>
   if (verificationToken) return <main className="auth-page" dir="rtl"><section className="auth-card">
     <div className="auth-icon"><School size={30} /></div>
     <h1>تأكيد البريد الإلكتروني</h1>

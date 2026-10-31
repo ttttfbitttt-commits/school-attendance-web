@@ -49,7 +49,7 @@ import { AuthGate } from './AuthGate'
 import { formatHijriDate, formatHijriDateWithWeekday } from './dateUtils'
 import { api, type Account, type LessonTimeSlot, type SchoolProfile, type SchoolStorageUsage } from './api'
 import { LessonFlowCenter } from './LessonFlow'
-import { AlmadarSettings, downloadWorkbook, MessageCenter, reportBrandHeader, ReportsCenter } from './SchoolFeatures'
+import { AlmadarSettings, brandReportHtmlDocument, cacheReportSchoolBrand, downloadWorkbook, MessageCenter, reportBrandHeader, ReportsCenter } from './SchoolFeatures'
 import { TeacherAdminCenter } from './TeacherAdmin'
 import { AdministratorAdminCenter } from './AdministratorAdmin'
 import { AdministratorPortal } from './AdministratorPortal'
@@ -376,6 +376,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
     preferences: { attendanceMode, cutoffTime, gradeAliases },
   })
   const applySchoolProfile = (profile: SchoolProfile) => {
+    cacheReportSchoolBrand(account.schoolId, profile)
     const settings = {
       schoolName: profile.schoolName,
       principalName: profile.principalName,
@@ -1604,7 +1605,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
 </body>
 </html>`
 
-    openBlobUrl(html)
+    openBlobUrl(brandReportHtmlDocument(html, schoolSettings.schoolName))
     setNotice('تم فتح تقرير PDF للطباعة في تبويب جديد.')
   }
 
