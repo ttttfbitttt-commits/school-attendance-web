@@ -79,12 +79,16 @@ export function openOfficialFormDocument(title: string, contents: string) {
   </style><style>
     .meta{padding-right:7mm;font-size:11pt;line-height:1.65}.form-code{font-size:13pt}.form-title{font-size:20pt}.fields{font-size:11pt}.greeting{font-size:12pt;line-height:1.4;margin-top:1.5mm}.case-intro{justify-content:flex-start;gap:2mm;font-size:11.5pt;margin-top:2mm}.options{font-size:11pt;line-height:1.6;margin-top:1mm}.request{font-size:11pt;line-height:1.45;margin:1.5mm 0}.signatures{margin-top:3mm;font-size:10pt}.divider{margin:3mm 0 1.5mm}.section-title,.manager-title{font-size:16pt;font-weight:800;margin:1mm 0 1.5mm}.reply{font-size:11pt;line-height:1.4}.writing-lines{gap:2.2mm}.reply-signatures{margin-top:3mm;font-size:10pt}.manager-options{font-size:11pt;font-weight:700;line-height:1.5}.manager-signature{margin-top:2mm;font-size:10pt;font-weight:700}.footnote{font-size:9pt;line-height:1.4;margin-top:3mm}
   </style><style>
-    .moe-header{position:relative;width:100%;aspect-ratio:541/112;margin:0 0 3mm;direction:rtl}
+    .moe-header{position:relative;width:100%;aspect-ratio:541/112;margin:0 0 3mm;direction:rtl;-webkit-print-color-adjust:exact;print-color-adjust:exact;forced-color-adjust:none}
     .moe-header-template{position:absolute;inset:0;display:block;width:100%;height:100%}
-    .moe-header-region,.moe-header-office,.moe-header-school{position:absolute;display:grid;place-items:center;overflow:hidden;text-align:center;white-space:nowrap;direction:rtl;font-family:"Traditional Arabic","Times New Roman",serif;font-weight:700}
+    .moe-header-region,.moe-header-office,.moe-header-school{position:absolute;display:grid;place-items:center;overflow:hidden;text-align:center;white-space:nowrap;direction:rtl;font-family:Arial,Tahoma,sans-serif;font-weight:700;-webkit-print-color-adjust:exact;print-color-adjust:exact;forced-color-adjust:none}
     .moe-header-region{top:8%;left:7%;width:55%;height:27%;color:#fff;font-size:11pt}
-    .moe-header-office{top:40%;left:9%;width:42%;height:19%;color:#1bb5aa;font-size:11pt}
+    .moe-header-office{top:40%;left:9%;width:42%;height:19%;color:#36e0c6;font-size:11pt;font-weight:800}
     .moe-header-school{top:69%;left:29%;width:39%;height:22%;color:#fff;font-size:11pt}
+    @media print{
+      .moe-header-region,.moe-header-school{color:#fff!important;font-weight:800}
+      .moe-header-office{color:#36e0c6!important;font-weight:800}
+    }
   </style><style>
     .preview-actions{position:fixed;z-index:1000;top:8px;left:8px;right:8px;display:flex;justify-content:center;gap:8px;padding:8px;background:rgba(15,23,42,.92);border-radius:10px;font-family:Tahoma,Arial,sans-serif}
     .preview-actions button{min-height:42px;padding:8px 16px;border:0;border-radius:7px;background:#fff;color:#123b63;font:700 14px Tahoma,Arial,sans-serif}
