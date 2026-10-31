@@ -170,7 +170,7 @@ export function brandReportHtmlDocument(html: string, schoolName = '') {
   let brandedHtml = html.replace('</head>', `<style>${reportBrandStyles}</style></head>`)
   if (alreadyBranded) return brandedHtml
   if (/class=["'][^"']*behavior-official-form[^"']*["']/.test(brandedHtml)) {
-    brandedHtml = brandedHtml.replace(/(<section class="behavior-official-form">)/g, (section, opening) => `${opening}${banner}`)
+    brandedHtml = brandedHtml.replace(/<section class="behavior-official-form">/g, opening => `${opening}${banner}`)
   } else {
     brandedHtml = brandedHtml.replace(/(<body\b[^>]*>)/i, opening => `${opening}${banner}`)
   }
@@ -228,7 +228,7 @@ export function prependReportHeaderToWorksheet(sheet: XLSX.WorkSheet, reportTitl
       e: { r: filterRange.e.r + REPORT_HEADER_ROWS, c: filterRange.e.c },
     }) }
   }
-  const views = sheet['!views'] || [{ rightToLeft: true }]
+  const views: Array<{ rightToLeft?: boolean; state?: string; ySplit?: number; [key: string]: unknown }> = sheet['!views'] || [{ rightToLeft: true }]
   sheet['!views'] = views.map(view => ({
     ...view,
     rightToLeft: true,
