@@ -5,6 +5,7 @@ import { api, type Account, type AdministratorAttendanceRecord, type Administrat
 import { downloadWorkbook, openPrintDocument } from './SchoolFeatures'
 import { formatHijriDate } from './dateUtils'
 import { LessonFlowCenter } from './LessonFlow'
+import { readQrScanRegion } from './qrScan'
 
 const jsQR = ((jsQRNs as unknown as { default?: unknown }).default || jsQRNs) as (data: Uint8ClampedArray, width: number, height: number, options?: { inversionAttempts?: 'attemptBoth' }) => { data: string } | null
 const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Riyadh' }).format(new Date())
@@ -14,7 +15,7 @@ const normalize = (value: unknown) => String(value ?? '').replace(/\s+/g, ' ').t
 const comparable = (value: unknown) => normalize(value).toLocaleLowerCase('ar')
 const normalizedStudentId = (value: unknown) => normalize(value).replace(/^([+-]?\d+)\.0+$/, '$1')
 const SCAN_INTERVAL_MS = 190
-const SCAN_MAX_DIMENSION = 420
+const SCAN_MAX_DIMENSION = 640
 const SCAN_PAUSE_AFTER_READ_MS = 450
 function barcodeCandidates(raw: string) {
   const code = normalize(raw)
@@ -55,6 +56,7 @@ export function AdministratorPortal({ account, onLogout }: { account: Account; o
   const manualSearchRef = useRef<HTMLInputElement>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const scanBoxRef = useRef<HTMLSpanElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const frameRef = useRef(0)
   const scanTimerRef = useRef<number | undefined>(undefined)
@@ -178,11 +180,12 @@ export function AdministratorPortal({ account, onLogout }: { account: Account; o
   }
   const scanFrame = (time: number) => {
     const video = videoRef.current; const canvas = canvasRef.current
-    if (!streamRef.current || !video || !canvas) return
-    if (time >= scanPauseUntilRef.current && video.readyState >= video.HAVE_ENOUGH_DATA && video.videoWidth) {
-      const ratio = Math.min(1, SCAN_MAX_DIMENSION / Math.max(video.videoWidth, video.videoHeight)); canvas.width = Math.round(video.videoWidth * ratio); canvas.height = Math.round(video.videoHeight * ratio)
-      const context = canvas.getContext('2d', { willReadFrequently: true })
-      if (context) { context.drawImage(video, 0, 0, canvas.width, canvas.height); const image = context.getImageData(0, 0, canvas.width, canvas.height); const code = jsQR(image.data, image.width, image.height, { inversionAttempts: 'attemptBoth' }); if (code?.data) { scanPauseUntilRef.current = performance.now() + SCAN_PAUSE_AFTER_READ_MS; const now = Date.now(); if (lastCode.current.value !== code.data || now - lastCode.current.at > 1800) { lastCode.current = { value: code.data, at: now }; void recordStudent(code.data) } } }
+    const scanBox = scanBoxRef.current
+    if (!streamRef.current || !video || !canvas || !scanBox) return
+    if (time >= scanPauseUntilRef.current) {
+      const image = readQrScanRegion(video, canvas, scanBox, SCAN_MAX_DIMENSION)
+      const code = image && jsQR(image.data, image.width, image.height, { inversionAttempts: 'attemptBoth' })
+      if (code?.data) { scanPauseUntilRef.current = performance.now() + SCAN_PAUSE_AFTER_READ_MS; const now = Date.now(); if (lastCode.current.value !== code.data || now - lastCode.current.at > 1800) { lastCode.current = { value: code.data, at: now }; void recordStudent(code.data) } }
     }
     if (!streamRef.current) return
     scanTimerRef.current = window.setTimeout(() => { scanTimerRef.current = undefined; if (streamRef.current) frameRef.current = requestAnimationFrame(scanFrame) }, SCAN_INTERVAL_MS)
@@ -277,7 +280,7 @@ export function AdministratorPortal({ account, onLogout }: { account: Account; o
 
   return <main className="administrator-portal" dir="rtl"><header className="administrator-topbar"><div><span>{schoolName || 'بوابة الإداري'}</span><h1>مرحبًا، {account.displayName}</h1></div><div ref={menuWrapRef} className="administrator-menu-wrap"><button className="administrator-menu" onClick={() => setMenuOpen(current => !current)} aria-label="القائمة"><MoreVertical size={24} /></button>{menuOpen && <nav><button onClick={() => chooseView('attendance')}>سجل الحضور</button>{lessonFlowAccess && <button onClick={() => chooseView('lessons')}>سير الحصص</button>}<button onClick={() => chooseView('reports')}>التقارير</button><button onClick={() => chooseView('password')}>تغيير كلمة المرور</button><button className="logout" onClick={onLogout}><LogOut size={16} /> تسجيل الخروج</button></nav>}</div></header>
     {notice && <p className={`administrator-notice ${notice.type}`}>{notice.type === 'error' ? <XCircle size={18} /> : <CheckCircle2 size={18} />}{notice.text}</p>}
-    {view === 'attendance' && <section className="administrator-attendance"><header><div><span>سجل اليوم · {formatHijriDate(today())}</span><h2>تحضير الطلاب وحصر التأخر</h2><p>كل عملية تُسجل مباشرة في حساب المدرسة. لا توجد صلاحية حذف من هذا الحساب.</p></div><UsersRound size={31} /></header><div className="administrator-stats"><article><b>{records.length}</b><span>إجمالي المسجلين</span></article><article><b>{present}</b><span>حاضر</span></article><article><b>{late}</b><span>متأخر</span></article></div><div className="administrator-mode"><button className={mode === 'present' ? 'active' : ''} onClick={() => selectAttendanceMode('present')}>تحضير الطلاب</button><button className={mode === 'late' ? 'late active' : 'late'} onClick={() => selectAttendanceMode('late')}>حصر التأخر</button></div><section className="administrator-camera"><div className="administrator-camera-head"><div><Camera size={20} /><strong>{mode === 'late' ? 'رصد المتأخرين' : 'تحضير الطلاب'}</strong></div>{camera ? <button className="outline-button" onClick={stopCamera}><Square size={15} fill="currentColor" /> إيقاف الكاميرا</button> : <button className="primary-button" onClick={() => void startCamera()}><Camera size={16} /> فتح الكاميرا</button>}</div>{camera && <div className="administrator-video"><video ref={videoRef} autoPlay muted playsInline /><canvas ref={canvasRef} hidden />{scanResult && <div className={`administrator-scan-result ${scanResult.type}`} role="status" aria-live="assertive">{scanResult.text}</div>}<span>وجّه الكاميرا نحو باركود الطالب</span></div>}</section><section className="administrator-manual-list">
+    {view === 'attendance' && <section className="administrator-attendance"><header><div><span>سجل اليوم · {formatHijriDate(today())}</span><h2>تحضير الطلاب وحصر التأخر</h2><p>كل عملية تُسجل مباشرة في حساب المدرسة. لا توجد صلاحية حذف من هذا الحساب.</p></div><UsersRound size={31} /></header><div className="administrator-stats"><article><b>{records.length}</b><span>إجمالي المسجلين</span></article><article><b>{present}</b><span>حاضر</span></article><article><b>{late}</b><span>متأخر</span></article></div><div className="administrator-mode"><button className={mode === 'present' ? 'active' : ''} onClick={() => selectAttendanceMode('present')}>تحضير الطلاب</button><button className={mode === 'late' ? 'late active' : 'late'} onClick={() => selectAttendanceMode('late')}>حصر التأخر</button></div><section className="administrator-camera"><div className="administrator-camera-head"><div><Camera size={20} /><strong>{mode === 'late' ? 'رصد المتأخرين' : 'تحضير الطلاب'}</strong></div>{camera ? <button className="outline-button" onClick={stopCamera}><Square size={15} fill="currentColor" /> إيقاف الكاميرا</button> : <button className="primary-button" onClick={() => void startCamera()}><Camera size={16} /> فتح الكاميرا</button>}</div>{camera && <div className="administrator-video"><video ref={videoRef} autoPlay muted playsInline /><canvas ref={canvasRef} hidden /><div className="administrator-scan-frame"><span ref={scanBoxRef} /><i>ضع باركود الطالب داخل الإطار</i></div>{scanResult && <div className={`administrator-scan-result ${scanResult.type}`} role="status" aria-live="assertive">{scanResult.text}</div>}</div>}</section><section className="administrator-manual-list">
       <div><label><Search size={17} /><input ref={manualSearchRef} type="search" value={query} onChange={event => setQuery(event.target.value)} onKeyDown={event => { if (event.key === 'Enter' && filteredStudents.length === 1) { event.preventDefault(); addManualSelection(filteredStudents[0]) } }} placeholder="الحصر اليدوي: اكتب اسم الطالب أو رقمه" aria-label="ابحث عن طالب لتسجيل حضوره" aria-autocomplete="list" /></label></div>
       {query.trim() && <div className="administrator-student-list" role="listbox" aria-label="نتائج البحث عن الطلاب">{filteredStudents.length ? filteredStudents.map(student => {
         const selected = manualSelection.some(item => item.id === student.id)

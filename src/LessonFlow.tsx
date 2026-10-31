@@ -31,10 +31,11 @@ import {
 import { HijriDatePicker } from './HijriDatePicker'
 import { formatHijriDate } from './dateUtils'
 import { downloadWorkbook, openOfficialFormDocument, openPrintDocument, prependReportHeaderToWorksheet } from './SchoolFeatures'
+import { readQrScanRegion } from './qrScan'
 
 const jsQR = ((jsQRNs as unknown as { default?: unknown }).default || jsQRNs) as (data: Uint8ClampedArray, width: number, height: number) => { data: string } | null
 const SCAN_INTERVAL_MS = 150
-const SCAN_MAX_DIMENSION = 360
+const SCAN_MAX_DIMENSION = 640
 
 type SectionKey = 'setup' | 'times' | 'codes' | 'schedules' | 'incidents'
 type LessonActionPanel = 'teacher-absence' | 'waiting-teacher' | 'cancel-incident' | 'incident-history' | null
@@ -376,6 +377,7 @@ export function LessonFlowCenter({
   const [selectedCancellationId, setSelectedCancellationId] = useState('')
   const [cameraOn, setCameraOn] = useState(false)
   const videoRef = useRef<HTMLVideoElement | null>(null)
+  const scanBoxRef = useRef<HTMLSpanElement | null>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const frameRef = useRef<number | null>(null)
   const scanTimerRef = useRef<number | null>(null)
@@ -640,19 +642,15 @@ export function LessonFlowCenter({
 
   const scanFrame = () => {
     const video = videoRef.current
-    if (!video || video.readyState < 2) {
+    const scanBox = scanBoxRef.current
+    if (!video || !scanBox || video.readyState < 2) {
       scheduleNextScan()
       return
     }
     const canvas = scanCanvasRef.current || document.createElement('canvas')
     scanCanvasRef.current = canvas
-    const scale = Math.min(1, SCAN_MAX_DIMENSION / Math.max(video.videoWidth, video.videoHeight))
-    canvas.width = Math.max(1, Math.round(video.videoWidth * scale))
-    canvas.height = Math.max(1, Math.round(video.videoHeight * scale))
-    const context = canvas.getContext('2d', { willReadFrequently: true })
-    if (context) {
-      context.drawImage(video, 0, 0, canvas.width, canvas.height)
-      const image = context.getImageData(0, 0, canvas.width, canvas.height)
+    const image = readQrScanRegion(video, canvas, scanBox, SCAN_MAX_DIMENSION)
+    if (image) {
       const result = jsQR(image.data, image.width, image.height)
       if (result?.data) {
         void handleScanCode(result.data)
@@ -959,7 +957,7 @@ export function LessonFlowCenter({
               {!cancellableIncidents.length && <p className="lesson-empty">لا توجد مساءلات قابلة للإلغاء في هذا التاريخ.</p>}
               <div className="feature-actions"><button type="button" className="danger-button" onClick={() => void deleteSelectedIncident()} disabled={!selectedCancellationId || !!busy}><XCircle size={16} /> تأكيد حذف المساءلة</button></div>
             </section>}
-            {cameraOn && <div className="lesson-camera-preview"><video ref={videoRef} muted playsInline /><button type="button" onClick={stopCamera}>إيقاف الكاميرا</button></div>}
+            {cameraOn && <div className="lesson-camera-preview"><div className="lesson-camera-stage"><video ref={videoRef} muted playsInline /><div className="lesson-scan-frame"><span ref={scanBoxRef} /><i>ضع رمز الفصل داخل الإطار</i></div></div><button type="button" onClick={stopCamera}>إيقاف الكاميرا</button></div>}
             {scanPreview && <article className="lesson-scan-preview">
               <div>
                 <span className="panel-kicker">تمت قراءة الباركود</span>

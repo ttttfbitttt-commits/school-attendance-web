@@ -5,13 +5,14 @@ import { api, type TeacherCooperationEntry, type TeacherCooperationScan, type Te
 import { HijriDatePicker } from './HijriDatePicker'
 import { formatHijriDate } from './dateUtils'
 import { downloadWorkbook, openPrintDocument } from './SchoolFeatures'
+import { readQrScanRegion } from './qrScan'
 
 const jsQR = ((jsQRNs as unknown as { default?: unknown }).default || jsQRNs) as (data: Uint8ClampedArray, width: number, height: number, options?: { inversionAttempts?: 'attemptBoth' }) => { data: string } | null
 const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Riyadh' }).format(new Date())
 const periodLabel = (period: number) => period === 1 ? 'الحصة الأولى' : 'الحصة الثانية'
 const escapeHtml = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character] || character))
 const SCAN_INTERVAL_MS = 190
-const SCAN_MAX_DIMENSION = 420
+const SCAN_MAX_DIMENSION = 640
 const SCAN_PAUSE_AFTER_READ_MS = 450
 
 type ScanFeedback = {
@@ -51,6 +52,7 @@ export function TeacherCooperationPanel({ status, onRefresh }: { status: Teacher
   const [notice, setNotice] = useState('')
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const scanBoxRef = useRef<HTMLSpanElement>(null)
   const viewportRef = useRef<HTMLDivElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const frameRef = useRef(0)
@@ -189,20 +191,14 @@ export function TeacherCooperationPanel({ status, onRefresh }: { status: Teacher
   const scanFrame = (time: number) => {
     const video = videoRef.current
     const canvas = canvasRef.current
-    if (!streamRef.current || !video || !canvas) return
-    if (time >= scanPauseUntilRef.current && video.readyState >= video.HAVE_ENOUGH_DATA && video.videoWidth > 0) {
-      const scale = Math.min(1, SCAN_MAX_DIMENSION / Math.max(video.videoWidth, video.videoHeight))
-      canvas.width = Math.max(1, Math.round(video.videoWidth * scale))
-      canvas.height = Math.max(1, Math.round(video.videoHeight * scale))
-      const context = canvas.getContext('2d', { willReadFrequently: true })
-      if (context) {
-        context.drawImage(video, 0, 0, canvas.width, canvas.height)
-        const image = context.getImageData(0, 0, canvas.width, canvas.height)
-        const code = jsQR(image.data, image.width, image.height, { inversionAttempts: 'attemptBoth' })
-        if (code?.data) {
-          scanPauseUntilRef.current = performance.now() + SCAN_PAUSE_AFTER_READ_MS
-          void processCode(code.data)
-        }
+    const scanBox = scanBoxRef.current
+    if (!streamRef.current || !video || !canvas || !scanBox) return
+    if (time >= scanPauseUntilRef.current) {
+      const image = readQrScanRegion(video, canvas, scanBox, SCAN_MAX_DIMENSION)
+      const code = image && jsQR(image.data, image.width, image.height, { inversionAttempts: 'attemptBoth' })
+      if (code?.data) {
+        scanPauseUntilRef.current = performance.now() + SCAN_PAUSE_AFTER_READ_MS
+        void processCode(code.data)
       }
     }
     if (!streamRef.current) return
@@ -251,7 +247,7 @@ export function TeacherCooperationPanel({ status, onRefresh }: { status: Teacher
     </div>
     {notice && <p className="teacher-notice error">{notice}</p>}
     <div ref={viewportRef} className={`cooperation-camera-viewport ${cameraActive ? 'live' : 'idle'}`}>
-      {cameraActive ? <><video ref={videoRef} autoPlay muted playsInline /><canvas ref={canvasRef} hidden /><div className="cooperation-scan-frame"><span /><i>وجّه الكاميرا نحو باركود الطالب</i></div></> : <div className="cooperation-camera-idle"><Camera size={48} /><strong>الكاميرا في وضع الاستعداد</strong><span>اضغط «فتح الكاميرا» وابدأ التحضير المتتابع.</span></div>}
+      {cameraActive ? <><video ref={videoRef} autoPlay muted playsInline /><canvas ref={canvasRef} hidden /><div className="cooperation-scan-frame"><span ref={scanBoxRef} /><i>وجّه الكاميرا نحو باركود الطالب</i></div></> : <div className="cooperation-camera-idle"><Camera size={48} /><strong>الكاميرا في وضع الاستعداد</strong><span>اضغط «فتح الكاميرا» وابدأ التحضير المتتابع.</span></div>}
       {feedback && <div className={`cooperation-scan-feedback ${feedback.kind}`} role="status" aria-live="assertive">{feedback.kind === 'error' ? <XCircle size={23} /> : <CheckCircle2 size={23} />}<div><strong>{feedback.title}</strong>{feedback.student && <b>{feedback.student.name}</b>}<span>{feedback.student ? `${feedback.student.grade} · ${feedback.student.classroom} — ` : ''}{feedback.message}</span></div></div>}
       {fullScreen && <button className="cooperation-exit-fullscreen" onClick={() => void toggleFullScreen()}><Minimize2 size={16} /> خروج</button>}
     </div>

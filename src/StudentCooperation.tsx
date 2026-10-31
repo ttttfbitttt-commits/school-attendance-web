@@ -2,10 +2,11 @@ import { useEffect, useRef, useState } from 'react'
 import * as jsQRNs from 'jsqr'
 import { Camera, CheckCircle2, ShieldCheck, Square, XCircle } from 'lucide-react'
 import { api, type StudentCooperationStatus } from './api'
+import { readQrScanRegion } from './qrScan'
 
 const jsQR = ((jsQRNs as unknown as { default?: unknown }).default || jsQRNs) as (data: Uint8ClampedArray, width: number, height: number, options?: { inversionAttempts?: 'attemptBoth' }) => { data: string } | null
 const SCAN_INTERVAL_MS = 190
-const SCAN_MAX_DIMENSION = 420
+const SCAN_MAX_DIMENSION = 640
 
 type Feedback = { kind: 'created' | 'duplicate' | 'error'; title: string; message: string; student?: { name: string; grade: string; classroom: string } }
 
@@ -16,6 +17,7 @@ export function StudentCooperationPanel({ status, onStatus }: { status: StudentC
   const [recent, setRecent] = useState<Array<{ studentId: string; studentName: string; time: string }>>([])
   const videoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
+  const scanBoxRef = useRef<HTMLSpanElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const frameRef = useRef(0)
   const scanTimerRef = useRef<number | null>(null)
@@ -89,18 +91,12 @@ export function StudentCooperationPanel({ status, onStatus }: { status: StudentC
   const scanFrame = () => {
     const video = videoRef.current
     const canvas = canvasRef.current
-    if (!streamRef.current || !video || !canvas) return
-    if (video.readyState >= video.HAVE_ENOUGH_DATA && video.videoWidth > 0) {
-      const scale = Math.min(1, SCAN_MAX_DIMENSION / Math.max(video.videoWidth, video.videoHeight))
-      canvas.width = Math.max(1, Math.round(video.videoWidth * scale))
-      canvas.height = Math.max(1, Math.round(video.videoHeight * scale))
-      const context = canvas.getContext('2d', { willReadFrequently: true })
-      if (context) {
-        context.drawImage(video, 0, 0, canvas.width, canvas.height)
-        const image = context.getImageData(0, 0, canvas.width, canvas.height)
-        const code = jsQR(image.data, image.width, image.height, { inversionAttempts: 'attemptBoth' })
-        if (code?.data) void processCode(code.data)
-      }
+    const scanBox = scanBoxRef.current
+    if (!streamRef.current || !video || !canvas || !scanBox) return
+    const image = readQrScanRegion(video, canvas, scanBox, SCAN_MAX_DIMENSION)
+    if (image) {
+      const code = jsQR(image.data, image.width, image.height, { inversionAttempts: 'attemptBoth' })
+      if (code?.data) void processCode(code.data)
     }
     if (!streamRef.current) return
     scanTimerRef.current = window.setTimeout(() => { if (streamRef.current) frameRef.current = requestAnimationFrame(scanFrame) }, SCAN_INTERVAL_MS)
@@ -131,7 +127,7 @@ export function StudentCooperationPanel({ status, onStatus }: { status: StudentC
     </div>
     {notice && <p className="teacher-notice error">{notice}</p>}
     <div className={`cooperation-camera-viewport ${cameraActive ? 'live' : 'idle'}`}>
-      {cameraActive ? <><video ref={videoRef} autoPlay muted playsInline /><canvas ref={canvasRef} hidden /><div className="cooperation-scan-frame"><span /><i>وجّه الكاميرا نحو باركود طالب من فصلك</i></div></> : <div className="cooperation-camera-idle"><Camera size={48} /><strong>الكاميرا في وضع الاستعداد</strong><span>التحضير بالكاميرا فقط، لطلاب فصلك، وخلال الحصة الأولى.</span></div>}
+      {cameraActive ? <><video ref={videoRef} autoPlay muted playsInline /><canvas ref={canvasRef} hidden /><div className="cooperation-scan-frame"><span ref={scanBoxRef} /><i>وجّه الكاميرا نحو باركود طالب من فصلك</i></div></> : <div className="cooperation-camera-idle"><Camera size={48} /><strong>الكاميرا في وضع الاستعداد</strong><span>التحضير بالكاميرا فقط، لطلاب فصلك، وخلال الحصة الأولى.</span></div>}
       {feedback && <div className={`cooperation-scan-feedback ${feedback.kind}`} role="status" aria-live="assertive">{feedback.kind === 'error' ? <XCircle size={23} /> : <CheckCircle2 size={23} />}<div><strong>{feedback.title}</strong>{feedback.student && <b>{feedback.student.name}</b>}<span>{feedback.student ? `${feedback.student.grade} · ${feedback.student.classroom} — ` : ''}{feedback.message}</span></div></div>}
     </div>
     <section className="cooperation-recent"><div><span>عملياتك الناجحة</span><strong>{recent.length} طالبًا</strong></div>{recent.length ? <div className="cooperation-recent-list">{recent.map(item => <article key={item.studentId}><CheckCircle2 size={18} /><div><strong>{item.studentName}</strong><span>تم تسجيله حاضرًا</span></div><small><b>{item.time}</b></small></article>)}</div> : <p>لم تسجل حضور أي طالب حتى الآن.</p>}</section>
