@@ -1597,16 +1597,11 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
       ${rowsHtml}
     </tbody>
   </table>
-  <script>
-    window.onload = function() {
-      setTimeout(function() { window.print(); }, 400);
-    };
-  </script>
 </body>
 </html>`
 
     openBlobUrl(brandReportHtmlDocument(html, schoolSettings.schoolName))
-    setNotice('تم فتح تقرير PDF للطباعة في تبويب جديد.')
+    setNotice('تم فتح معاينة التقرير. اضغط «طباعة / حفظ PDF» بعد مراجعتها.')
   }
 
   const buildPrintHtml = (students: Student[], cols: number, autoprint = false) => {

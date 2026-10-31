@@ -149,6 +149,7 @@ export function brandReportFragment(contents: string, schoolName = '') {
 }
 
 export function addReportBrandToDocument(document: Document, schoolName = '') {
+  if (document.defaultView) document.defaultView.onload = null
   const styles = document.createElement('style')
   styles.textContent = reportBrandStyles
   document.head.append(styles)
@@ -252,7 +253,7 @@ export function openPrintDocument(title: string, contents: string, schoolName: s
   }
   popup.document.write(`<!doctype html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHtml(title)}</title><style>
     @page{size:A4 ${orientation};margin:12mm}*{box-sizing:border-box}body{font-family:Tahoma,Arial,sans-serif;color:#172033;margin:0;background:#fff;direction:rtl}.page{min-height:${orientation === 'landscape' ? '180mm' : '265mm'};padding:0 3mm 8mm;page-break-after:always;break-after:page}.page:last-child{page-break-after:auto;break-after:auto}${reportBrandStyles}.heading{color:#334155;line-height:2;font-size:17px}.notice{padding:18px;border-radius:12px;background:#f8fafc;border-right:7px solid #eab308;margin-top:22px}.notice.orange{border-color:#f97316}.notice.red{border-color:#dc2626}.notice.excuse{border-color:#86efac;background:#f0fdf4}.label{font-weight:700;color:#0f3d67}.meta{margin-top:20px;color:#64748b;font-size:12px}.report-date{margin:0 0 5mm;text-align:center;color:#385a79;font-size:13px;font-weight:700}table{width:100%;border-collapse:collapse;font-size:13px;table-layout:auto}thead{display:table-header-group}tr{break-inside:avoid;page-break-inside:avoid}th,td{border:1px solid #cbd5e1;padding:8px;text-align:right}th{background:#eaf2fb;color:#123b63}.page>h1{display:none}.green{background:#dcfce7}.yellow{background:#fef9c3}.orange{background:#ffedd5}.red{background:#fee2e2}@media print{body{margin:0}.page{min-height:0}}
-  </style><style>.preview-actions{position:sticky;top:8px;z-index:10;display:flex;justify-content:center;gap:8px;padding:8px;margin:0 auto 12px;background:rgba(15,23,42,.92);border-radius:10px;font-family:Tahoma,Arial,sans-serif}.preview-actions button{min-height:42px;padding:8px 16px;border:0;border-radius:7px;background:#fff;color:#123b63;font:700 14px Tahoma,Arial,sans-serif}.preview-actions .close-preview{background:#fee2e2;color:#991b1b}@media print{.preview-actions{display:none}}</style></head><body><nav class="preview-actions"><button type="button" onclick="window.print()">طباعة / حفظ PDF</button><button type="button" class="close-preview" onclick="closePreview()">العودة للموقع</button></nav>${brandedContents}<script>function closePreview(){var openerWindow=window.opener;window.close();setTimeout(function(){if(window.closed)return;if(openerWindow&&!openerWindow.closed){window.location.replace(openerWindow.location.href);return}if(window.history.length>1){window.history.back();return}window.location.replace('/')},250)}window.addEventListener('load',function(){setTimeout(function(){window.print()},300)})<\/script></body></html>`)
+  </style><style>.preview-actions{position:sticky;top:8px;z-index:10;display:flex;justify-content:center;gap:8px;padding:8px;margin:0 auto 12px;background:rgba(15,23,42,.92);border-radius:10px;font-family:Tahoma,Arial,sans-serif}.preview-actions button{min-height:42px;padding:8px 16px;border:0;border-radius:7px;background:#fff;color:#123b63;font:700 14px Tahoma,Arial,sans-serif}.preview-actions .close-preview{background:#fee2e2;color:#991b1b}@media print{.preview-actions{display:none}}</style></head><body><nav class="preview-actions"><button type="button" onclick="window.print()">طباعة / حفظ PDF</button><button type="button" class="close-preview" onclick="closePreview()">العودة للموقع</button></nav>${brandedContents}<script>function closePreview(){var openerWindow=window.opener;window.close();setTimeout(function(){if(window.closed)return;if(openerWindow&&!openerWindow.closed){window.location.replace(openerWindow.location.href);return}if(window.history.length>1){window.history.back();return}window.location.replace('/')},250)}<\/script></body></html>`)
   popup.document.close()
   return true
 }
@@ -294,7 +295,6 @@ export function openOfficialFormDocument(title: string, contents: string) {
         window.location.replace('/');
       },250);
     }
-    window.addEventListener('load',function(){setTimeout(function(){window.print()},300)});
   <\/script></body></html>`)
   popup.document.close()
   return true
