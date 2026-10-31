@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { ArrowRight, CheckCircle2, Clock3, Eye, FileSpreadsheet, FileText, Printer, RefreshCw, Search, Send, X } from 'lucide-react'
 import { api, type StudentReferral, type StudentReferralReason, type StudentReferralStatus, type TeacherLessonStudent, type TeacherPortalScheduleItem } from './api'
-import { brandReportHtmlDocument, downloadWorkbook } from './SchoolFeatures'
+import { brandReportHtmlDocument, downloadWorkbook, installReportPdfDownload } from './SchoolFeatures'
 import { formatHijriDate, formatHijriDateTime, numericHijriParts } from './dateUtils'
 
 const reasonLabels: Record<StudentReferralReason, string> = {
@@ -26,6 +26,7 @@ function openHtmlReport(html: string, schoolName: string) {
   const popup = window.open('', '_blank')
   if (!popup) return false
   const url = URL.createObjectURL(new Blob([brandReportHtmlDocument(html, schoolName)], { type: 'text/html;charset=utf-8' }))
+  popup.onload = () => installReportPdfDownload(popup.document, popup.document.title || 'سجل إحالات الطلاب', 'landscape')
   popup.location.href = url
   setTimeout(() => URL.revokeObjectURL(url), 600000)
   return true
@@ -47,7 +48,15 @@ export function ReferralOfficialPreview({ referral, onClose }: { referral: Stude
   return <div className="referral-preview-overlay" role="dialog" aria-modal="true" aria-label="معاينة نموذج الإحالة الرسمي">
     <div className="referral-preview-actions">
       <button type="button" className="outline-button" onClick={onClose}><ArrowRight size={16} /> الرجوع إلى الإحالة</button>
-      <button type="button" className="primary-button" onClick={() => window.print()}><Printer size={16} /> طباعة / حفظ PDF</button>
+      <button type="button" className="primary-button" onClick={() => {
+        const sheet = document.querySelector<HTMLElement>('.referral-official-sheet')
+        if (sheet) void import('./reportPdf').then(({ downloadReportPdf }) =>
+          downloadReportPdf(document, `إحالة-${referral.referenceNumber}`, 'portrait', sheet),
+        ).catch(error => {
+          console.error('Unable to generate referral PDF.', error)
+          window.alert('تعذر تجهيز ملف PDF للإحالة. أعد المحاولة.')
+        })
+      }}><Printer size={16} /> تحميل PDF</button>
     </div>
     <div className="referral-official-sheet">
       <img src="/student-referral-template.png" alt="النموذج الرسمي لتحويل طالب لوكيل شؤون الطلاب" />

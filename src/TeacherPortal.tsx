@@ -837,7 +837,15 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
     {activeTab === 'portfolio' && <StudentPortfolioBoard scope="teacher" />}
     {activeTab === 'evidence' && <TeacherEvidence schoolName={dashboard?.schoolName || 'المدرسة'} teacherName={dashboard?.teacher.name || account.displayName} onPrint={setPrintPreview} onActivitiesViewed={() => setDashboard(current => current ? { ...current, activityEvidenceCount: 0 } : current)} />}
     {activeTab === 'reports' && <TeacherReportsTab key={reportsKey} schedule={dashboard?.weekSchedule || []} schoolName={dashboard?.schoolName || 'المدرسة'} teacherName={dashboard?.teacher.name || account.displayName} />}
-    {printPreview && <div className="teacher-print-overlay" role="dialog" aria-modal="true" aria-label="معاينة الطباعة"><div className="teacher-print-actions"><button type="button" className="outline-button" onClick={() => setPrintPreview('')}>إغلاق والعودة</button><button type="button" className="primary-button" onClick={() => window.print()}><Printer size={16} /> طباعة / حفظ PDF</button></div><div className="teacher-print-preview" dangerouslySetInnerHTML={{ __html: brandReportFragment(printPreview, dashboard?.schoolName || '') }} /></div>}
+    {printPreview && <div className="teacher-print-overlay" role="dialog" aria-modal="true" aria-label="معاينة الطباعة"><div className="teacher-print-actions"><button type="button" className="outline-button" onClick={() => setPrintPreview('')}>إغلاق والعودة</button><button type="button" className="primary-button" onClick={() => {
+      const report = document.querySelector<HTMLElement>('.teacher-print-preview')
+      if (report) void import('./reportPdf').then(({ downloadReportPdf }) =>
+        downloadReportPdf(document, 'تقرير المعلم', 'portrait', report),
+      ).catch(error => {
+        console.error('Unable to generate teacher report PDF.', error)
+        setError('تعذر تجهيز ملف PDF. أعد المحاولة.')
+      })
+    }}><Printer size={16} /> تحميل PDF</button></div><div className="teacher-print-preview" dangerouslySetInnerHTML={{ __html: brandReportFragment(printPreview, dashboard?.schoolName || '') }} /></div>}
     </div>
   </main>
 }

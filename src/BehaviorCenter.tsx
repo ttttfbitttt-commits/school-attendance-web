@@ -17,7 +17,7 @@ import {
   type BehaviorStudent,
   type BehaviorStudentProfile,
 } from './api'
-import { brandReportHtmlDocument, prependReportHeaderToWorksheet } from './SchoolFeatures'
+import { brandReportHtmlDocument, installReportPdfDownload, prependReportHeaderToWorksheet } from './SchoolFeatures'
 
 type BehaviorView = 'home' | 'record' | 'records' | 'approvals' | 'distinguished' | 'compensation' | 'reports' | 'permissions'
 type SchoolDetails = { schoolName: string; principalName: string; academicYear: string; semester: string }
@@ -81,6 +81,7 @@ function openBehaviorOfficialForms(records: BehaviorRecord[], school: SchoolDeta
   const html = '<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>نماذج توثيق السلوك</title><style>' + styles + '</style></head><body><nav class="behavior-preview-actions"><button type="button" onclick="window.print()">طباعة / حفظ PDF</button><button type="button" class="return-button" onclick="returnToBehavior()">العودة إلى سجل السلوك</button></nav>' + forms + '<script>function returnToBehavior(){if(window.opener&&!window.opener.closed){window.close();return}if(history.length>1){history.back();return}location.replace("/")}</script></body></html>'
   popup.document.write(brandReportHtmlDocument(html, school.schoolName))
   popup.document.close()
+  installReportPdfDownload(popup.document, 'نماذج توثيق السلوك')
   return true
 }
 

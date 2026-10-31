@@ -1,7 +1,7 @@
 import { type FormEvent, useEffect, useState } from 'react'
 import { ArrowLeftRight, Building2, CheckCircle2, ClipboardList, FileSpreadsheet, MessageSquare, PhoneCall, Printer, RefreshCw, ShieldCheck, UserRoundCheck, X } from 'lucide-react'
 import { api } from './api'
-import { brandReportHtmlDocument, downloadWorkbook } from './SchoolFeatures'
+import { brandReportHtmlDocument, downloadWorkbook, installReportPdfDownload } from './SchoolFeatures'
 
 type GuideRole = 'school' | 'vice' | 'counselor'
 
@@ -107,6 +107,7 @@ function openAbsenceMessagesPdf(rows: ViceAbsenceMessage[], schoolName: string) 
   const html = `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>سجل رسائل الغياب</title><style>body{font-family:Arial,sans-serif;color:#102a43;padding:24px}h1{text-align:center}button{padding:8px 14px;margin:4px;border:1px solid #b8cbe0;border-radius:6px;background:white;cursor:pointer}@media print{.actions{display:none}}table{width:100%;border-collapse:collapse;margin-top:18px}th,td{border:1px solid #b8cbe0;padding:8px;text-align:right;vertical-align:top}th{background:#eef6fc}</style></head><body><div class="actions"><button onclick="window.print()">طباعة / حفظ PDF</button><button onclick="window.close()">إغلاق</button></div><h1>سجل رسائل الغياب</h1><p>عدد الرسائل: ${rows.length}</p><table><thead><tr><th>الطالب</th><th>أيام الغياب</th><th>المرسل إليه</th><th>نص الرسالة</th><th>الوكيل</th><th>الحالة</th><th>التاريخ</th></tr></thead><tbody>${rows.map(row => `<tr><td>${escapeHtml(row.studentName)}</td><td>${escapeHtml(row.absenceDays)}</td><td>${escapeHtml(row.recipient)}</td><td>${escapeHtml(row.messageBody)}</td><td>${escapeHtml(row.senderName)}</td><td>${row.status === 'sent' ? 'تم الإرسال' : `فشل: ${escapeHtml(row.errorDetail)}`}</td><td>${escapeHtml(contactStamp(row.createdAt))}</td></tr>`).join('')}</tbody></table></body></html>`
   popup.document.write(brandReportHtmlDocument(html, schoolName))
   popup.document.close()
+  installReportPdfDownload(popup.document, 'سجل رسائل الغياب', 'landscape')
 }
 
 export function ViceApprovedAbsenceProcedureQueue({ schoolName = '' }: { schoolName?: string } = {}) {

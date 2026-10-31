@@ -49,7 +49,7 @@ import { AuthGate } from './AuthGate'
 import { formatHijriDate, formatHijriDateWithWeekday } from './dateUtils'
 import { api, type Account, type LessonTimeSlot, type SchoolProfile, type SchoolStorageUsage } from './api'
 import { LessonFlowCenter } from './LessonFlow'
-import { AlmadarSettings, brandReportHtmlDocument, cacheReportSchoolBrand, downloadWorkbook, MessageCenter, reportBrandHeader, ReportsCenter } from './SchoolFeatures'
+import { AlmadarSettings, brandReportHtmlDocument, cacheReportSchoolBrand, downloadWorkbook, installReportPdfDownload, MessageCenter, reportBrandHeader, ReportsCenter } from './SchoolFeatures'
 import { TeacherAdminCenter } from './TeacherAdmin'
 import { AdministratorAdminCenter } from './AdministratorAdmin'
 import { AdministratorPortal } from './AdministratorPortal'
@@ -1746,7 +1746,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
       setNotice('اختر طالبًا واحدًا على الأقل للطباعة.')
       return
     }
-    openBlobUrl(buildPrintHtml(printableStudentsForOutput, getGridCols(), false))
+    openBlobUrl(buildPrintHtml(printableStudentsForOutput, getGridCols(), false), false)
     setNotice('✅ تم فتح صفحة البطاقات — اضغط زر "اضغط هنا للطباعة" في الشريط الأزرق العلوي.')
   }
 
@@ -1758,14 +1758,14 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
       setNotice('اختر طالبًا واحدًا على الأقل للطباعة.')
       return
     }
-    openBlobUrl(buildPrintHtml(printableStudentsForOutput, getGridCols(), false))
+    openBlobUrl(buildPrintHtml(printableStudentsForOutput, getGridCols(), false), false)
     setNotice('تم فتح صفحة الطباعة في تبويب جديد. استخدم Ctrl+P أو زر الطباعة في الصفحة.')
   }
 
   /**
    * فتح التقرير على Blob URL حقيقي حتى لا يتحول تبويب about:blank إلى صفحة بيضاء عند تحديثه.
    */
-  const openBlobUrl = (html: string) => {
+  const openBlobUrl = (html: string, schoolHeader = true) => {
     const printWindow = window.open('', '_blank')
 
     if (!printWindow) {
@@ -1775,6 +1775,10 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
 
     const blob = new Blob([html], { type: 'text/html;charset=utf-8' })
     const url = URL.createObjectURL(blob)
+    printWindow.addEventListener('load', () => installReportPdfDownload(
+      printWindow.document,
+      printWindow.document.title || (schoolHeader ? 'تقرير المدرسة' : 'بطاقات الطلاب'),
+    ), { once: true })
     printWindow.location.href = url
 
     // إبقاء الرابط متاحًا أثناء المراجعة والطباعة أو تحديث التقرير.

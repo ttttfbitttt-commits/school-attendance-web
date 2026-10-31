@@ -5,6 +5,7 @@ import { api, type LessonIncidentReportRow, type MessageLog, type MessageTeacher
 import { StudentDetailedReport } from './StudentDetailedReport'
 import { HijriDatePicker } from './HijriDatePicker'
 import { formatHijriDate, formatHijriDateTime, formatHijriDateWithWeekday } from './dateUtils'
+import type { ReportPdfOrientation } from './reportPdf'
 
 export type FeatureStudent = { id: string; name: string; phone: string; grade: string; classroom: string }
 export type FeatureAttendance = { studentId: string; status: 'present' | 'late'; time?: string }
@@ -163,6 +164,56 @@ export function addReportBrandToDocument(document: Document, schoolName = '') {
   } else {
     document.body.insertBefore(banner, document.body.firstChild)
   }
+  installReportPdfDownload(document, document.title || 'تقرير')
+}
+
+export function installReportPdfDownload(
+  document: Document,
+  title: string,
+  orientation: ReportPdfOrientation = 'portrait',
+  root?: HTMLElement,
+) {
+  let button = document.querySelector<HTMLButtonElement>(
+    '.preview-actions button:first-child,.print-actions button:first-child,.actions button:first-child,.behavior-preview-actions button:first-child,.no-print-bar button:first-child',
+  )
+  if (!button) {
+    const styles = document.createElement('style')
+    styles.textContent = '.report-pdf-actions{position:sticky;top:8px;z-index:1000;display:flex;justify-content:center;gap:8px;padding:8px;margin:0 auto 12px;background:#0f172a}.report-pdf-actions button{min-height:42px;padding:8px 16px;border:0;border-radius:7px;background:#fff;color:#123b63;font:700 14px Tahoma,Arial,sans-serif}.report-pdf-actions .report-close{background:#fee2e2;color:#991b1b}@media print{.report-pdf-actions{display:none}}'
+    document.head.append(styles)
+    const toolbar = document.createElement('nav')
+    toolbar.className = 'report-pdf-actions'
+    const downloadButton = document.createElement('button')
+    downloadButton.type = 'button'
+    downloadButton.textContent = 'تحميل PDF'
+    const closeButton = document.createElement('button')
+    closeButton.type = 'button'
+    closeButton.className = 'report-close'
+    closeButton.textContent = 'العودة'
+    closeButton.onclick = () => {
+      if (document.defaultView?.opener && !document.defaultView.opener.closed) document.defaultView.close()
+      else if (document.defaultView?.history.length && document.defaultView.history.length > 1) document.defaultView.history.back()
+    }
+    toolbar.append(downloadButton, closeButton)
+    document.body.prepend(toolbar)
+    button = downloadButton
+  }
+  button.removeAttribute('onclick')
+  if (button.textContent?.trim() !== 'تحميل PDF') button.textContent = 'تحميل PDF'
+  button.onclick = async () => {
+    const originalText = button.textContent
+    button.disabled = true
+    button.textContent = 'جارٍ تجهيز PDF…'
+    try {
+      const { downloadReportPdf } = await import('./reportPdf')
+      await downloadReportPdf(document, title || document.title || 'تقرير', orientation, root)
+    } catch (error) {
+      console.error('Unable to generate report PDF.', error)
+      document.defaultView?.alert('تعذر تجهيز ملف PDF. أعد المحاولة، وإذا استمرت المشكلة فتحقق من صور التقرير ثم أعد المحاولة.')
+    } finally {
+      button.disabled = false
+      button.textContent = originalText || 'تحميل PDF'
+    }
+  }
 }
 
 export function brandReportHtmlDocument(html: string, schoolName = '') {
@@ -255,6 +306,7 @@ export function openPrintDocument(title: string, contents: string, schoolName: s
     @page{size:A4 ${orientation};margin:12mm}*{box-sizing:border-box}body{font-family:Tahoma,Arial,sans-serif;color:#172033;margin:0;background:#fff;direction:rtl}.page{min-height:${orientation === 'landscape' ? '180mm' : '265mm'};padding:0 3mm 8mm;page-break-after:always;break-after:page}.page:last-child{page-break-after:auto;break-after:auto}${reportBrandStyles}.heading{color:#334155;line-height:2;font-size:17px}.notice{padding:18px;border-radius:12px;background:#f8fafc;border-right:7px solid #eab308;margin-top:22px}.notice.orange{border-color:#f97316}.notice.red{border-color:#dc2626}.notice.excuse{border-color:#86efac;background:#f0fdf4}.label{font-weight:700;color:#0f3d67}.meta{margin-top:20px;color:#64748b;font-size:12px}.report-date{margin:0 0 5mm;text-align:center;color:#385a79;font-size:13px;font-weight:700}table{width:100%;border-collapse:collapse;font-size:13px;table-layout:auto}thead{display:table-header-group}tr{break-inside:avoid;page-break-inside:avoid}th,td{border:1px solid #cbd5e1;padding:8px;text-align:right}th{background:#eaf2fb;color:#123b63}.page>h1{display:none}.green{background:#dcfce7}.yellow{background:#fef9c3}.orange{background:#ffedd5}.red{background:#fee2e2}@media print{body{margin:0}.page{min-height:0}}
   </style><style>.preview-actions{position:sticky;top:8px;z-index:10;display:flex;justify-content:center;gap:8px;padding:8px;margin:0 auto 12px;background:rgba(15,23,42,.92);border-radius:10px;font-family:Tahoma,Arial,sans-serif}.preview-actions button{min-height:42px;padding:8px 16px;border:0;border-radius:7px;background:#fff;color:#123b63;font:700 14px Tahoma,Arial,sans-serif}.preview-actions .close-preview{background:#fee2e2;color:#991b1b}@media print{.preview-actions{display:none}}</style></head><body><nav class="preview-actions"><button type="button" onclick="window.print()">طباعة / حفظ PDF</button><button type="button" class="close-preview" onclick="closePreview()">العودة للموقع</button></nav>${brandedContents}<script>function closePreview(){var openerWindow=window.opener;window.close();setTimeout(function(){if(window.closed)return;if(openerWindow&&!openerWindow.closed){window.location.replace(openerWindow.location.href);return}if(window.history.length>1){window.history.back();return}window.location.replace('/')},250)}<\/script></body></html>`)
   popup.document.close()
+  installReportPdfDownload(popup.document, title, orientation)
   return true
 }
 
@@ -297,6 +349,7 @@ export function openOfficialFormDocument(title: string, contents: string) {
     }
   <\/script></body></html>`)
   popup.document.close()
+  installReportPdfDownload(popup.document, title)
   return true
 }
 
