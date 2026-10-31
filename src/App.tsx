@@ -99,6 +99,8 @@ type CardsPerPage = 4 | 6 | 8
 type SchoolSettings = {
   schoolName: string
   principalName: string
+  generalEducationAdministration: string
+  educationOffice: string
   academicYear: string
   semester: string
 }
@@ -106,6 +108,8 @@ type SchoolSettings = {
 const DEFAULT_SCHOOL_SETTINGS: SchoolSettings = {
   schoolName: 'مدرسة الفزاري الثانوية',
   principalName: 'مدير المدرسة',
+  generalEducationAdministration: 'الإدارة العامة للتعليم بمنطقة الرياض',
+  educationOffice: 'مكتب التعليم بالرياض',
   academicYear: '1448 / 1449',
   semester: 'الفصل الأول',
 }
@@ -375,6 +379,8 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
     const settings = {
       schoolName: profile.schoolName,
       principalName: profile.principalName,
+      generalEducationAdministration: profile.generalEducationAdministration || '',
+      educationOffice: profile.educationOffice || '',
       academicYear: profile.academicYear,
       semester: profile.semester,
     }
@@ -894,6 +900,8 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
     const nextSettings = {
       schoolName: schoolSettingsDraft.schoolName.trim(),
       principalName: schoolSettingsDraft.principalName.trim(),
+      generalEducationAdministration: schoolSettingsDraft.generalEducationAdministration.trim(),
+      educationOffice: schoolSettingsDraft.educationOffice.trim(),
       academicYear: schoolSettingsDraft.academicYear.trim(),
       semester: schoolSettingsDraft.semester.trim(),
     }
@@ -2139,6 +2147,24 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
                     value={schoolSettingsDraft.principalName}
                     onChange={(event) => setSchoolSettingsDraft((current) => ({ ...current, principalName: event.target.value }))}
                     placeholder="اكتب اسم المدير"
+                  />
+                </label>
+                <label className="school-settings-field">
+                  <span>الإدارة العامة للتعليم</span>
+                  <input
+                    type="text"
+                    value={schoolSettingsDraft.generalEducationAdministration}
+                    onChange={(event) => setSchoolSettingsDraft((current) => ({ ...current, generalEducationAdministration: event.target.value }))}
+                    placeholder="اكتب اسم الإدارة العامة للتعليم"
+                  />
+                </label>
+                <label className="school-settings-field">
+                  <span>مكتب التعليم</span>
+                  <input
+                    type="text"
+                    value={schoolSettingsDraft.educationOffice}
+                    onChange={(event) => setSchoolSettingsDraft((current) => ({ ...current, educationOffice: event.target.value }))}
+                    placeholder="اكتب اسم مكتب التعليم"
                   />
                 </label>
                 <label className="school-settings-field">

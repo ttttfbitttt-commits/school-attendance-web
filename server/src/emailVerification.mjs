@@ -52,6 +52,8 @@ export async function migrateEmailVerification(adminPool) {
       email citext PRIMARY KEY,
       display_name text NOT NULL,
       school_name text NOT NULL,
+      general_education_administration text NOT NULL DEFAULT '',
+      education_office text NOT NULL DEFAULT '',
       password_hash text NOT NULL,
       token_hash text NOT NULL UNIQUE,
       expires_at timestamptz NOT NULL,
@@ -62,6 +64,8 @@ export async function migrateEmailVerification(adminPool) {
     );
     CREATE INDEX IF NOT EXISTS pending_school_registrations_expiry ON pending_school_registrations(expires_at);
   `)
+  await adminPool.query("ALTER TABLE pending_school_registrations ADD COLUMN IF NOT EXISTS general_education_administration text NOT NULL DEFAULT ''")
+  await adminPool.query("ALTER TABLE pending_school_registrations ADD COLUMN IF NOT EXISTS education_office text NOT NULL DEFAULT ''")
 }
 
 export async function requestSchoolRegistration({ req, res, authPool, body, json, passwordHash }) {
@@ -70,9 +74,12 @@ export async function requestSchoolRegistration({ req, res, authPool, body, json
   const password = String(input.password || '')
   const displayName = String(input.displayName || '').trim()
   const schoolName = String(input.schoolName || '').trim()
+  const generalEducationAdministration = String(input.generalEducationAdministration || '').trim()
+  const educationOffice = String(input.educationOffice || '').trim()
 
   if (!/^\S+@\S+\.\S+$/.test(email) || email.length > 254 || password.length < 12 || password.length > 200 ||
-      !displayName || displayName.length > 160 || schoolName.length < 2 || schoolName.length > 160) {
+      !displayName || displayName.length > 160 || schoolName.length < 2 || schoolName.length > 160 ||
+      generalEducationAdministration.length > 160 || educationOffice.length > 160) {
     json(res, 400, { error: 'invalid_registration' })
     return true
   }
@@ -107,15 +114,16 @@ export async function requestSchoolRegistration({ req, res, authPool, body, json
   }
 
   await authPool.query(`INSERT INTO pending_school_registrations(
-      email,display_name,school_name,password_hash,token_hash,expires_at,created_at,last_sent_at,rate_window_started_at,send_count
-    ) VALUES($1,$2,$3,$4,$5,now()+interval '30 minutes',now(),now(),now(),1)
+      email,display_name,school_name,general_education_administration,education_office,password_hash,token_hash,expires_at,created_at,last_sent_at,rate_window_started_at,send_count
+    ) VALUES($1,$2,$3,$4,$5,$6,$7,now()+interval '30 minutes',now(),now(),now(),1)
     ON CONFLICT(email) DO UPDATE SET display_name=EXCLUDED.display_name,school_name=EXCLUDED.school_name,
+      general_education_administration=EXCLUDED.general_education_administration,education_office=EXCLUDED.education_office,
       password_hash=EXCLUDED.password_hash,token_hash=EXCLUDED.token_hash,expires_at=EXCLUDED.expires_at,
       send_count=CASE WHEN pending_school_registrations.rate_window_started_at <= now()-interval '24 hours'
         THEN 1 ELSE pending_school_registrations.send_count+1 END,
       rate_window_started_at=CASE WHEN pending_school_registrations.rate_window_started_at <= now()-interval '24 hours'
         THEN now() ELSE pending_school_registrations.rate_window_started_at END,
-      last_sent_at=now()`, [email, displayName, schoolName, hashedPassword, hashedToken])
+      last_sent_at=now()`, [email, displayName, schoolName, generalEducationAdministration, educationOffice, hashedPassword, hashedToken])
 
   json(res, 202, genericResponse)
   return true
@@ -129,7 +137,7 @@ export async function verifySchoolRegistration({ req, res, authPool, body, json,
     return true
   }
 
-  const registration = await authPool.query(`SELECT email,display_name,school_name,password_hash
+  const registration = await authPool.query(`SELECT email,display_name,school_name,general_education_administration,education_office,password_hash
     FROM pending_school_registrations WHERE token_hash=$1 AND expires_at > now()`, [tokenHash(token)])
   if (!registration.rows[0]) {
     json(res, 400, { error: 'invalid_or_expired_verification_link' })
@@ -141,8 +149,8 @@ export async function verifySchoolRegistration({ req, res, authPool, body, json,
 
   try {
     const verified = await scopedOn(authPool, schoolId, async client => {
-      const school = await client.query(`INSERT INTO schools(id,name,principal_name,academic_year,semester)
-        VALUES($1,$2,$3,$4,$5) RETURNING id,name`, [schoolId, pending.school_name, pending.display_name, '1448 / 1449', 'الفصل الأول'])
+      const school = await client.query(`INSERT INTO schools(id,name,principal_name,general_education_administration,education_office,academic_year,semester)
+        VALUES($1,$2,$3,$4,$5,$6,$7) RETURNING id,name`, [schoolId, pending.school_name, pending.display_name, pending.general_education_administration || '', pending.education_office || '', '1448 / 1449', 'الفصل الأول'])
       const user = await client.query(`INSERT INTO users(email,password_hash,display_name)
         VALUES(lower($1),$2,$3) RETURNING id,email,display_name`, [pending.email, pending.password_hash, pending.display_name])
       await client.query('INSERT INTO memberships(school_id,user_id,role) VALUES($1,$2,\'admin\')', [schoolId, user.rows[0].id])

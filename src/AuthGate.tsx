@@ -27,6 +27,8 @@ export function AuthGate({ children }: { children: (account: Account, logout: ()
   const [identifier, setIdentifier] = useState('')
   const [password, setPassword] = useState('')
   const [schoolName, setSchoolName] = useState('')
+  const [generalEducationAdministration, setGeneralEducationAdministration] = useState('')
+  const [educationOffice, setEducationOffice] = useState('')
   const [administratorName, setAdministratorName] = useState('')
   const [schoolEmail, setSchoolEmail] = useState('')
   const [schoolPassword, setSchoolPassword] = useState('')
@@ -70,7 +72,10 @@ export function AuthGate({ children }: { children: (account: Account, logout: ()
     setSubmitting(true)
     setError('')
     try {
-      await api.register(administratorName, schoolName, schoolEmail, schoolPassword)
+      await api.register(administratorName, schoolName, schoolEmail, schoolPassword, {
+        generalEducationAdministration,
+        educationOffice,
+      })
       setRegistrationSent(true)
     } catch (reason) {
       const apiError = reason as Error & { code?: string }
@@ -152,6 +157,8 @@ export function AuthGate({ children }: { children: (account: Account, logout: ()
       {registering ? <>
         <label><UserRound size={16} /> اسم المسؤول<input name="name" value={administratorName} onChange={event => setAdministratorName(event.target.value)} required /></label>
         <label><School size={16} /> اسم المدرسة<input name="school" value={schoolName} onChange={event => setSchoolName(event.target.value)} required /></label>
+        <label>الإدارة العامة للتعليم في المنطقة<input name="generalEducationAdministration" value={generalEducationAdministration} onChange={event => setGeneralEducationAdministration(event.target.value)} placeholder="مثال: الإدارة العامة للتعليم بمنطقة الرياض" /></label>
+        <label>مكتب التعليم<input name="educationOffice" value={educationOffice} onChange={event => setEducationOffice(event.target.value)} placeholder="مثال: مكتب التعليم بالرياض" /></label>
         <label>البريد الإلكتروني<input name="email" type="email" autoComplete="section-school email" value={schoolEmail} onChange={event => setSchoolEmail(event.target.value)} required /></label>
         <label><LockKeyhole size={16} /> كلمة المرور<input name="schoolPassword" type="password" autoComplete="section-school new-password" value={schoolPassword} onChange={event => setSchoolPassword(event.target.value)} minLength={12} required /></label>
         <small>استخدم 12 حرفًا على الأقل.</small>

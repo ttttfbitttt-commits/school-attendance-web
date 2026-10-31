@@ -21,7 +21,7 @@ export type CounselorPortalDashboard = { schoolName: string; mustChangePassword:
 export type AdministratorAttendanceStudent = { id: string; name: string; phone: string; grade: string; classroom: string }
 export type AdministratorAttendanceRecord = { studentId: string; date: string; time: string; status: 'present' | 'late'; name: string; grade: string; classroom: string; phone: string; recordedBy?: string }
 export type SchoolPreferences = { attendanceMode: 'auto' | 'present' | 'late'; cutoffTime: string; gradeAliases: Record<string, string> }
-export type SchoolProfile = { schoolName: string; principalName: string; academicYear: string; semester: string; preferences: SchoolPreferences }
+export type SchoolProfile = { schoolName: string; principalName: string; generalEducationAdministration: string; educationOffice: string; academicYear: string; semester: string; preferences: SchoolPreferences }
 export type SchoolStorageUsage = { totalBytes: number; recordsBytes: number; portfolioBytes: number; portfolioFiles: number; records: number }
 export type PlatformSchoolUsage = {
   id: string
@@ -379,7 +379,7 @@ export const api = {
   administratorLogin: (identityNumber: string, password: string, schoolId = '') => request<{ user: Account }>('/auth/administrator-login', { method: 'POST', body: JSON.stringify({ identityNumber, password, schoolId: schoolId || undefined }) }),
   studentLogin: (identityNumber: string, password: string, schoolId = '') => request<{ user: Account }>('/auth/student-login', { method: 'POST', body: JSON.stringify({ identityNumber, password, schoolId: schoolId || undefined }) }),
   counselorLogin: (identityNumber: string, password: string, schoolId = '') => request<{ user: Account }>('/auth/counselor-login', { method: 'POST', body: JSON.stringify({ identityNumber, password, schoolId: schoolId || undefined }) }),
-  register: (displayName: string, schoolName: string, email: string, password: string) => request<{ ok: boolean }>('/auth/register', { method: 'POST', body: JSON.stringify({ displayName, schoolName, email, password }) }),
+  register: (displayName: string, schoolName: string, email: string, password: string, details: { generalEducationAdministration?: string; educationOffice?: string } = {}) => request<{ ok: boolean }>('/auth/register', { method: 'POST', body: JSON.stringify({ displayName, schoolName, email, password, ...details }) }),
   verifySchoolEmail: (token: string) => request<{ user: Account; school: { id: string; name: string } }>('/auth/verify-email', { method: 'POST', body: JSON.stringify({ token }) }),
   logout: () => request<{ ok: boolean }>('/auth/logout', { method: 'POST' }),
   changeSchoolPassword: (currentPassword: string, newPassword: string) => request<{ ok: boolean }>('/auth/school-password', { method: 'POST', body: JSON.stringify({ currentPassword, newPassword }) }),

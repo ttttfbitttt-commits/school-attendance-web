@@ -225,6 +225,8 @@ function schoolProfile(row) {
   return {
     schoolName: row.name,
     principalName: row.principal_name,
+    generalEducationAdministration: row.general_education_administration || '',
+    educationOffice: row.education_office || '',
     academicYear: row.academic_year,
     semester: row.semester,
     preferences: {
@@ -237,6 +239,8 @@ function schoolProfile(row) {
 function normalizedSchoolProfile(input) {
   const schoolName = String(input.schoolName || '').trim()
   const principalName = String(input.principalName || '').trim()
+  const generalEducationAdministration = String(input.generalEducationAdministration || '').trim()
+  const educationOffice = String(input.educationOffice || '').trim()
   const academicYear = String(input.academicYear || '').trim()
   const semester = String(input.semester || '').trim()
   const rawPreferences = input.preferences && typeof input.preferences === 'object' && !Array.isArray(input.preferences) ? input.preferences : {}
@@ -247,7 +251,8 @@ function normalizedSchoolProfile(input) {
     .slice(0, 100)
     .map(([key, value]) => [String(key).trim(), String(value).trim()]))
   if (![schoolName, principalName, academicYear, semester].every(value => value.length > 0 && value.length <= 160)) return null
-  return { schoolName, principalName, academicYear, semester, preferences: { attendanceMode, cutoffTime, gradeAliases } }
+  if (generalEducationAdministration.length > 160 || educationOffice.length > 160) return null
+  return { schoolName, principalName, generalEducationAdministration, educationOffice, academicYear, semester, preferences: { attendanceMode, cutoffTime, gradeAliases } }
 }
 function normalizedStudentInput(input) {
   if (!input || typeof input !== 'object' || Array.isArray(input)) return null
@@ -396,6 +401,8 @@ async function enforceTenantRowSecurity() {
 
 async function migrateDatabase() {
   await adminPool.query("ALTER TABLE schools ADD COLUMN IF NOT EXISTS preferences jsonb NOT NULL DEFAULT '{}'::jsonb")
+  await adminPool.query("ALTER TABLE schools ADD COLUMN IF NOT EXISTS general_education_administration text NOT NULL DEFAULT ''")
+  await adminPool.query("ALTER TABLE schools ADD COLUMN IF NOT EXISTS education_office text NOT NULL DEFAULT ''")
   await adminPool.query('ALTER TABLE students ADD COLUMN IF NOT EXISTS active boolean NOT NULL DEFAULT true')
   await migrateFeatures(adminPool)
   await migrateEmailVerification(adminPool)
@@ -580,7 +587,7 @@ const server = http.createServer(async (req, res) => {
     // Teacher accounts are intentionally isolated from the administrative attendance APIs.
     if (user.role === 'teacher' || user.role === 'administrator' || user.role === 'student' || user.role === 'activity_leader') return json(res, 403, { error: 'portal_only' })
     if (req.method === 'GET' && url.pathname === '/api/school') {
-      const result = await scoped(user.school_id, async c => c.query('SELECT name,principal_name,academic_year,semester,preferences FROM schools WHERE id=$1', [user.school_id]))
+      const result = await scoped(user.school_id, async c => c.query('SELECT name,principal_name,general_education_administration,education_office,academic_year,semester,preferences FROM schools WHERE id=$1', [user.school_id]))
       if (!result.rows[0]) return json(res, 404, { error: 'school_not_found' })
       return json(res, 200, { school: schoolProfile(result.rows[0]) })
     }
@@ -588,7 +595,7 @@ const server = http.createServer(async (req, res) => {
       if (!['admin', 'vice_principal'].includes(user.role)) return json(res, 403, { error: 'forbidden' })
       const profile = normalizedSchoolProfile(await body(req))
       if (!profile) return json(res, 400, { error: 'invalid_school_profile' })
-      const result = await scoped(user.school_id, async c => c.query('UPDATE schools SET name=$1,principal_name=$2,academic_year=$3,semester=$4,preferences=$5::jsonb WHERE id=$6 RETURNING name,principal_name,academic_year,semester,preferences', [profile.schoolName, profile.principalName, profile.academicYear, profile.semester, JSON.stringify(profile.preferences), user.school_id]))
+      const result = await scoped(user.school_id, async c => c.query('UPDATE schools SET name=$1,principal_name=$2,general_education_administration=$3,education_office=$4,academic_year=$5,semester=$6,preferences=$7::jsonb WHERE id=$8 RETURNING name,principal_name,general_education_administration,education_office,academic_year,semester,preferences', [profile.schoolName, profile.principalName, profile.generalEducationAdministration, profile.educationOffice, profile.academicYear, profile.semester, JSON.stringify(profile.preferences), user.school_id]))
       return json(res, 200, { school: schoolProfile(result.rows[0]) })
     }
     if (req.method === 'GET' && url.pathname === '/api/school/storage-usage') {
