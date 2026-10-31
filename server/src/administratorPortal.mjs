@@ -178,11 +178,19 @@ export async function handleAdministratorPortalRequest({ req, res, url, user, bo
     const date = validDate(url.searchParams.get('date')) || todayRiyadh()
     const result = await scoped(user.school_id, async client => {
       const [school, students, records] = await Promise.all([
-        client.query('SELECT name,principal_name AS "principalName" FROM schools WHERE id=$1', [user.school_id]),
+        client.query('SELECT name,principal_name AS "principalName",general_education_administration AS "generalEducationAdministration",education_office AS "educationOffice" FROM schools WHERE id=$1', [user.school_id]),
         client.query('SELECT id,name,phone,grade,classroom FROM students WHERE school_id=$1 AND active=true ORDER BY name', [user.school_id]),
         attendanceRows(client, user.school_id, date),
       ])
-      return { schoolName: school.rows[0]?.name || '', principalName: school.rows[0]?.principalName || '', lessonFlowAccess: Boolean(user.lesson_flow_access), students: students.rows, records }
+      return {
+        schoolName: school.rows[0]?.name || '',
+        principalName: school.rows[0]?.principalName || '',
+        generalEducationAdministration: school.rows[0]?.generalEducationAdministration || '',
+        educationOffice: school.rows[0]?.educationOffice || '',
+        lessonFlowAccess: Boolean(user.lesson_flow_access),
+        students: students.rows,
+        records,
+      }
     })
     return json(res, 200, { date, ...result })
   }

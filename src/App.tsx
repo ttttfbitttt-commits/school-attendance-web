@@ -2713,7 +2713,12 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
 
         {activeNav === 'cooperation' && <TeacherCooperationAdmin schoolName={schoolSettings.schoolName} principalName={schoolSettings.principalName} />}
 
-        {activeNav === 'lessons' && <LessonFlowCenter schoolName={schoolSettings.schoolName} principalName={schoolSettings.principalName} />}
+        {activeNav === 'lessons' && <LessonFlowCenter
+          schoolName={schoolSettings.schoolName}
+          principalName={schoolSettings.principalName}
+          generalEducationAdministration={schoolSettings.generalEducationAdministration}
+          educationOffice={schoolSettings.educationOffice}
+        />}
 
         {activeNav === 'teachers' && <TeacherAdminCenter schoolName={schoolSettings.schoolName} />}
 

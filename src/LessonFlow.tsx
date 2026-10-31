@@ -286,16 +286,28 @@ function scheduleTableHtml(schedule: LessonSchedule) {
   }).join('')}</tr>`).join('')}</tbody></table>`
 }
 
-function incidentPrintHtml(incident: LessonIncident, schoolName: string, principalName: string) {
+function incidentPrintHtml(
+  incident: LessonIncident,
+  schoolName: string,
+  principalName: string,
+  generalEducationAdministration: string,
+  educationOffice: string,
+) {
   const identityNumber = Array.from(String(incident.identityNumber || '').replace(/\s/g, ''))
   const civilIdCells = Array.from({ length: Math.max(10, identityNumber.length) }, (_, index) => `<span>${escapeHtml(identityNumber[index] || '')}</span>`).join('')
-  const logoUrl = `${window.location.origin}/moe-logo.png`
+  const headerUrl = `${window.location.origin}/moe-school-header.png`
   const managerName = escapeHtml(principalName || '........................')
+  const administrationName = escapeHtml(
+    generalEducationAdministration.trim()
+      .replace(/^الإدارة العامة للتعليم(?:\s+بمنطقة)?\s*/, '') || '................',
+  )
+  const officeName = escapeHtml(educationOffice.trim().replace(/^مكتب التعليم\s*/, '') || '................')
   return `<main class="sheet">
-    <header class="top">
-      <div class="meta"><p>الرقم: ........................</p><p>التاريخ: .... / .... / ........</p><p>المشفوعات: ........................</p></div>
-      <div class="ministry"><img src="${logoUrl}" alt="شعار وزارة التعليم"></div>
-      <div class="state"><div class="country">المملكة العربية السعودية</div><div>وزارة التعليم</div><div class="school">مدرسة ${escapeHtml(schoolName)}</div></div>
+    <header class="moe-header">
+      <img class="moe-header-template" src="${headerUrl}" alt="ترويسة وزارة التعليم">
+      <span class="moe-header-region">${administrationName}</span>
+      <span class="moe-header-office">${officeName}</span>
+      <span class="moe-header-school">${escapeHtml(schoolName)}</span>
     </header>
     <div class="form-code">نموذج رقم (18)<br><span class="code">رمز النموذج: (و.م.ع.ن - 02 - 02)</span></div>
     <h1 class="form-title">تنبيه عن تأخر / انصراف</h1>
@@ -326,7 +338,17 @@ function incidentPrintHtml(incident: LessonIncident, schoolName: string, princip
   </main>`
 }
 
-export function LessonFlowCenter({ schoolName, principalName }: { schoolName: string; principalName: string }) {
+export function LessonFlowCenter({
+  schoolName,
+  principalName,
+  generalEducationAdministration = '',
+  educationOffice = '',
+}: {
+  schoolName: string
+  principalName: string
+  generalEducationAdministration?: string
+  educationOffice?: string
+}) {
   const [overview, setOverview] = useState<LessonFlowOverview | null>(null)
   const [activeSection, setActiveSection] = useState<SectionKey>('setup')
   const [notice, setNotice] = useState('')
@@ -783,7 +805,13 @@ export function LessonFlowCenter({ schoolName, principalName }: { schoolName: st
   }
 
   const printIncident = (incident: LessonIncident) => {
-    openOfficialFormDocument('تنبيه عن تأخر / انصراف', incidentPrintHtml(incident, schoolName, principalName))
+    openOfficialFormDocument('تنبيه عن تأخر / انصراف', incidentPrintHtml(
+      incident,
+      schoolName,
+      principalName,
+      generalEducationAdministration,
+      educationOffice,
+    ))
   }
 
   const renderSection = () => {

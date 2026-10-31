@@ -34,6 +34,8 @@ export function AdministratorPortal({ account, onLogout }: { account: Account; o
   const [menuOpen, setMenuOpen] = useState(false)
   const [schoolName, setSchoolName] = useState('')
   const [principalName, setPrincipalName] = useState('')
+  const [generalEducationAdministration, setGeneralEducationAdministration] = useState('')
+  const [educationOffice, setEducationOffice] = useState('')
   const [lessonFlowAccess, setLessonFlowAccess] = useState(Boolean(account.lessonFlowAccess))
   const [students, setStudents] = useState<AdministratorAttendanceStudent[]>([])
   const [records, setRecords] = useState<AdministratorAttendanceRecord[]>([])
@@ -108,7 +110,7 @@ export function AdministratorPortal({ account, onLogout }: { account: Account; o
   const loadAttendance = async () => {
     try {
       const result = await api.administratorAttendance()
-      setSchoolName(result.schoolName); setPrincipalName(result.principalName); setLessonFlowAccess(result.lessonFlowAccess); setStudents(result.students); setRecords(result.records)
+      setSchoolName(result.schoolName); setPrincipalName(result.principalName); setGeneralEducationAdministration(result.generalEducationAdministration); setEducationOffice(result.educationOffice); setLessonFlowAccess(result.lessonFlowAccess); setStudents(result.students); setRecords(result.records)
     }
     catch { setNotice({ type: 'error', text: 'تعذر تحميل سجل الحضور. تحقق من الاتصال ثم حدّث الصفحة.' }) }
   }
@@ -287,7 +289,12 @@ export function AdministratorPortal({ account, onLogout }: { account: Account; o
         <div className="manual-selection-actions"><button type="button" className="outline-button" onClick={() => { setManualSelection([]); window.setTimeout(() => manualSearchRef.current?.focus(), 0) }} disabled={busy}>إلغاء التحديد</button><button type="button" className="primary-button" onClick={() => void confirmManualSelection()} disabled={busy}>{busy ? 'جارٍ التسجيل...' : `تأكيد تسجيل ${manualSelection.length} طلاب`}</button></div>
       </div>}
     </section><section className="administrator-recent"><h3>آخر العمليات</h3>{records.slice(0, 12).map(record => <article key={`${record.studentId}-${record.date}`}><CheckCircle2 size={18} /><span><strong>{record.name}</strong><small>{record.grade} · {record.classroom}</small></span><b className={record.status}>{record.status === 'late' ? 'متأخر' : 'حاضر'}</b><time>{record.time}</time></article>)}{!records.length && <p>لا توجد عمليات تسجيل حتى الآن.</p>}</section></section>}
-    {view === 'lessons' && lessonFlowAccess && <LessonFlowCenter schoolName={schoolName} principalName={principalName} />}
+    {view === 'lessons' && lessonFlowAccess && <LessonFlowCenter
+      schoolName={schoolName}
+      principalName={principalName}
+      generalEducationAdministration={generalEducationAdministration}
+      educationOffice={educationOffice}
+    />}
     {view === 'reports' && <section className="administrator-report"><header><div><span>التقارير</span><h2>سجل الحضور اليومي</h2></div><FileDown size={29} /></header><div className="administrator-report-actions"><label>التاريخ<input type="date" value={reportDate} onChange={event => setReportDate(event.target.value)} /></label><button className="primary-button" onClick={() => void loadReport()} disabled={busy}>عرض التقرير</button></div><div className="teacher-report-actions"><button className="primary-button" onClick={exportReport} disabled={!reportRecords.length}><FileDown size={16} /> Excel</button><button className="outline-button" onClick={() => openPrintDocument('سجل حضور الطلاب', reportHtml(reportRecords, reportDate, account.displayName), schoolName)}><Printer size={16} /> PDF / طباعة</button></div><div className="administrator-report-table"><table><thead><tr><th>الطالب</th><th>الصف والفصل</th><th>الحالة</th><th>الوقت</th><th>المسجل</th></tr></thead><tbody>{reportRecords.map(row => <tr key={row.studentId}><td>{row.name}</td><td>{row.grade} · {row.classroom}</td><td>{row.status === 'late' ? 'متأخر' : 'حاضر'}</td><td dir="ltr">{row.time}</td><td>{row.recordedBy || '—'}</td></tr>)}</tbody></table>{!reportRecords.length && <p>لا توجد سجلات في التاريخ المحدد.</p>}</div></section>}
     {view === 'password' && <section className="administrator-password"><header><KeyRound size={28} /><div><span>الحساب الإداري</span><h2>تغيير كلمة المرور</h2><p>استخدم كلمة مرور جديدة لا تقل عن 8 أحرف.</p></div></header><div><label>كلمة المرور الحالية<input type="password" value={currentPassword} onChange={event => setCurrentPassword(event.target.value)} /></label><label>كلمة المرور الجديدة<input type="password" value={newPassword} onChange={event => setNewPassword(event.target.value)} minLength={8} /></label><label>تأكيد كلمة المرور<input type="password" value={confirmPassword} onChange={event => setConfirmPassword(event.target.value)} minLength={8} /></label><button className="primary-button" onClick={() => void changePassword()} disabled={busy}><KeyRound size={17} /> حفظ كلمة المرور</button></div></section>}
   </main>
