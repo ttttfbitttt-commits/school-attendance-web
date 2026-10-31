@@ -4,7 +4,7 @@ import { BookOpenCheck, CalendarDays, Camera, FileText, Home, KeyRound, LogOut, 
 import { api, type Account, type StudentPortfolioCorrection, type StudentPortfolioSubject, type StudentPortalDashboard } from './api'
 import { StudentCooperationPanel } from './StudentCooperation'
 import { PortfolioFilePreview, type PortfolioPreviewFile } from './PortfolioFilePreview'
-import { savePortfolioImagesPdf } from './portfolioPdf'
+import { savePortfolioImagesPdf, saveStudentPortfolioPdf } from './portfolioPdf'
 
 type StudentTab = 'home' | 'portfolio' | 'schedule' | 'cooperation' | 'password'
 const days = ['', 'الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت']
@@ -97,6 +97,7 @@ export function StudentPortal({ account, onLogout }: { account: Account; onLogou
   const [uploading, setUploading] = useState('')
   const [preview, setPreview] = useState<(PortfolioPreviewFile & { correction?: StudentPortfolioCorrection | null }) | null>(null)
   const [exportingSubject, setExportingSubject] = useState('')
+  const [exportingFullPortfolio, setExportingFullPortfolio] = useState(false)
 
   const load = async () => {
     setBusy('dashboard'); setError('')
@@ -174,6 +175,38 @@ export function StudentPortal({ account, onLogout }: { account: Account; onLogou
       setError(reason instanceof Error ? `تعذر تصدير PDF: ${reason.message}` : 'تعذر تصدير ملف الإنجاز. حاول مرة أخرى.')
     } finally { setExportingSubject('') }
   }
+  const exportFullPortfolioPdf = async () => {
+    if (!dashboard || exportingFullPortfolio || exportingSubject) return
+    setExportingFullPortfolio(true)
+    setError('')
+    setNotice('')
+    try {
+      const files = dashboard.subjects.flatMap(subject => subject.slots
+        .filter(slot => slot.fileUrl && slot.fileType.startsWith('image/'))
+        .map(slot => ({ slot, correction: slot.correction })))
+      const qrCode = await QRCode.toDataURL(dashboard.student.qrValue, {
+        width: 300,
+        margin: 1,
+        errorCorrectionLevel: 'M',
+        color: { dark: '#0b3a68', light: '#ffffff' },
+      })
+      const safeStudentName = dashboard.student.name.trim().replace(/[^\p{L}\p{N}-]+/gu, '-').replace(/^-+|-+$/g, '') || 'طالب'
+      await saveStudentPortfolioPdf(
+        files,
+        `${safeStudentName}-ملف-إنجاز-كامل.pdf`,
+        'uploaded',
+        '',
+        dashboard.student,
+        qrCode,
+        dashboard.schedule,
+      )
+      setNotice(`تم إنشاء ملف PDF موحد يتضمن باركود الطالب والجدول الدراسي و${files.length} صورة من ملفات الإنجاز.`)
+    } catch (reason) {
+      setError(reason instanceof Error ? `تعذر إنشاء ملف الإنجاز PDF: ${reason.message}` : 'تعذر إنشاء ملف الإنجاز PDF. حاول مرة أخرى.')
+    } finally {
+      setExportingFullPortfolio(false)
+    }
+  }
   const schedule = useMemo(() => {
     const groups = new Map<number, StudentPortalDashboard['schedule']>()
     for (const item of dashboard?.schedule || []) groups.set(item.weekday, [...(groups.get(item.weekday) || []), item])
@@ -194,12 +227,12 @@ export function StudentPortal({ account, onLogout }: { account: Account; onLogou
         {activeTab === 'password' && <section className="student-password-card"><div><KeyRound size={23} /><div><span>حماية الحساب</span><h2>تغيير كلمة المرور</h2><p>استخدم كلمة مرور لا تقل عن 8 أحرف ولا تشاركها مع أي شخص.</p></div></div><label>كلمة المرور الجديدة<input type="password" autoComplete="new-password" value={password} onChange={event => setPassword(event.target.value)} /></label><label>تأكيد كلمة المرور<input type="password" autoComplete="new-password" value={confirmPassword} onChange={event => setConfirmPassword(event.target.value)} /></label><button type="button" className="primary-button" onClick={() => void changePassword()} disabled={busy === 'password'}>{busy === 'password' ? 'جارٍ الحفظ…' : 'حفظ كلمة المرور'}</button></section>}
         {activeTab === 'portfolio' && dashboard && (
           <section className="student-portfolio-page">
-            <header><BookOpenCheck size={28} /><div><span>ملف إنجازي</span><h2>موادي الدراسية</h2><p>لكل مادة 8 مربعات للصور فقط. تُضغط الصورة وتُحفظ بصيغة WebP قبل رفعها.</p></div></header>
+            <header><BookOpenCheck size={28} /><div><span>ملف إنجازي</span><h2>موادي الدراسية</h2><p>لكل مادة 8 مربعات للصور فقط. تُضغط الصورة وتُحفظ بصيغة WebP قبل رفعها.</p></div><button type="button" className="outline-button" onClick={() => void exportFullPortfolioPdf()} disabled={exportingFullPortfolio || exportingSubject !== ''}>{exportingFullPortfolio ? 'جارٍ تجهيز الملف الكامل…' : 'تصدير ملفي الكامل PDF'}</button></header>
             {!dashboard.subjects.length ? <p className="teacher-empty">لا توجد مواد مرتبطة بفصلك حتى الآن.</p> : (
               <div className="student-subject-grid">
                 {dashboard.subjects.map(subject => (
                   <article key={subject.assignmentId}>
-                    <header><div><strong>{subject.subject}</strong><span>المعلم: {subject.teacherName}</span></div><small>{subject.grade} · {subject.classroom}</small><button type="button" className="outline-button" onClick={() => void exportSubjectPdf(subject)} disabled={exportingSubject !== '' || !subject.slots.some(slot => slot.fileUrl && slot.fileType.startsWith('image/'))}><Printer size={16} />{exportingSubject === subject.assignmentId ? 'جارٍ إنشاء PDF…' : 'تصدير PDF'}</button></header>
+                    <header><div><strong>{subject.subject}</strong><span>المعلم: {subject.teacherName}</span></div><small>{subject.grade} · {subject.classroom}</small><button type="button" className="outline-button" onClick={() => void exportSubjectPdf(subject)} disabled={exportingFullPortfolio || exportingSubject !== '' || !subject.slots.some(slot => slot.fileUrl && slot.fileType.startsWith('image/'))}><Printer size={16} />{exportingSubject === subject.assignmentId ? 'جارٍ إنشاء PDF…' : 'تصدير PDF'}</button></header>
                     <div className="student-upload-slots">
                       {subject.slots.map(slot => (
                         <div className={`student-upload-slot ${slot.fileUrl ? 'filled' : ''}`} key={slot.slotNumber}>
