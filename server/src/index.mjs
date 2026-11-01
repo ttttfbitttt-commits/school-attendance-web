@@ -323,7 +323,7 @@ async function configureDatabaseRoles() {
   await adminPool.query('GRANT USAGE ON SCHEMA public TO attendance_app, attendance_auth')
   await adminPool.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON schools, students, attendance_logs, almadar_accounts, student_excuses,
     message_logs, absence_records, absence_corrections, absence_follow_up_cases, absence_message_logs, lesson_teachers, lesson_classrooms, lesson_schedule_imports,
-    lesson_name_mappings, lesson_time_slots, lesson_schedule_assignments, teacher_incidents, teacher_day_absences, voice_timetable_projects,
+    lesson_name_mappings, lesson_time_slots, lesson_schedule_assignments, teacher_incidents, teacher_day_absences,
     teacher_classroom_student_maps, teacher_lesson_sessions, teacher_lesson_student_records,
     teacher_sheet_configs, teacher_sheet_entries, teacher_evidence_records, teacher_evidence_images, behavior_incidents, behavior_student_records,
     behavior_action_steps, behavior_score_movements, behavior_audit_logs, student_referrals, administrative_staff,
