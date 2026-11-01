@@ -6,6 +6,7 @@ import * as jsQRNs from 'jsqr'
 const jsQR = (jsQRNs as any).default || jsQRNs
 import {
   BarChart3,
+  CalendarDays,
   Camera,
   Check,
   CheckCircle2,
@@ -66,6 +67,7 @@ import { VicePrincipalAdminCenter } from './VicePrincipalAdmin'
 import { ActivityLeaderAdminCenter } from './ActivityLeaderAdmin'
 import { ActivityLeaderPortal } from './ActivityLeaderPortal'
 import { AbsenceProcedureGuide, SchoolAbsenceProcedureOverview, ViceApprovedAbsenceProcedureQueue } from './AbsenceProcedureGuide'
+import { VoiceTimetableCenter } from './VoiceTimetableCenter'
 
 type Student = {
   id: string
@@ -333,7 +335,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
   const [attendanceSearch, setAttendanceSearch] = useState('')
   const [attendanceStudentSearch, setAttendanceStudentSearch] = useState('')
   const [scanInput, setScanInput] = useState('')
-  const [activeNav, setActiveNav] = useState<'dashboard' | 'students' | 'studentPortal' | 'attendance' | 'absenceProcedures' | 'cooperation' | 'behavior' | 'lessons' | 'teachers' | 'administrators' | 'counselors' | 'vicePrincipals' | 'activityLeaders' | 'referrals' | 'reports' | 'messages' | 'backup'>('attendance')
+  const [activeNav, setActiveNav] = useState<'dashboard' | 'students' | 'studentPortal' | 'attendance' | 'absenceProcedures' | 'cooperation' | 'behavior' | 'voiceTimetable' | 'lessons' | 'teachers' | 'administrators' | 'counselors' | 'vicePrincipals' | 'activityLeaders' | 'referrals' | 'reports' | 'messages' | 'backup'>('attendance')
   const [manualAttendanceSelection, setManualAttendanceSelection] = useState<Student[]>([])
   const [manualAttendanceSubmitting, setManualAttendanceSubmitting] = useState(false)
   const [attendanceStatusUpdating, setAttendanceStatusUpdating] = useState<Set<string>>(new Set())
@@ -1786,7 +1788,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
   }
 
   const isSchoolManager = account.role === 'admin' || account.role === 'vice_principal'
-  const pageLabel = activeNav === 'dashboard' ? 'إعدادات المدرسة' : activeNav === 'attendance' ? 'سجل الحضور' : activeNav === 'absenceProcedures' ? 'إجراءات التعامل مع الغياب' : activeNav === 'cooperation' ? 'المعلم المتعاون' : activeNav === 'behavior' ? 'سجل السلوك' : activeNav === 'lessons' ? 'سير الحصص' : activeNav === 'teachers' ? 'المعلمون' : activeNav === 'administrators' ? 'الإداريون' : activeNav === 'counselors' ? 'الموجّه الطلابي' : activeNav === 'vicePrincipals' ? 'وكلاء المدرسة' : activeNav === 'activityLeaders' ? 'رائد النشاط' : activeNav === 'studentPortal' ? 'بوابة الطالب' : activeNav === 'referrals' ? 'إحالات الطلاب' : activeNav === 'reports' ? 'التقارير' : activeNav === 'messages' ? 'الرسائل' : activeNav === 'backup' ? 'النسخ الاحتياطي والاستعادة' : 'إدارة الطلاب'
+  const pageLabel = activeNav === 'dashboard' ? 'إعدادات المدرسة' : activeNav === 'attendance' ? 'سجل الحضور' : activeNav === 'absenceProcedures' ? 'إجراءات التعامل مع الغياب' : activeNav === 'cooperation' ? 'المعلم المتعاون' : activeNav === 'behavior' ? 'سجل السلوك' : activeNav === 'voiceTimetable' ? 'الجدول الصوتي' : activeNav === 'lessons' ? 'سير الحصص' : activeNav === 'teachers' ? 'المعلمون' : activeNav === 'administrators' ? 'الإداريون' : activeNav === 'counselors' ? 'الموجّه الطلابي' : activeNav === 'vicePrincipals' ? 'وكلاء المدرسة' : activeNav === 'activityLeaders' ? 'رائد النشاط' : activeNav === 'studentPortal' ? 'بوابة الطالب' : activeNav === 'referrals' ? 'إحالات الطلاب' : activeNav === 'reports' ? 'التقارير' : activeNav === 'messages' ? 'الرسائل' : activeNav === 'backup' ? 'النسخ الاحتياطي والاستعادة' : 'إدارة الطلاب'
   return (
     <div className="app-shell" dir="rtl">
       {passwordChangeRequired && <div className="counselor-dialog-backdrop" role="dialog" aria-modal="true" aria-labelledby="vice-principal-password-title">
@@ -1932,6 +1934,17 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
             <Layers size={18} />
             <span>سير الحصص</span>
           </button>
+
+          {isSchoolManager && <button
+            className={activeNav === 'voiceTimetable' ? 'nav-item active' : 'nav-item'}
+            onClick={() => {
+              setActiveNav('voiceTimetable')
+              setIsMobileMenuOpen(false)
+            }}
+          >
+            <CalendarDays size={18} />
+            <span>الجدول الصوتي</span>
+          </button>}
 
           {isSchoolManager && <button
             className={activeNav === 'teachers' ? 'nav-item active' : 'nav-item'}
@@ -2719,6 +2732,8 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
           generalEducationAdministration={schoolSettings.generalEducationAdministration}
           educationOffice={schoolSettings.educationOffice}
         />}
+
+        {activeNav === 'voiceTimetable' && isSchoolManager && <VoiceTimetableCenter schoolName={schoolSettings.schoolName} onOpenLessonFlow={() => setActiveNav('lessons')} />}
 
         {activeNav === 'teachers' && <TeacherAdminCenter schoolName={schoolSettings.schoolName} />}
 
