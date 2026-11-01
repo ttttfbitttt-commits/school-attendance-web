@@ -5,7 +5,6 @@ import pg from 'pg'
 import { handleFeatureRequest, migrateFeatures } from './features.mjs'
 import { migrateEmailVerification, requestSchoolRegistration, verifySchoolRegistration } from './emailVerification.mjs'
 import { handleLessonFlowRequest, migrateLessonFlow } from './lessonFlow.mjs'
-import { handleVoiceTimetableRequest, migrateVoiceTimetable } from './voiceTimetable.mjs'
 import { handleTeacherPortalRequest, migrateTeacherPortal } from './teacherPortal.mjs'
 import { handleBehaviorRequest, migrateBehavior } from './behavior.mjs'
 import { handleStudentReferralRequest, migrateStudentReferrals } from './studentReferrals.mjs'
@@ -408,7 +407,6 @@ async function migrateDatabase() {
   await migrateFeatures(adminPool)
   await migrateEmailVerification(adminPool)
   await migrateLessonFlow(adminPool)
-  await migrateVoiceTimetable(adminPool)
   await migrateTeacherPortal(adminPool)
   await migrateAdministratorPortal(adminPool)
   await migrateStudentPortal(adminPool)
@@ -594,7 +592,6 @@ const server = http.createServer(async (req, res) => {
     if (await handleCounselorPortalRequest({ req, res, url, user, body, json, scoped, authPool, passwordHash })) return
     if (await handleVicePrincipalPortalRequest({ req, res, url, user, body, json, scoped, authPool, passwordHash })) return
     if (await handleLessonFlowRequest({ req, res, url, user, body, json, scoped })) return
-    if (await handleVoiceTimetableRequest({ req, res, url, user, body, json, scoped })) return
     // Teacher accounts are intentionally isolated from the administrative attendance APIs.
     if (user.role === 'teacher' || user.role === 'administrator' || user.role === 'student' || user.role === 'activity_leader') return json(res, 403, { error: 'portal_only' })
     if (req.method === 'GET' && url.pathname === '/api/school') {
