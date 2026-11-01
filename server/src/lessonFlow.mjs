@@ -444,8 +444,7 @@ export async function handleLessonFlowRequest(context) {
       const current = await client.query(`SELECT teacher_id AS "teacherId",teacher_name AS name,identity_number AS "identityNumber",
           to_char(absence_date,'YYYY-MM-DD') AS date FROM teacher_day_absences
         WHERE school_id=$1 AND absence_date=$2 ORDER BY teacher_name`, [user.school_id, date])
-      const coverage = await createVoiceTimetableCoverages(client, user.school_id, date, user.user_id)
-      return { added: saved.rowCount, teachers: current.rows, coverage }
+      return { added: saved.rowCount, teachers: current.rows }
     })
     if (result.error) { json(res, 404, { error: result.error }); return true }
     json(res, 200, { date, ...result })
@@ -457,7 +456,6 @@ export async function handleLessonFlowRequest(context) {
     if (!validId(teacherId)) { json(res, 400, { error: 'invalid_teacher' }); return true }
     const date = validDate(url.searchParams.get('date')) || riyadhClock().date
     const result = await scoped(user.school_id, async client => {
-      await client.query('DELETE FROM voice_timetable_coverages WHERE school_id=$1 AND absent_teacher_id=$2 AND absence_date=$3', [user.school_id, teacherId, date])
       return client.query('DELETE FROM teacher_day_absences WHERE school_id=$1 AND teacher_id=$2 AND absence_date=$3', [user.school_id, teacherId, date])
     })
     json(res, 200, { ok: true, removed: result.rowCount })
