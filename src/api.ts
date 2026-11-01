@@ -104,6 +104,8 @@ export type StudentInput = Pick<StudentRecord, 'id' | 'name' | 'phone' | 'grade'
 export type LessonTimeSlot = { weekday: number; periodNumber: number; startTime: string; endTime: string }
 export type LessonClassroom = { id: string; name: string; qrToken: string }
 export type LessonTeacher = { id: string; name: string; identityNumber: string }
+export type VoiceTimetableConfiguration = { classes: Array<{ id: string; name: string }>; subjects: Array<{ id: string; name: string; weeklyLessons: number }>; assignments: Array<{ classId: string; subjectId: string; teacherId: string }> }
+export type VoiceTimetableProject = { configuration: VoiceTimetableConfiguration; updatedAt: string | null; teachers: LessonTeacher[] }
 export type LessonTeacherCandidate = { id: string; name: string; identityNumber: string; score: number }
 export type LessonUnresolvedName = { rawName: string; occurrences: number; candidates: LessonTeacherCandidate[] }
 export type LessonFlowOverview = {
@@ -456,6 +458,8 @@ export const api = {
   messageTeachers: () => request<{ teachers: MessageTeacher[] }>('/messages/teachers'),
   sendMessages: (payload: { studentIds?: string[]; teacherIds?: string[]; type: 'late' | 'absence' | 'general' | 'teacher'; message?: string }) => request<{ ok: boolean; sent: number; failed: number }>('/messages/send', { method: 'POST', body: JSON.stringify(payload) }),
   lessonOverview: () => request<LessonFlowOverview>('/lesson-flow/overview'),
+  voiceTimetableProject: () => request<VoiceTimetableProject>('/voice-timetable/project'),
+  saveVoiceTimetableProject: (configuration: VoiceTimetableConfiguration) => request<VoiceTimetableProject>('/voice-timetable/project', { method: 'PUT', body: JSON.stringify(configuration) }),
   teacherDayAbsences: (date = '') => request<{ date: string; teachers: TeacherDayAbsence[] }>(`/lesson-flow/teacher-day-absences${date ? `?date=${encodeURIComponent(date)}` : ''}`),
   addTeacherDayAbsences: (teacherIds: string[], date = '') => request<{ date: string; added: number; teachers: TeacherDayAbsence[] }>('/lesson-flow/teacher-day-absences', { method: 'POST', body: JSON.stringify({ teacherIds, date }) }),
   removeTeacherDayAbsence: (teacherId: string, date = '') => request<{ ok: boolean; removed: number }>(`/lesson-flow/teacher-day-absences?teacherId=${encodeURIComponent(teacherId)}${date ? `&date=${encodeURIComponent(date)}` : ''}`, { method: 'DELETE' }),
