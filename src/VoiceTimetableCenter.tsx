@@ -1,18 +1,17 @@
 import { useEffect, useState } from 'react'
 import { CalendarDays, CheckCircle2, Clock3, Users } from 'lucide-react'
-import { api, type LessonFlowOverview, type VoiceTimetableCoverage } from './api'
+import { api, type LessonFlowOverview } from './api'
 
 type Props = { schoolName: string; onOpenLessonFlow: () => void }
 
 export function VoiceTimetableCenter({ schoolName, onOpenLessonFlow }: Props) {
   const [overview, setOverview] = useState<LessonFlowOverview | null>(null)
-  const [coverages, setCoverages] = useState<VoiceTimetableCoverage[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
     let active = true
-    void Promise.all([api.lessonOverview(), api.voiceTimetableCoverages()])
-      .then(([result, coverage]) => { if (active) { setOverview(result); setCoverages(coverage.rows) } })
+    void api.lessonOverview()
+      .then(result => { if (active) setOverview(result) })
       .finally(() => { if (active) setLoading(false) })
     return () => { active = false }
   }, [])
@@ -43,12 +42,6 @@ export function VoiceTimetableCenter({ schoolName, onOpenLessonFlow }: Props) {
       <article className="voice-timetable-card muted-card">
         <h3>ما الذي سيعمل هنا؟</h3>
         <ul><li>إعداد التوقيت والجدول والحصص من بيانات المدرسة الحالية.</li><li>توزيع حصص الانتظار للمعلمين المتاحين.</li><li>عند تأكيد الغياب: إدراج البديل والفصل والمادة والحصة مباشرة في سير الحصص.</li><li>حفظ التوقيع والتقرير الرسمي في سجل واحد للمدرسة.</li></ul>
-      </article>
-
-      <article className="voice-timetable-card">
-        <span className="panel-kicker">تكليفات اليوم</span>
-        <h3>البدائل التي أُدرجت تلقائيًا في سير الحصص</h3>
-        {coverages.length ? <div className="voice-timetable-coverages">{coverages.map(item => <div key={item.id}><b>الحصة {item.periodNumber} · {item.classroom}</b><span>{item.subject} · غياب {item.absentTeacherName}</span><strong>{item.substituteTeacherName ? `المكلّف: ${item.substituteTeacherName}` : 'لا يوجد بديل متاح'}</strong></div>)}</div> : <p>لا توجد تكليفات انتظار لهذا اليوم. عند تأكيد غياب معلم من «سير الحصص» سيظهر البديل هنا تلقائيًا.</p>}
       </article>
     </>}
   </section>
