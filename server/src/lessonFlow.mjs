@@ -384,6 +384,15 @@ export async function migrateLessonFlow(pool) {
     CREATE INDEX IF NOT EXISTS teacher_incidents_school_date ON teacher_incidents(school_id,incident_date DESC,detected_at DESC);
     CREATE INDEX IF NOT EXISTS teacher_day_absences_school_date ON teacher_day_absences(school_id,absence_date,teacher_id);
     CREATE INDEX IF NOT EXISTS voice_timetable_coverages_school_date ON voice_timetable_coverages(school_id,absence_date,weekday,period_number);
+    ALTER TABLE voice_timetable_coverages ENABLE ROW LEVEL SECURITY;
+    ALTER TABLE voice_timetable_coverages FORCE ROW LEVEL SECURITY;
+    DO $$ BEGIN
+      IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname='public' AND tablename='voice_timetable_coverages' AND policyname='voice_timetable_coverages_school_scope') THEN
+        CREATE POLICY voice_timetable_coverages_school_scope ON voice_timetable_coverages
+          USING (school_id=current_setting('app.school_id',true)::uuid)
+          WITH CHECK (school_id=current_setting('app.school_id',true)::uuid);
+      END IF;
+    END $$;
   `)
 }
 
