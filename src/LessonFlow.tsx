@@ -27,6 +27,7 @@ import {
   type LessonScheduleAssignment,
   type LessonTimeSlot,
   type TeacherDayAbsence,
+  type VoiceTimetableCoverage,
 } from './api'
 import { HijriDatePicker } from './HijriDatePicker'
 import { formatHijriDate } from './dateUtils'
@@ -371,6 +372,7 @@ export function LessonFlowCenter({
   const [teacherSearch, setTeacherSearch] = useState('')
   const [manualObservationError, setManualObservationError] = useState('')
   const [teacherDayAbsences, setTeacherDayAbsences] = useState<TeacherDayAbsence[]>([])
+  const [voiceTimetableCoverages, setVoiceTimetableCoverages] = useState<VoiceTimetableCoverage[]>([])
   const [teacherAbsenceSearch, setTeacherAbsenceSearch] = useState('')
   const [selectedAbsentTeacherIds, setSelectedAbsentTeacherIds] = useState<Set<string>>(new Set())
   const [pendingAbsentTeacherIds, setPendingAbsentTeacherIds] = useState<string[] | null>(null)
@@ -416,8 +418,9 @@ export function LessonFlowCenter({
   }
 
   const loadTeacherDayAbsences = async (date = incidentDate) => {
-    const data = await api.teacherDayAbsences(date)
+    const [data, coverage] = await Promise.all([api.teacherDayAbsences(date), api.voiceTimetableCoverages(date)])
     setTeacherDayAbsences(data.teachers)
+    setVoiceTimetableCoverages(coverage.rows)
     return data
   }
 
@@ -753,10 +756,15 @@ export function LessonFlowCenter({
     await run('teacher-day-absences', async () => {
       const result = await api.addTeacherDayAbsences(pendingAbsentTeacherIds, incidentDate)
       setTeacherDayAbsences(result.teachers)
+      const coverage = await api.voiceTimetableCoverages(incidentDate)
+      setVoiceTimetableCoverages(coverage.rows)
       setPendingAbsentTeacherIds(null)
       setSelectedAbsentTeacherIds(new Set())
       setTeacherAbsenceSearch('')
-      return result.added ? `تم تسجيل غياب ${result.added} معلم للتاريخ المحدد.` : 'المعلمون المحددون مسجلون غائبين في التاريخ المحدد مسبقًا.'
+      if (!result.added) return 'المعلمون المحددون مسجلون غائبين في التاريخ المحدد مسبقًا.'
+      return result.coverage.created
+        ? `تم تسجيل غياب ${result.added} معلم وتكليف ${result.coverage.created} حصة انتظار تلقائيًا.${result.coverage.uncovered ? ` بقيت ${result.coverage.uncovered} حصة دون بديل متاح.` : ''}`
+        : `تم تسجيل غياب ${result.added} معلم. لا توجد حصص غياب مجدولة لهذا التاريخ أو لم يتوفر بديل متاح.`
     })
   }
 
@@ -765,6 +773,7 @@ export function LessonFlowCenter({
     await run(`remove-day-absence-${teacher.teacherId}`, async () => {
       const result = await api.removeTeacherDayAbsence(teacher.teacherId, incidentDate)
       if (result.removed) setTeacherDayAbsences(current => current.filter(item => item.teacherId !== teacher.teacherId))
+      if (result.removed) setVoiceTimetableCoverages(await api.voiceTimetableCoverages(incidentDate).then(value => value.rows))
       return result.removed ? `تمت إزالة ${teacher.name} من سجل الغياب للتاريخ المحدد.` : 'لم يعد هذا المعلم مسجلاً غائبًا في التاريخ المحدد.'
     })
   }
@@ -931,6 +940,7 @@ export function LessonFlowCenter({
               </>}
               {pendingAbsentTeacherIds && <div className="teacher-absence-confirm"><strong>تأكيد تسجيل الغياب للتاريخ المحدد</strong><p>يمكن إزالة أي اسم من السجل إذا حضر المعلم أو احتاج الغياب إلى تصحيح.</p><ul>{pendingAbsentTeachers.map(teacher => <li key={teacher.id}>{teacher.name} · {teacher.identityNumber}</li>)}</ul><div className="feature-actions"><button type="button" className="primary-button" onClick={() => void saveTeacherDayAbsences()} disabled={!!busy}>{busy === 'teacher-day-absences' ? 'جارٍ الحفظ…' : 'تأكيد تسجيل الغياب'}</button><button type="button" className="secondary-button" onClick={() => setPendingAbsentTeacherIds(null)} disabled={!!busy}>إلغاء</button></div></div>}
               <div className="teacher-day-absence-list"><div className="teacher-day-absence-list-head"><h4>سجل غياب المعلمين · {formatHijriDate(incidentDate)}</h4><button type="button" className="outline-button" onClick={() => void refreshTeacherDayAbsences()} disabled={!!busy}>{busy === 'teacher-day-absence-list' ? 'جارٍ التحديث…' : 'تحديث السجل'}</button></div>{teacherDayAbsences.length ? teacherDayAbsences.map(teacher => <div key={teacher.teacherId}><span><strong>{teacher.name}</strong><small>{teacher.identityNumber}</small></span><button type="button" className="outline-button" onClick={() => void removeTeacherDayAbsence(teacher)} disabled={!!busy}>حضر المعلم · إزالة من السجل</button></div>) : <p className="teacher-day-absence-empty">لا يوجد معلم مسجل غائبًا في هذا التاريخ.</p>}</div>
+              {voiceTimetableCoverages.length > 0 && <div className="teacher-day-coverage-list"><h4>تكليفات الانتظار التلقائية</h4>{voiceTimetableCoverages.map(coverage => <div key={coverage.id}><span><strong>الحصة {coverage.periodNumber} · {coverage.classroom}</strong><small>{coverage.subject} · غياب {coverage.absentTeacherName}</small></span><b>{coverage.substituteTeacherName ? `المكلّف: ${coverage.substituteTeacherName}` : 'لا يوجد بديل متاح'}</b></div>)}</div>}
             </section>}
             {openLessonActionPanel === 'waiting-teacher' && <section className="lesson-manual-form">
               <div className="lesson-section-heading">
