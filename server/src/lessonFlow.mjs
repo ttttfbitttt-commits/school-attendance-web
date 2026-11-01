@@ -196,6 +196,58 @@ async function applyExactTeacherMatches(client, schoolId) {
   return updated
 }
 
+// A coverage is created from the actual school timetable, not from a copied
+// teacher name.  The substitute must be free in the same weekday/period and
+// is ordered by the lightest teaching load, then by the fewest coverages that day.
+async function createVoiceTimetableCoverages(client, schoolId, date, recordedBy) {
+  const active = await activeImport(client, schoolId)
+  if (!active) return { created: 0, uncovered: 0 }
+  const weekday = weekdayForDate(date)
+  if (!VALID_WEEKDAYS.has(weekday)) return { created: 0, uncovered: 0 }
+  const absentAssignments = (await client.query(`SELECT a.id AS "assignmentId",a.classroom_id AS "classroomId",a.period_number AS "periodNumber",
+      a.subject_name AS subject, a.teacher_id AS "absentTeacherId"
+    FROM lesson_schedule_assignments a
+    JOIN teacher_day_absences absence ON absence.school_id=a.school_id AND absence.teacher_id=a.teacher_id AND absence.absence_date=$3::date
+    WHERE a.school_id=$1 AND a.import_id=$2 AND a.weekday=$4 AND a.teacher_id IS NOT NULL
+    ORDER BY a.period_number,a.id`, [schoolId, active.id, date, weekday])).rows
+  let created = 0
+  let uncovered = 0
+  for (const item of absentAssignments) {
+    const exists = await client.query(`SELECT 1 FROM voice_timetable_coverages WHERE school_id=$1 AND absence_date=$2::date AND assignment_id=$3`, [schoolId, date, item.assignmentId])
+    if (exists.rowCount) continue
+    const candidate = (await client.query(`SELECT teacher.id
+      FROM lesson_teachers teacher
+      WHERE teacher.school_id=$1 AND teacher.active=true AND teacher.id<>$2::uuid
+        AND NOT EXISTS(SELECT 1 FROM teacher_day_absences absence WHERE absence.school_id=teacher.school_id AND absence.teacher_id=teacher.id AND absence.absence_date=$3::date)
+        AND NOT EXISTS(SELECT 1 FROM lesson_schedule_assignments current
+          WHERE current.school_id=teacher.school_id AND current.import_id=$4 AND current.teacher_id=teacher.id AND current.weekday=$5 AND current.period_number=$6)
+        AND NOT EXISTS(SELECT 1 FROM voice_timetable_coverages used
+          WHERE used.school_id=teacher.school_id AND used.absence_date=$3::date AND used.weekday=$5 AND used.period_number=$6 AND used.substitute_teacher_id=teacher.id AND used.status='assigned')
+      ORDER BY
+        (SELECT COUNT(*) FROM lesson_schedule_assignments workload WHERE workload.school_id=teacher.school_id AND workload.import_id=$4 AND workload.teacher_id=teacher.id) ASC,
+        (SELECT COUNT(*) FROM voice_timetable_coverages workload WHERE workload.school_id=teacher.school_id AND workload.absence_date=$3::date AND workload.substitute_teacher_id=teacher.id AND workload.status='assigned') ASC,
+        teacher.full_name ASC LIMIT 1`, [schoolId, item.absentTeacherId, date, active.id, weekday, item.periodNumber])).rows[0]
+    if (!candidate) { uncovered += 1; continue }
+    await client.query(`INSERT INTO voice_timetable_coverages(school_id,assignment_id,classroom_id,absent_teacher_id,substitute_teacher_id,absence_date,weekday,period_number,subject_name,status,created_by)
+      VALUES($1,$2,$3,$4,$5,$6::date,$7,$8,$9,'assigned',$10)`, [schoolId, item.assignmentId, item.classroomId, item.absentTeacherId, candidate.id, date, weekday, item.periodNumber, item.subject, recordedBy])
+    created += 1
+  }
+  return { created, uncovered }
+}
+
+async function voiceTimetableCoverages(client, schoolId, date) {
+  return (await client.query(`SELECT coverage.id,coverage.absence_date AS date,coverage.weekday,coverage.period_number AS "periodNumber",coverage.subject_name AS subject,
+      classroom.name AS classroom,absent.full_name AS "absentTeacherName",substitute.full_name AS "substituteTeacherName",
+      to_char(slot.starts_at,'HH24:MI') AS "startTime",to_char(slot.ends_at,'HH24:MI') AS "endTime",coverage.status
+    FROM voice_timetable_coverages coverage
+    JOIN lesson_classrooms classroom ON classroom.id=coverage.classroom_id
+    JOIN lesson_teachers absent ON absent.id=coverage.absent_teacher_id
+    LEFT JOIN lesson_teachers substitute ON substitute.id=coverage.substitute_teacher_id
+    LEFT JOIN lesson_time_slots slot ON slot.school_id=coverage.school_id AND slot.weekday=coverage.weekday AND slot.period_number=coverage.period_number
+    WHERE coverage.school_id=$1 AND coverage.absence_date=$2::date
+    ORDER BY coverage.period_number,classroom.name`, [schoolId, date])).rows.map(row => ({ ...row, weekday: Number(row.weekday), periodNumber: Number(row.periodNumber) }))
+}
+
 export async function migrateLessonFlow(pool) {
   await pool.query(`
     CREATE TABLE IF NOT EXISTS lesson_teachers (
@@ -308,6 +360,22 @@ export async function migrateLessonFlow(pool) {
       recorded_at timestamptz NOT NULL DEFAULT now(),
       UNIQUE (school_id,teacher_id,absence_date)
     );
+    CREATE TABLE IF NOT EXISTS voice_timetable_coverages (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      school_id uuid NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+      assignment_id uuid NOT NULL REFERENCES lesson_schedule_assignments(id) ON DELETE CASCADE,
+      classroom_id uuid NOT NULL REFERENCES lesson_classrooms(id) ON DELETE RESTRICT,
+      absent_teacher_id uuid NOT NULL REFERENCES lesson_teachers(id) ON DELETE RESTRICT,
+      substitute_teacher_id uuid REFERENCES lesson_teachers(id) ON DELETE RESTRICT,
+      absence_date date NOT NULL,
+      weekday smallint NOT NULL CHECK (weekday BETWEEN 1 AND 7),
+      period_number smallint NOT NULL CHECK (period_number BETWEEN 1 AND 12),
+      subject_name text NOT NULL DEFAULT '',
+      status text NOT NULL DEFAULT 'assigned' CHECK (status IN ('assigned','cancelled','uncovered')),
+      created_by uuid REFERENCES users(id) ON DELETE SET NULL,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      UNIQUE (school_id,absence_date,assignment_id)
+    );
     CREATE UNIQUE INDEX IF NOT EXISTS teacher_incidents_one_open_per_lesson
       ON teacher_incidents(school_id,classroom_id,incident_date,period_number)
       WHERE status IN ('draft','confirmed');
@@ -315,6 +383,7 @@ export async function migrateLessonFlow(pool) {
     CREATE INDEX IF NOT EXISTS lesson_assignments_active_lookup ON lesson_schedule_assignments(school_id,import_id,classroom_id,weekday,period_number);
     CREATE INDEX IF NOT EXISTS teacher_incidents_school_date ON teacher_incidents(school_id,incident_date DESC,detected_at DESC);
     CREATE INDEX IF NOT EXISTS teacher_day_absences_school_date ON teacher_day_absences(school_id,absence_date,teacher_id);
+    CREATE INDEX IF NOT EXISTS voice_timetable_coverages_school_date ON voice_timetable_coverages(school_id,absence_date,weekday,period_number);
   `)
 }
 
@@ -343,6 +412,13 @@ export async function handleLessonFlowRequest(context) {
     return true
   }
 
+  if (req.method === 'GET' && url.pathname === '/api/lesson-flow/voice-timetable-coverages') {
+    const date = validDate(url.searchParams.get('date')) || riyadhClock().date
+    const rows = await scoped(user.school_id, client => voiceTimetableCoverages(client, user.school_id, date))
+    json(res, 200, { date, rows })
+    return true
+  }
+
   if (req.method === 'POST' && url.pathname === '/api/lesson-flow/teacher-day-absences') {
     const input = await body(req)
     const teacherIds = Array.isArray(input.teacherIds) ? [...new Set(input.teacherIds.map(value => String(value || '')).filter(validId))].slice(0, 200) : []
@@ -359,7 +435,8 @@ export async function handleLessonFlowRequest(context) {
       const current = await client.query(`SELECT teacher_id AS "teacherId",teacher_name AS name,identity_number AS "identityNumber",
           to_char(absence_date,'YYYY-MM-DD') AS date FROM teacher_day_absences
         WHERE school_id=$1 AND absence_date=$2 ORDER BY teacher_name`, [user.school_id, date])
-      return { added: saved.rowCount, teachers: current.rows }
+      const coverage = await createVoiceTimetableCoverages(client, user.school_id, date, user.user_id)
+      return { added: saved.rowCount, teachers: current.rows, coverage }
     })
     if (result.error) { json(res, 404, { error: result.error }); return true }
     json(res, 200, { date, ...result })
@@ -370,8 +447,10 @@ export async function handleLessonFlowRequest(context) {
     const teacherId = String(url.searchParams.get('teacherId') || '')
     if (!validId(teacherId)) { json(res, 400, { error: 'invalid_teacher' }); return true }
     const date = validDate(url.searchParams.get('date')) || riyadhClock().date
-    const result = await scoped(user.school_id, async client => client.query(
-      'DELETE FROM teacher_day_absences WHERE school_id=$1 AND teacher_id=$2 AND absence_date=$3', [user.school_id, teacherId, date]))
+    const result = await scoped(user.school_id, async client => {
+      await client.query('DELETE FROM voice_timetable_coverages WHERE school_id=$1 AND absent_teacher_id=$2 AND absence_date=$3', [user.school_id, teacherId, date])
+      return client.query('DELETE FROM teacher_day_absences WHERE school_id=$1 AND teacher_id=$2 AND absence_date=$3', [user.school_id, teacherId, date])
+    })
     json(res, 200, { ok: true, removed: result.rowCount })
     return true
   }

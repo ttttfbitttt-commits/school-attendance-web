@@ -756,7 +756,10 @@ export function LessonFlowCenter({
       setPendingAbsentTeacherIds(null)
       setSelectedAbsentTeacherIds(new Set())
       setTeacherAbsenceSearch('')
-      return result.added ? `تم تسجيل غياب ${result.added} معلم للتاريخ المحدد.` : 'المعلمون المحددون مسجلون غائبين في التاريخ المحدد مسبقًا.'
+      if (!result.added) return 'المعلمون المحددون مسجلون غائبين في التاريخ المحدد مسبقًا.'
+      return result.coverage.created
+        ? `تم تسجيل غياب ${result.added} معلم وتكليف ${result.coverage.created} حصة انتظار تلقائيًا.${result.coverage.uncovered ? ` بقيت ${result.coverage.uncovered} حصة دون بديل متاح.` : ''}`
+        : `تم تسجيل غياب ${result.added} معلم. لا توجد حصص غياب مجدولة لهذا التاريخ أو لم يتوفر بديل متاح.`
     })
   }
 

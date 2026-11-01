@@ -161,6 +161,7 @@ export type LessonIncidentReportRow = {
   schoolResponseUpdatedAt: string | null
 }
 export type TeacherDayAbsence = { teacherId: string; name: string; identityNumber: string; date: string }
+export type VoiceTimetableCoverage = { id: string; date: string; weekday: number; periodNumber: number; subject: string; classroom: string; absentTeacherName: string; substituteTeacherName: string | null; startTime: string | null; endTime: string | null; status: 'assigned' | 'cancelled' | 'uncovered' }
 export type LessonScanPreview = {
   confirmationToken: string
   classroomId: string
@@ -457,8 +458,9 @@ export const api = {
   sendMessages: (payload: { studentIds?: string[]; teacherIds?: string[]; type: 'late' | 'absence' | 'general' | 'teacher'; message?: string }) => request<{ ok: boolean; sent: number; failed: number }>('/messages/send', { method: 'POST', body: JSON.stringify(payload) }),
   lessonOverview: () => request<LessonFlowOverview>('/lesson-flow/overview'),
   teacherDayAbsences: (date = '') => request<{ date: string; teachers: TeacherDayAbsence[] }>(`/lesson-flow/teacher-day-absences${date ? `?date=${encodeURIComponent(date)}` : ''}`),
-  addTeacherDayAbsences: (teacherIds: string[], date = '') => request<{ date: string; added: number; teachers: TeacherDayAbsence[] }>('/lesson-flow/teacher-day-absences', { method: 'POST', body: JSON.stringify({ teacherIds, date }) }),
+  addTeacherDayAbsences: (teacherIds: string[], date = '') => request<{ date: string; added: number; teachers: TeacherDayAbsence[]; coverage: { created: number; uncovered: number } }>('/lesson-flow/teacher-day-absences', { method: 'POST', body: JSON.stringify({ teacherIds, date }) }),
   removeTeacherDayAbsence: (teacherId: string, date = '') => request<{ ok: boolean; removed: number }>(`/lesson-flow/teacher-day-absences?teacherId=${encodeURIComponent(teacherId)}${date ? `&date=${encodeURIComponent(date)}` : ''}`, { method: 'DELETE' }),
+  voiceTimetableCoverages: (date = '') => request<{ date: string; rows: VoiceTimetableCoverage[] }>(`/lesson-flow/voice-timetable-coverages${date ? `?date=${encodeURIComponent(date)}` : ''}`),
   importLessonTeachers: (teachers: Array<{ name: string; identityNumber: string; phone?: string }>) =>
     request<{ ok: boolean; imported: number; exactResolved: number }>('/lesson-flow/teachers', { method: 'POST', body: JSON.stringify({ teachers }) }),
   importLessonSchedule: (payload: {
