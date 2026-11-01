@@ -1,0 +1,16 @@
+services:
+  soundtable:
+    build: .
+    container_name: soundtable-app
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NASQ_PORT: "8767"
+      NASQ_BIND: "0.0.0.0"
+      SOUNDTABLE_AUTH: "1"
+      SOUNDTABLE_DB: "/var/lib/soundtable/soundtable.sqlite3"
+    ports:
+      - "127.0.0.1:8767:8767"
+    volumes:
+      - /var/lib/soundtable:/var/lib/soundtable

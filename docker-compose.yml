@@ -38,12 +38,24 @@ services:
   web:
     build: .
     restart: unless-stopped
-    depends_on: [api]
+    depends_on: [api, voice-timetable]
     ports:
       - "127.0.0.1:8080:80"
     networks: [private, edge]
+  voice-timetable:
+    build: ./internal-voice-timetable
+    restart: unless-stopped
+    environment:
+      HASR_EMBEDDED: "1"
+      SOUNDTABLE_AUTH: "1"
+      NASQ_BIND: "0.0.0.0"
+      NASQ_PORT: "8767"
+    volumes:
+      - voice_timetable_data:/app/data
+    networks: [private]
 volumes:
   postgres_data:
+  voice_timetable_data:
 networks:
   private:
     internal: true

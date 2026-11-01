@@ -555,6 +555,9 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'POST' && url.pathname === '/api/auth/logout') { const t=parseCookies(req)[COOKIE]; if(t) await authPool.query('DELETE FROM sessions WHERE token_hash=$1',[tokenHash(t)]); res.setHeader('set-cookie',sessionCookie('',0)); return json(res,200,{ok:true}) }
     const user = await auth(req)
     if (!user) return json(res, 401, { error: 'unauthorized' })
+    if (req.method === 'GET' && url.pathname === '/api/internal/voice-auth') {
+      res.writeHead(204, { 'x-voice-school-id': user.school_id, 'x-voice-user-id': user.user_id, 'cache-control': 'no-store' }); res.end(); return
+    }
     if (req.method === 'GET' && url.pathname === '/api/me') return json(res, 200, { user: account(user) })
     if (req.method === 'GET' && url.pathname === '/api/report-header') {
       const result = await scoped(user.school_id, async c => c.query(

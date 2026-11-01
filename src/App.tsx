@@ -1934,6 +1934,14 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
           </button>
 
           {isSchoolManager && <button
+            className="nav-item"
+            onClick={() => { window.location.assign('/voice-table/index.html') }}
+          >
+            <Clock3 size={18} />
+            <span>الجدول الصوتي</span>
+          </button>}
+
+          {isSchoolManager && <button
             className={activeNav === 'teachers' ? 'nav-item active' : 'nav-item'}
             onClick={() => {
               setActiveNav('teachers')
