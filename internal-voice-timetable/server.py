@@ -43,6 +43,13 @@ def embedded_state_path():
     except (ValueError, AttributeError): raise PermissionError('هوية المدرسة غير صالحة.')
     return EMBEDDED_DATA/f'{school_id}.json'
 
+def write_embedded_project(user_id, project):
+    school_id=str(user_id or '').removeprefix('hasr:')
+    try: school_id=str(uuid.UUID(school_id))
+    except (ValueError, AttributeError): raise PermissionError('هوية المدرسة غير صالحة.')
+    state=EMBEDDED_DATA/f'{school_id}.json'; temp=state.with_suffix('.tmp')
+    temp.write_text(json.dumps(project,ensure_ascii=False),encoding='utf-8'); temp.replace(state)
+
 def read():
     if HASR_EMBEDDED:
         state=embedded_state_path()
@@ -54,8 +61,7 @@ def read():
 def write(d):
     refresh_active_term(d)
     if HASR_EMBEDDED:
-        state=embedded_state_path(); temp=state.with_suffix('.tmp')
-        temp.write_text(json.dumps(d,ensure_ascii=False),encoding='utf-8'); temp.replace(state); return
+        write_embedded_project(request_user_id.get(),d); return
     user_id=request_user_id.get()
     if user_id:
         sound_auth.save_project(user_id,d)
@@ -63,6 +69,14 @@ def write(d):
     temp=STATE.with_suffix('.tmp'); temp.write_text(json.dumps(d,ensure_ascii=False),encoding='utf-8'); temp.replace(STATE)
 
 def signature_project(token):
+    if HASR_EMBEDDED:
+        # توقيع المعلم يفتح من جواله بلا جلسة الحصر؛ الرمز العشوائي هو التفويض.
+        for state in EMBEDDED_DATA.glob('*.json'):
+            try: project=ensure_terms(json.loads(state.read_text(encoding='utf-8')))
+            except (OSError,json.JSONDecodeError): continue
+            found=find_signature_task(project,token)
+            if found: return (f'hasr:{state.stem}',project,project,found[0],project.get('activeTermId'))
+        return None
     if AUTH_REQUIRED:
         return sound_auth.find_project_by_signature_token(token)
     project=read(); found=find_signature_task(project,token)
@@ -80,11 +94,11 @@ def write_signature_project(resolved, project):
             if workspace: workspace['snapshot']=copy.deepcopy(project)
         root['revision']=root.get('revision',0)+1
         refresh_active_term(root)
-        if HASR_EMBEDDED: write(root)
+        if HASR_EMBEDDED: write_embedded_project(user_id,root)
         elif AUTH_REQUIRED: sound_auth.save_project(user_id,root)
         else: write(root)
         return
-    if HASR_EMBEDDED: write(project)
+    if HASR_EMBEDDED: write_embedded_project(user_id,project)
     elif AUTH_REQUIRED: sound_auth.save_project(user_id,project)
     else: write(project)
 
