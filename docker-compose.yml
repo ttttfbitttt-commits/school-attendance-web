@@ -48,6 +48,8 @@ services:
     environment:
       HASR_EMBEDDED: "1"
       SOUNDTABLE_AUTH: "1"
+      # يسمح بطلبات الاستيراد القادمة من النسخة المدمجة تحت نطاق نظام الحصر.
+      SOUNDTABLE_PUBLIC_URL: "https://7asr2030.com"
       NASQ_BIND: "0.0.0.0"
       NASQ_PORT: "8767"
     volumes:
