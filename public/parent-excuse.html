@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#075a62" />
+    <title>طلب استئذان طالب</title>
+    <link rel="stylesheet" href="/parent-excuse.css" />
+  </head>
+  <body>
+    <main class="parent-excuse-page">
+      <section class="parent-excuse-card" aria-live="polite">
+        <header class="parent-excuse-brand">
+          <img src="/moe-logo.png" alt="وزارة التعليم" />
+          <div><span>نظام الحصر</span><strong>تأكيد استئذان طالب</strong></div>
+        </header>
+        <div id="loading" class="parent-excuse-message">جارٍ تحميل تفاصيل الطلب…</div>
+        <section id="request" hidden>
+          <div class="parent-excuse-intro"><span>طلب استئذان</span><h1 id="school-name">المدرسة</h1><p>يرجى مراجعة بيانات الاستئذان ثم اختيار الموافقة أو الرفض والتوقيع أدناه.</p></div>
+          <dl class="parent-excuse-details">
+            <div><dt>اسم الطالب</dt><dd id="student-name">—</dd></div>
+            <div><dt>الصف والفصل</dt><dd id="student-class">—</dd></div>
+            <div><dt>اليوم والتاريخ</dt><dd id="request-date">—</dd></div>
+            <div><dt>سبب الاستئذان</dt><dd id="request-reason">—</dd></div>
+          </dl>
+          <fieldset class="parent-excuse-decision">
+            <legend>قرار ولي الأمر</legend>
+            <label><input type="radio" name="decision" value="approved" /> أوافق على استئذان الطالب</label>
+            <label><input type="radio" name="decision" value="rejected" /> لا أوافق على الاستئذان</label>
+          </fieldset>
+          <section class="parent-excuse-signature">
+            <div><strong>توقيع ولي الأمر</strong><button id="clear-signature" type="button">مسح التوقيع</button></div>
+            <canvas id="signature" aria-label="مساحة توقيع ولي الأمر"></canvas>
+            <small>وقّع بإصبعك أو بالقلم داخل المساحة. سيُحفظ التوقيع باللون الأزرق في سجل المدرسة.</small>
+          </section>
+          <p id="form-error" class="parent-excuse-error" hidden></p>
+          <button id="submit" class="parent-excuse-submit" type="button">إرسال قرار ولي الأمر</button>
+        </section>
+        <section id="completed" class="parent-excuse-completed" hidden></section>
+      </section>
+    </main>
+    <script type="module" src="/parent-excuse.js"></script>
+  </body>
+</html>

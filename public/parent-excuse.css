@@ -1,0 +1,37 @@
+:root { font-family: Tahoma, Arial, sans-serif; color: #123c43; background: #ecf7f2; }
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; background: radial-gradient(circle at 88% 0, #d7f0e5, transparent 34rem), #f3f8f6; }
+.parent-excuse-page { min-height: 100dvh; display: grid; place-items: center; padding: 24px 16px; }
+.parent-excuse-card { width: min(100%, 720px); background: white; border: 1px solid #d4e7df; border-radius: 24px; overflow: hidden; box-shadow: 0 18px 50px #184d4220; }
+.parent-excuse-brand { display: flex; align-items: center; gap: 14px; padding: 17px 24px; color: white; background: #075a62; }
+.parent-excuse-brand img { width: 68px; height: 48px; object-fit: contain; filter: brightness(0) invert(1); }
+.parent-excuse-brand div { display: grid; gap: 3px; }
+.parent-excuse-brand span { color: #c5f2df; font-size: 13px; }
+.parent-excuse-brand strong { font-size: 20px; }
+.parent-excuse-message { padding: 50px 24px; text-align: center; color: #557570; }
+#request { padding: 0 24px 26px; }
+.parent-excuse-intro { padding: 25px 0 15px; text-align: center; }
+.parent-excuse-intro span { display: inline-block; padding: 5px 12px; border-radius: 20px; background: #eff8f2; color: #27745e; font-size: 13px; }
+.parent-excuse-intro h1 { margin: 10px 0 6px; font-size: 25px; color: #075a62; }
+.parent-excuse-intro p { margin: 0; color: #58736e; line-height: 1.8; }
+.parent-excuse-details { margin: 8px 0 18px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); border: 1px solid #d7e7e1; border-radius: 14px; overflow: hidden; }
+.parent-excuse-details div { padding: 13px 15px; border-bottom: 1px solid #e2eee9; }
+.parent-excuse-details div:nth-child(odd) { border-left: 1px solid #e2eee9; }
+.parent-excuse-details div:nth-last-child(-n+2) { border-bottom: 0; }
+.parent-excuse-details dt { font-size: 12px; color: #6f8984; margin-bottom: 5px; }
+.parent-excuse-details dd { margin: 0; font-weight: 700; font-size: 15px; color: #173f43; }
+.parent-excuse-decision { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 14px; margin: 0 0 17px; border: 1px solid #d7e7e1; border-radius: 14px; }
+.parent-excuse-decision legend { padding: 0 7px; color: #496962; font-weight: 700; }
+.parent-excuse-decision label { display: flex; align-items: center; gap: 7px; padding: 12px; border: 1px solid #cfe0d9; border-radius: 10px; color: #234a4c; cursor: pointer; }
+.parent-excuse-decision input { accent-color: #087e72; width: 18px; height: 18px; }
+.parent-excuse-signature { border: 1px solid #b9d7cd; background: #fbfffd; border-radius: 14px; padding: 11px; }
+.parent-excuse-signature > div { display: flex; justify-content: space-between; align-items: center; padding: 0 4px 9px; color: #234a4c; }
+.parent-excuse-signature button { border: 0; background: transparent; color: #1268c4; font: inherit; cursor: pointer; }
+#signature { display: block; width: 100%; height: 170px; border: 1px dashed #8cb8ab; border-radius: 10px; background: white; touch-action: none; cursor: crosshair; }
+.parent-excuse-signature small { display: block; padding: 9px 4px 0; color: #6a817c; line-height: 1.65; }
+.parent-excuse-submit { width: 100%; border: 0; border-radius: 11px; margin-top: 19px; padding: 15px; background: #078376; color: white; font: inherit; font-weight: 700; font-size: 16px; cursor: pointer; }
+.parent-excuse-submit:disabled { opacity: .65; cursor: wait; }
+.parent-excuse-error { color: #b4262f; background: #fff2f2; border-radius: 9px; padding: 9px 12px; }
+.parent-excuse-completed { margin: 34px 24px; padding: 28px 20px; text-align: center; border-radius: 17px; background: #eff9f3; color: #21614e; line-height: 2; }
+.parent-excuse-completed strong { display: block; font-size: 22px; }
+@media (max-width: 540px) { .parent-excuse-page { padding: 0; }.parent-excuse-card { border-radius: 0; min-height: 100dvh; border: 0; }.parent-excuse-brand { padding: 15px 17px; }.parent-excuse-brand img { width: 60px; }.parent-excuse-brand strong { font-size: 17px; } #request { padding: 0 16px 22px; }.parent-excuse-details { grid-template-columns: 1fr; }.parent-excuse-details div { border-left: 0 !important; }.parent-excuse-details div:nth-last-child(2) { border-bottom: 1px solid #e2eee9; }.parent-excuse-decision { grid-template-columns: 1fr; } #signature { height: 155px; } }

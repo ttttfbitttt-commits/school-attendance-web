@@ -52,6 +52,14 @@ export type PlatformSchoolUsage = {
 }
 export type AlmadarAccount = { configured: boolean; senderName?: string; lastBalance?: string | null; verifiedAt?: string | null; updatedAt?: string | null }
 export type Excuse = { id: string; studentId: string; name: string; grade: string; classroom: string; category: string; note: string; startDate: string; endDate: string | null; createdAt: string }
+export type StudentExcuseReason = 'health_condition' | 'family_condition' | 'medical_appointment' | 'government_appointment' | 'exam' | 'job_interview' | 'national_mission'
+export type StudentExcuseStudent = { id: string; name: string; phone: string; grade: string; classroom: string }
+export type StudentExcuseRequest = {
+  id: string; studentId: string; studentName: string; guardianPhone: string; grade: string; classroom: string
+  reason: StudentExcuseReason; reasonLabel: string; requestDate: string; status: 'pending' | 'approved' | 'rejected'
+  createdByName: string; sentByName: string; createdAt: string | null; sentAt: string | null; respondedAt: string | null
+  parentDecision: 'approved' | 'rejected' | null; signatureData?: string
+}
 export type AbsenceStatus = 'unexcused' | 'excused' | 'special'
 export type AbsenceSummaryStatus = AbsenceStatus | 'mixed'
 export type AbsenceRow = {
@@ -433,6 +441,10 @@ export const api = {
   excuses: () => request<{ excuses: Excuse[] }>('/excuses'),
   addExcuse: (excuse: { studentId: string; category: string; note: string; startDate: string; endDate: string }) => request<{ ok: boolean; id: string }>('/excuses', { method: 'POST', body: JSON.stringify(excuse) }),
   deleteExcuse: (id: string) => request<{ ok: boolean }>(`/excuses?id=${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  searchStudentExcuseStudents: (query: string) => request<{ students: StudentExcuseStudent[] }>(`/student-excuses/students?q=${encodeURIComponent(query)}`),
+  studentExcuseRequests: () => request<{ requests: StudentExcuseRequest[] }>('/student-excuses'),
+  createStudentExcuse: (payload: { studentId: string; reason: StudentExcuseReason; requestDate?: string }) => request<{ request: StudentExcuseRequest; link: string }>('/student-excuses', { method: 'POST', body: JSON.stringify(payload) }),
+  markStudentExcuseSent: (id: string) => request<{ request: StudentExcuseRequest }>(`/student-excuses/${encodeURIComponent(id)}/sent`, { method: 'POST', body: '{}' }),
   absenceReport: (from: string, to: string, studentId = '') => request<AbsenceReport>(`/reports/absences?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}${studentId ? `&studentId=${encodeURIComponent(studentId)}` : ''}`),
   calculateAbsences: (date: string, studentIds: string[] = []) => request<{ ok: boolean; date: string; created: number; confirmed: number }>('/absences/calculate', { method: 'POST', body: JSON.stringify({ date, ...(studentIds.length ? { studentIds } : {}) }) }),
   cancelAbsences: (date: string) => request<{ ok: boolean; date: string; deleted: number }>('/absences/cancel', { method: 'POST', body: JSON.stringify({ date }) }),

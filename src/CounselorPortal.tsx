@@ -5,14 +5,16 @@ import { BehaviorCenter } from './BehaviorCenter'
 import { CounselorReferralCenter } from './StudentReferrals'
 import { MessageCenter, ReportsCenter } from './SchoolFeatures'
 import { AbsenceProcedureGuide, CounselorAbsenceReferralQueue } from './AbsenceProcedureGuide'
+import { StudentExcuseCenter } from './StudentExcuses'
 
-type CounselorView = 'home' | 'behavior' | 'referrals' | 'absenceProcedures' | 'reports' | 'teachers' | 'students' | 'messages' | 'password'
+type CounselorView = 'home' | 'behavior' | 'referrals' | 'absenceProcedures' | 'studentExcuses' | 'reports' | 'teachers' | 'students' | 'messages' | 'password'
 
 const nav: Array<{ id: CounselorView; label: string; icon: typeof Home }> = [
   { id: 'home', label: 'الرئيسية', icon: Home },
   { id: 'behavior', label: 'السلوك', icon: ShieldAlert },
   { id: 'referrals', label: 'الإحالات', icon: Send },
   { id: 'absenceProcedures', label: 'إجراءات التعامل مع الغياب', icon: ClipboardList },
+  { id: 'studentExcuses', label: 'استئذان الطلاب', icon: ClipboardList },
   { id: 'reports', label: 'التقارير', icon: FileText },
   { id: 'teachers', label: 'المعلمون', icon: Users },
   { id: 'students', label: 'الطلاب', icon: GraduationCap },
@@ -88,6 +90,7 @@ export function CounselorPortal({ account, onLogout }: { account: Account; onLog
       {view === 'behavior' && <BehaviorCenter school={{ schoolName: dashboard.schoolName, principalName: '', academicYear: '', semester: '' }} role="counselor" />}
       {view === 'referrals' && <CounselorReferralCenter schoolName={dashboard.schoolName} />}
       {view === 'absenceProcedures' && <><AbsenceProcedureGuide role="counselor" /><CounselorAbsenceReferralQueue /></>}
+      {view === 'studentExcuses' && <StudentExcuseCenter schoolName={dashboard.schoolName} />}
       {view === 'reports' && <ReportsCenter students={dashboard.students} schoolName={dashboard.schoolName} viewer="counselor" />}
       {view === 'messages' && <MessageCenter students={dashboard.students} attendance={attendance as never[]} schoolName={dashboard.schoolName} />}
       {view === 'teachers' && <section className="counselor-directory"><header><div><span>بيانات المدرسة</span><h2>المعلمون</h2><p>عرض قائمة المعلمين ووسائل التواصل.</p></div><Users size={30} /></header><input value={search} onChange={event => setSearch(event.target.value)} placeholder="ابحث باسم المعلم أو رقم الهوية أو الجوال" /> <div className="counselor-directory-grid">{teachers.map(teacher => <article key={teacher.teacherId}><strong>{teacher.name}</strong><span>رقم الهوية <b dir="ltr">{teacher.identityNumber || '—'}</b></span><small dir="ltr">{teacher.phone || 'لا يوجد رقم جوال'}</small></article>)}</div>{!teachers.length && <p className="teacher-empty">لا يوجد معلمون مطابقون للبحث.</p>}</section>}
