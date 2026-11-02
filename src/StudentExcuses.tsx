@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { CheckCircle2, ClipboardList, MessageCircle, Printer, RefreshCw, Search, UserRound } from 'lucide-react'
 import { api, type StudentExcuseReason, type StudentExcuseRequest, type StudentExcuseStudent } from './api'
 import { formatHijriDate } from './dateUtils'
@@ -60,13 +60,17 @@ export function StudentExcuseCenter({ schoolName }: { schoolName: string }) {
   const [gradeFilter, setGradeFilter] = useState('')
   const [classFilter, setClassFilter] = useState('')
 
-  const load = async () => {
+  const load = useCallback(async () => {
     setLoading(true)
     try { setRequests((await api.studentExcuseRequests()).requests) }
     catch { setError('تعذر تحميل سجل الاستئذان. حدّث الصفحة ثم أعد المحاولة.') }
     finally { setLoading(false) }
-  }
-  useEffect(() => { void load() }, [])
+  }, [])
+  useEffect(() => {
+    void load()
+    const refresh = window.setInterval(() => { void load() }, 30000)
+    return () => window.clearInterval(refresh)
+  }, [load])
 
   useEffect(() => {
     const value = query.trim()
