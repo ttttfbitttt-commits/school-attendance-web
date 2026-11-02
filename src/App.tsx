@@ -1939,6 +1939,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
           >
             <Clock3 size={18} />
             <span>الجدول الصوتي</span>
+            <b className="absence-procedure-new-badge">جديد</b>
           </button>}
 
           {isSchoolManager && <button
