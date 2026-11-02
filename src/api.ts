@@ -175,8 +175,8 @@ export type LessonScanPreview = {
   startTime: string
   endTime: string
 }
-export type TeacherPortalScheduleItem = { assignmentId: string; classroomId: string; classroom: string; weekday: number; periodNumber: number; subject: string; startTime: string | null; endTime: string | null }
-export type TeacherPortalDashboard = { schoolName: string; teacher: { name: string; identityNumber: string }; date: string; weekday: number; schedule: TeacherPortalScheduleItem[]; weekSchedule: TeacherPortalScheduleItem[]; periodNumbers: number[]; activityEvidenceCount?: number }
+export type TeacherPortalScheduleItem = { assignmentId: string; classroomId: string; classroom: string; weekday: number; periodNumber: number; subject: string; startTime: string | null; endTime: string | null; isStandby?: boolean; absentTeacherName?: string }
+export type TeacherPortalDashboard = { schoolName: string; teacher: { name: string; identityNumber: string }; date: string; weekday: number; schedule: TeacherPortalScheduleItem[]; weekSchedule: TeacherPortalScheduleItem[]; standbySchedule?: TeacherPortalScheduleItem[]; periodNumbers: number[]; activityEvidenceCount?: number }
 export type TeacherEvidenceClass = { grade: string; classrooms: string[] }
 export type TeacherEvidenceImage = { slotNumber: number; fileUrl: string; updatedAt: string }
 export type TeacherEvidenceRecord = { id: string; slotNumber: number; activityId: string | null; grade: string; classroom: string; title: string; strategy: string; visitTeacherId: string | null; visitTeacherName: string; vicePrincipalId: string | null; vicePrincipalName: string; activityLeaderName: string; notes: string; createdAt: string; updatedAt: string; images: TeacherEvidenceImage[] }
@@ -211,10 +211,10 @@ export type NoorSheetScan = { columns: Array<{ label: string; maxScore: number }
 export type TeacherSheetSubject = { subject: string; configs: TeacherSheetConfig[] }
 export type TeacherSheetReport = { subject: string; sheetType: TeacherSheetOpenType; assessmentPeriod: TeacherAssessmentPeriod; sections: Array<{ sheetType: TeacherSheetType; version: number; columns: TeacherSheetColumn[] }>; classroomId: string; classroom: string; grade: string; students: Array<{ id: string; name: string; phone: string; grade: string; classroom: string; values: Record<string, string | number | boolean> }> }
 export type TeacherLessonStudent = { id: string; name: string; phone: string; grade: string; classroom: string; status: 'present' | 'absent' | 'late' | 'excused'; note: TeacherNote | ''; sheetValues: Record<string, string | number | boolean> }
-export type TeacherLesson = { assignment: { assignmentId: string; classroomId: string; classroom: string; subject: string }; date: string; periodNumber: number; assessmentPeriod: TeacherAssessmentPeriod; mapping: { grade: string; classroom: string; mappingSource: 'automatic' | 'manual' }; sheetConfig: TeacherSheetConfig | null; sheetConfigs: TeacherSheetConfig[]; noorCalculated?: boolean; students: TeacherLessonStudent[] }
+export type TeacherLesson = { assignment: { assignmentId: string; classroomId: string; classroom: string; subject: string; kind?: 'scheduled' | 'standby'; absentTeacherName?: string }; date: string; periodNumber: number; assessmentPeriod: TeacherAssessmentPeriod; mapping: { grade: string; classroom: string; mappingSource: 'automatic' | 'manual' }; sheetConfig: TeacherSheetConfig | null; sheetConfigs: TeacherSheetConfig[]; noorCalculated?: boolean; students: TeacherLessonStudent[] }
 export type TeacherLessonReport = {
   id: string; date: string; weekday: number; periodNumber: number; teacherId: string; teacherName: string; classroom: string; subject: string; grade: string; classroomValue: string; savedAt: string
-  studentsCount: number; presentCount: number; absentCount: number; lateCount: number; excusedCount: number
+  sessionKind?: 'scheduled' | 'standby'; absentTeacherName?: string; studentsCount: number; presentCount: number; absentCount: number; lateCount: number; excusedCount: number
   records: Array<{ studentId: string; name: string; grade: string; classroom: string; status: 'present' | 'absent' | 'late' | 'excused'; note: TeacherNote | '' }>
 }
 export type TeacherComprehensiveReportType = 'absence' | 'late' | 'notes'
@@ -489,6 +489,7 @@ export const api = {
   teacherLesson: (classroomId: string, date: string, periodNumber: number, sheetType: TeacherSheetOpenType, assessmentPeriod: TeacherAssessmentPeriod = 'period1') => request<TeacherLesson>(`/teacher-portal/teacher/lesson?classroomId=${encodeURIComponent(classroomId)}&date=${encodeURIComponent(date)}&periodNumber=${periodNumber}&sheetType=${sheetType}&assessmentPeriod=${assessmentPeriod}`),
   saveTeacherLesson: (payload: { classroomId: string; date: string; periodNumber: number; sheetType: TeacherSheetOpenType; assessmentPeriod: TeacherAssessmentPeriod; students: Array<{ studentId: string; status: 'present' | 'absent' | 'late' | 'excused'; note: TeacherNote | ''; sheetValues: Record<string, string | number | boolean> }> }) => request<{ ok: boolean; saved: number }>('/teacher-portal/teacher/lesson', { method: 'PUT', body: JSON.stringify(payload) }),
   teacherReports: (filters: { date?: string; from?: string; to?: string; studentId?: string; note?: string } = {}) => request<{ reports: TeacherLessonReport[] }>(`/teacher-portal/teacher/reports?${new URLSearchParams(Object.entries(filters).filter(([, value]) => value).map(([key, value]) => [key, value || '']))}`),
+  teacherStandbyLessons: () => request<{ reports: TeacherLessonReport[] }>('/teacher-portal/teacher/standby-lessons'),
   teacherComprehensiveReportOptions: () => request<{ options: TeacherComprehensiveReportOption[] }>('/teacher-portal/teacher/comprehensive-report/options'),
   teacherComprehensiveReport: (type: TeacherComprehensiveReportType, subject: string, classroomId: string) => request<TeacherComprehensiveReport>(`/teacher-portal/teacher/comprehensive-report?${new URLSearchParams({ type, subject, classroomId })}`),
   schoolComprehensiveReportOptions: () => request<SchoolComprehensiveReportOptions>('/teacher-portal/school/comprehensive-report/options'),

@@ -34,7 +34,7 @@ const displaySheetValue = (value: string | number | boolean | undefined, type?: 
 
 type TeacherAttendanceStatus = 'present' | 'absent' | 'late' | 'excused'
 type StudentState = { status: TeacherAttendanceStatus; note: TeacherNote | ''; sheetValues: Record<string, string | number | boolean> }
-type TeacherTab = 'home' | 'schedule' | 'cooperation' | 'referrals' | 'sheets' | 'portfolio' | 'evidence' | 'reports' | 'password'
+type TeacherTab = 'home' | 'schedule' | 'standby' | 'cooperation' | 'referrals' | 'sheets' | 'portfolio' | 'evidence' | 'reports' | 'password'
 type RenderSheetColumn = TeacherSheetColumn & { key: string; sheetType: TeacherSheetType }
 const getSheetColumns = (lesson: TeacherLesson): RenderSheetColumn[] => lesson.sheetConfigs.flatMap(config => config.columns.map(column => ({ ...column, key: `${config.sheetType}:${column.id}`, sheetType: config.sheetType })))
 const attendanceStatusLabel = (status: TeacherAttendanceStatus) => status === 'present' ? 'حاضر' : status === 'late' ? 'تأخر عن الحصة' : status === 'excused' ? 'مستأذن' : 'غائب'
@@ -366,7 +366,7 @@ function TeacherWeekSchedule({ date, schedule, periodNumbers, selected, busy, on
 
 function TeacherFollowupRoster({ lesson, selected, activeLessonDate, states, updateStudent, exportSheet, printSheet, saveLesson, busy }: { lesson: TeacherLesson; selected: TeacherPortalScheduleItem; activeLessonDate: string; states: Record<string, StudentState>; updateStudent: (studentId: string, update: Partial<StudentState>) => void; exportSheet: () => void; printSheet: () => void; saveLesson: () => void; busy: string }) {
   return <section id="teacher-active-lesson" className="teacher-card teacher-roster-card">
-    <div className="teacher-section-head"><div><span>{dayNames[selected.weekday]} · {formatHijriDate(activeLessonDate)} · {lesson.mapping.grade} · الفصل {lesson.mapping.classroom}</span><h2>{periodLabel(selected.periodNumber)} — {selected.classroom}</h2></div><div className="teacher-report-actions"><button className="outline-button" onClick={exportSheet}><FileSpreadsheet size={16} /> Excel</button><button className="outline-button" onClick={printSheet}><Printer size={16} /> PDF</button><button className="primary-button" onClick={saveLesson} disabled={busy === 'save'}><Save size={17} /> {busy === 'save' ? 'جارٍ الحفظ…' : 'حفظ المتابعة'}</button></div></div>
+    <div className="teacher-section-head"><div><span>{dayNames[selected.weekday]} · {formatHijriDate(activeLessonDate)} · {lesson.mapping.grade} · الفصل {lesson.mapping.classroom}</span><h2>{lesson.assignment.kind === 'standby' ? 'حصة انتظار' : periodLabel(selected.periodNumber)} — {selected.classroom}</h2>{lesson.assignment.kind === 'standby' && <p className="teacher-notice">تكليف انتظار عن المعلم الغائب: <strong>{lesson.assignment.absentTeacherName || 'غير محدد'}</strong> · {periodLabel(selected.periodNumber)}</p>}</div><div className="teacher-report-actions"><button className="outline-button" onClick={exportSheet}><FileSpreadsheet size={16} /> Excel</button><button className="outline-button" onClick={printSheet}><Printer size={16} /> PDF</button><button className="primary-button" onClick={saveLesson} disabled={busy === 'save'}><Save size={17} /> {busy === 'save' ? 'جارٍ الحفظ…' : lesson.assignment.kind === 'standby' ? 'حفظ حضور الانتظار' : 'حفظ المتابعة'}</button></div></div>
     <p className="teacher-help">اختيار الحالة والملاحظة هنا خاص بمتابعة المعلم، ولا يغيّر سجل الحضور والغياب الإداري.</p>
     <div className="teacher-roster-table-wrap"><table className="teacher-roster-table"><thead><tr><th>الطالب</th><th>الحالة</th><th>الملاحظة</th></tr></thead><tbody>
       {lesson.students.map(student => { const state = states[student.id] || { status: 'present' as const, note: '' as const, sheetValues: {} }; return <tr key={student.id}>
@@ -577,6 +577,36 @@ function TeacherReportsTab({ schedule, schoolName, teacherName }: { schedule: Te
   return <section className="teacher-card"><div className="teacher-section-head"><div><button type="button" className="outline-button" onClick={() => setMode('menu')}>العودة إلى التقارير</button><span>تقرير المتابعة</span><h2>التقارير</h2><p>اعرض حصص المتابعة حسب التاريخ وصدّرها عند الحاجة.</p></div><BarChart3 size={30} /></div><div className="teacher-report-filters"><HijriDatePicker label="تاريخ التقرير الهجري" value={date} max={today()} onChange={setDate} /><div className="teacher-report-actions"><button type="button" className="outline-button" onClick={exportReports} disabled={!reports.length}><FileSpreadsheet size={16} /> Excel</button><button type="button" className="primary-button" onClick={() => void load()} disabled={busy}>{busy ? 'جارٍ التحميل…' : 'تحديث التقارير'}</button></div></div>{error && <p className="teacher-notice error">{error}</p>}{busy ? <p className="teacher-empty">جارٍ التحميل…</p> : !reports.length ? <p className="teacher-empty">لا توجد تقارير متابعة لهذا التاريخ.</p> : <div className="teacher-report-list">{reports.map(report => <article key={report.id}><div><strong>{report.subject || 'مادة غير محددة'} · {report.classroom}</strong><span>{formatHijriDate(report.date)} · {periodLabel(report.periodNumber)} · {report.studentsCount} طالب · {report.presentCount} حاضر · {report.lateCount} تأخر عن الحصة · {report.excusedCount} مستأذن · {report.absentCount} غائب</span></div></article>)}</div>}</section>
 }
 
+function TeacherStandbyLessons({ assignments, onOpen, onPrint }: { assignments: TeacherPortalScheduleItem[]; onOpen: (item: TeacherPortalScheduleItem) => void; onPrint: (reports: TeacherLessonReport[]) => void }) {
+  const [reports, setReports] = useState<TeacherLessonReport[]>([])
+  const [expandedId, setExpandedId] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const load = async () => {
+    setBusy(true)
+    setError('')
+    try { setReports((await api.teacherStandbyLessons()).reports) } catch { setError('تعذر تحميل سجل حصص الانتظار. أعد المحاولة.') } finally { setBusy(false) }
+  }
+  useEffect(() => { void load() }, [])
+  return <>
+    <section className="teacher-card">
+      <div className="teacher-section-head"><div><span>تكليفات اليوم</span><h2>حصص الانتظار</h2><p>تظهر هنا حصص الانتظار المسندة لك في التاريخ المحدد فقط. افتح الحصة لتحضير الطلاب.</p></div><CalendarDays size={30} /></div>
+      {!assignments.length ? <p className="teacher-empty">لا توجد لك حصص انتظار في هذا اليوم.</p> : <div className="teacher-schedule-grid">{assignments.map(item => <button type="button" key={item.assignmentId} className="teacher-schedule-card" onClick={() => onOpen(item)}>
+        <strong>انتظار · {periodLabel(item.periodNumber)}</strong><span>{item.classroom}</span><small>{item.subject || 'مادة الحصة'}{item.absentTeacherName ? ` · عن ${item.absentTeacherName}` : ''}</small>
+      </button>)}</div>}
+    </section>
+    <section className="teacher-card">
+      <div className="teacher-section-head"><div><span>سجل مستقل</span><h2>سجل حصص الانتظار</h2><p>لا يختلط هذا السجل بجدولك أو بتقاريرك الدراسية المعتادة.</p></div><div className="teacher-report-actions"><button type="button" className="outline-button" onClick={() => onPrint(reports)} disabled={!reports.length}><Printer size={16} /> طباعة السجل</button><button type="button" className="primary-button" onClick={() => void load()} disabled={busy}>{busy ? 'جارٍ التحديث…' : 'تحديث السجل'}</button></div></div>
+      {error && <p className="teacher-notice error">{error}</p>}
+      {busy ? <p className="teacher-empty">جارٍ تحميل سجل حصص الانتظار…</p> : !reports.length ? <p className="teacher-empty">لا توجد حصص انتظار محفوظة لك حتى الآن.</p> : <div className="teacher-report-list">{reports.map(report => <article key={report.id}>
+        <div><strong>{report.classroom} · {periodLabel(report.periodNumber)}</strong><span>{formatHijriDayAndDate(report.date)} · {report.subject || 'مادة غير محددة'} · عن المعلم الغائب: {report.absentTeacherName || 'غير محدد'}</span><small>{report.studentsCount} طالب · حاضر {report.presentCount} · تأخر {report.lateCount} · مستأذن {report.excusedCount} · غائب {report.absentCount}</small></div>
+        <button type="button" className="outline-button" onClick={() => setExpandedId(current => current === report.id ? '' : report.id)}>{expandedId === report.id ? 'إخفاء كشف الحضور' : 'عرض كشف الحضور'}</button>
+        {expandedId === report.id && <div className="teacher-roster-table-wrap"><table className="teacher-roster-table"><thead><tr><th>الطالب</th><th>الحالة</th><th>الملاحظة</th></tr></thead><tbody>{report.records.map(record => <tr key={record.studentId}><td><strong>{record.name}</strong><small>{record.grade} · {record.classroom}</small></td><td>{attendanceStatusLabel(record.status)}</td><td>{record.note || '—'}</td></tr>)}</tbody></table></div>}
+      </article>)}</div>}
+    </section>
+  </>
+}
+
 export function TeacherPortal({ account, onLogout }: { account: Account; onLogout: () => void }) {
   const [date, setDate] = useState(today())
   const [dashboard, setDashboard] = useState<TeacherPortalDashboard | null>(null)
@@ -598,6 +628,7 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
   const [selectedAssessmentPeriod, setSelectedAssessmentPeriod] = useState<TeacherAssessmentPeriod>('period1')
   const [printPreview, setPrintPreview] = useState('')
   const [reportsKey, setReportsKey] = useState(0)
+  const [standbyKey, setStandbyKey] = useState(0)
   const [cooperationStatus, setCooperationStatus] = useState<TeacherCooperationStatus | null>(null)
   const [thanksClosed, setThanksClosed] = useState(false)
 
@@ -632,7 +663,7 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
   const openLesson = async (item: TeacherPortalScheduleItem, sheetType: TeacherSheetOpenType = 'followup', sheetOnly = false, targetTab?: TeacherTab, assessmentPeriod: TeacherAssessmentPeriod = 'period1') => {
     setBusy(`lesson-${item.assignmentId}`)
     setError('')
-    const targetDate = dateForWeekday(date, item.weekday)
+    const targetDate = item.isStandby ? date : dateForWeekday(date, item.weekday)
     try {
       const next = await api.teacherLesson(item.classroomId, targetDate, item.periodNumber, sheetType, assessmentPeriod)
       setLesson(next)
@@ -739,6 +770,13 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
     setPrintPreview(`<h2>كشف ${escape(lesson.assignment.subject)} - ${escape(assessmentPeriodLabel(lesson.assessmentPeriod))} - ${escape(selected.classroom)}</h2><p>${escape(formatHijriDate(activeLessonDate))}</p><table><thead><tr><th>رقم الهوية</th><th>الطالب</th>${sheetOnlyView ? '' : '<th>الحالة</th><th>الملاحظة</th>'}${columns.map(column => `<th>${escape(westernDigits(column.label))}</th>`).join('')}</tr></thead><tbody>${rows}</tbody></table>`)
   }
 
+  const printStandbyLessons = (reports: TeacherLessonReport[]) => {
+    if (!reports.length) return
+    const escape = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character] || character))
+    const rows = reports.map(report => `<tr><td>${escape(formatHijriDayAndDate(report.date))}</td><td>${escape(periodLabel(report.periodNumber))}</td><td>${escape(report.classroom)}</td><td>${escape(report.subject || '—')}</td><td>${escape(report.absentTeacherName || 'غير محدد')}</td><td>${escape(`${report.studentsCount} طالب · حاضر ${report.presentCount} · غائب ${report.absentCount}`)}</td></tr>`).join('')
+    setPrintPreview(`<section><h2>سجل حصص الانتظار</h2><p>المعلم: ${escape(dashboard?.teacher.name || account.displayName)}</p><table><thead><tr><th>التاريخ</th><th>الحصة</th><th>الفصل</th><th>المادة</th><th>المعلم الغائب</th><th>ملخص الحضور</th></tr></thead><tbody>${rows}</tbody></table></section>`)
+  }
+
   const saveLesson = async () => {
     if (!lesson || !selected) return
     setBusy('save')
@@ -753,7 +791,8 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
         assessmentPeriod: selectedAssessmentPeriod,
         students: lesson.students.map(student => ({ studentId: student.id, ...(states[student.id] || { status: 'present', note: '', sheetValues: {} }) })),
       })
-      setNotice(sheetOnlyView ? `تم حفظ الكشف لـ ${result.saved} طالبًا.` : `تم حفظ متابعة ${result.saved} طالبًا. يُسجّل الحاضر بلا ملاحظة كمشارك فعال.`)
+      if (lesson.assignment.kind === 'standby') setStandbyKey(current => current + 1)
+      setNotice(lesson.assignment.kind === 'standby' ? `تم حفظ حضور الانتظار لـ ${result.saved} طالبًا في سجل حصص الانتظار.` : sheetOnlyView ? `تم حفظ الكشف لـ ${result.saved} طالبًا.` : `تم حفظ متابعة ${result.saved} طالبًا. يُسجّل الحاضر بلا ملاحظة كمشارك فعال.`)
     } catch { setError('تعذر حفظ المتابعة. تحقق من اتصالك ثم أعد المحاولة.') } finally { setBusy('') }
   }
 
@@ -779,6 +818,7 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
       <nav className="teacher-sidebar-nav" aria-label="أقسام بوابة المعلم">
         <button type="button" className={activeTab === 'home' ? 'active' : ''} onClick={() => navigate('home')}><LayoutDashboard size={18} /> الرئيسية</button>
         <button type="button" className={activeTab === 'schedule' ? 'active' : ''} onClick={() => navigate('schedule')}><CalendarDays size={18} /> جدولي</button>
+        <button type="button" className={activeTab === 'standby' ? 'active' : ''} onClick={() => navigate('standby')}><CalendarDays size={18} /> حصص الانتظار{dashboard?.standbySchedule?.length ? <span>اليوم</span> : null}</button>
         {cooperationStatus?.available && <button type="button" className={`teacher-cooperation-nav ${activeTab === 'cooperation' ? 'active' : ''}`} onClick={() => navigate('cooperation')}><Handshake size={18} /> تعاون المعلم<span>متاح الآن</span></button>}
         <button type="button" className={activeTab === 'referrals' ? 'active' : ''} onClick={() => navigate('referrals')}><Send size={18} /> إحالة طالب</button>
         <button type="button" className={activeTab === 'sheets' ? 'active' : ''} onClick={() => navigate('sheets')}><FileSpreadsheet size={18} /> الكشوف</button>
@@ -818,11 +858,22 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
       </div>}
     </section>
 
+    {!!dashboard?.standbySchedule?.length && <section className="teacher-card">
+      <div className="teacher-section-head"><div><span>تكليف انتظار اليوم</span><h2>حصص انتظار مسندة لك</h2><p>اضغط على الحصة لفتح أسماء الطلاب وتحضيرهم، وتحفظ في سجل مستقل.</p></div><CalendarDays size={26} /></div>
+      <div className="teacher-schedule-grid">{dashboard.standbySchedule.map(item => <button type="button" key={item.assignmentId} className={`teacher-schedule-card ${selected?.assignmentId === item.assignmentId ? 'selected' : ''}`} onClick={() => void openLesson(item)}>
+        <strong>انتظار · {periodLabel(item.periodNumber)}</strong><span>{item.classroom}</span><small>{item.subject || 'مادة الحصة'}{item.absentTeacherName ? ` · عن ${item.absentTeacherName}` : ''}</small>
+      </button>)}</div>
+    </section>}
+
     {lesson && selected && <TeacherFollowupRoster lesson={lesson} selected={selected} activeLessonDate={activeLessonDate} states={states} updateStudent={updateStudent} exportSheet={exportSheet} printSheet={printSheet} saveLesson={() => void saveLesson()} busy={busy} />}
     </>}
     {activeTab === 'schedule' && <>
       <TeacherWeekSchedule date={date} schedule={dashboard?.weekSchedule || []} periodNumbers={dashboard?.periodNumbers || []} selected={selected} busy={busy} onOpen={item => void openLesson(item, 'followup', false, 'schedule')} onExportExcel={exportWeekSchedule} onPrintPdf={printWeekSchedule} />
       {lesson && selected && <TeacherFollowupRoster lesson={lesson} selected={selected} activeLessonDate={activeLessonDate} states={states} updateStudent={updateStudent} exportSheet={exportSheet} printSheet={printSheet} saveLesson={() => void saveLesson()} busy={busy} />}
+    </>}
+    {activeTab === 'standby' && <>
+      <TeacherStandbyLessons key={`${date}-${standbyKey}`} assignments={dashboard?.standbySchedule || []} onOpen={item => void openLesson(item, 'followup', false, 'standby')} onPrint={printStandbyLessons} />
+      {lesson && selected && lesson.assignment.kind === 'standby' && <TeacherFollowupRoster lesson={lesson} selected={selected} activeLessonDate={activeLessonDate} states={states} updateStudent={updateStudent} exportSheet={exportSheet} printSheet={printSheet} saveLesson={() => void saveLesson()} busy={busy} />}
     </>}
     {activeTab === 'cooperation' && cooperationStatus?.available && <TeacherCooperationPanel status={cooperationStatus} onRefresh={loadCooperationStatus} />}
     {activeTab === 'referrals' && <TeacherReferralCenter date={date} schedule={dashboard?.schedule || []} schoolName={dashboard?.schoolName || 'المدرسة'} teacherName={dashboard?.teacher.name || account.displayName} />}

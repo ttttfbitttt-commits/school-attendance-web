@@ -342,11 +342,17 @@ export async function syncVoiceTimetableCoverages({ scoped, schoolId, date, entr
   const weekday = weekdayForDate(absenceDate)
   const incoming = Array.isArray(entries) ? entries.slice(0, 1000) : []
   return scoped(schoolId, async client => {
-    // Replace only this date's automatic layer. Manual lesson-flow data is not touched.
-    await client.query('DELETE FROM voice_timetable_coverages WHERE school_id=$1 AND absence_date=$2', [schoolId, absenceDate])
     const active = await activeImport(client, schoolId)
     if (!active) return { synced: 0, mapped: 0, skipped: incoming.length, noSchedule: true }
-    let synced = 0; let mapped = 0
+    // Keep coverage row ids stable while the same assignment stays active. That
+    // lets the teacher portal retain attendance for valid assignments, while a
+    // cancelled or re-assigned standby lesson loses access and its old record.
+    const existing = await client.query(`SELECT id,source_record_id AS "recordId",source_entry_key AS "entryKey",
+      replacement_teacher_id AS "teacherId" FROM voice_timetable_coverages
+      WHERE school_id=$1 AND absence_date=$2`, [schoolId, absenceDate])
+    const existingBySource = new Map(existing.rows.map(row => [`${row.recordId}:${row.entryKey}`, row]))
+    const normalizedItems = []
+    const wantedSources = new Set()
     for (const item of incoming) {
       const period = asPeriod(item?.period)
       const className = cleanText(item?.className, 160)
@@ -355,6 +361,22 @@ export async function syncVoiceTimetableCoverages({ scoped, schoolId, date, entr
       const recordId = cleanText(item?.recordId, 120)
       const entryKey = cleanText(item?.entryKey, 180)
       if (!period || !className || !replacementName || !recordId || !entryKey) continue
+      const sourceKey = `${recordId}:${entryKey}`
+      if (wantedSources.has(sourceKey)) continue
+      wantedSources.add(sourceKey)
+      normalizedItems.push({ item, period, className, replacementName, absentName, recordId, entryKey, sourceKey })
+    }
+    const stale = existing.rows.filter(row => !wantedSources.has(`${row.recordId}:${row.entryKey}`))
+    if (stale.length) {
+      const staleIds = stale.map(row => row.id)
+      // A cancelled assignment must not remain in the replacement teacher's
+      // history or keep its attendance sheet available.
+      await client.query(`DELETE FROM teacher_lesson_sessions
+        WHERE school_id=$1 AND session_kind='standby' AND standby_coverage_id=ANY($2::uuid[])`, [schoolId, staleIds])
+      await client.query('DELETE FROM voice_timetable_coverages WHERE school_id=$1 AND id=ANY($2::uuid[])', [schoolId, staleIds])
+    }
+    let synced = 0; let mapped = 0
+    for (const { item, period, className, replacementName, absentName, recordId, entryKey, sourceKey } of normalizedItems) {
       const normalizedClass = normalizeName(className)
       const normalizedReplacement = normalizeName(replacementName)
       const classroom = await client.query('SELECT id FROM lesson_classrooms WHERE school_id=$1 AND active=true AND normalized_name=$2 LIMIT 2', [schoolId, normalizedClass])
@@ -366,9 +388,18 @@ export async function syncVoiceTimetableCoverages({ scoped, schoolId, date, entr
       // never replace a teacher incorrectly during barcode scanning.
       const classroomId = classroom.rowCount === 1 ? classroom.rows[0].id : null
       const replacementTeacherId = teacherMatches.length === 1 ? teacherMatches[0].id : null
+      const previous = existingBySource.get(sourceKey)
+      if (previous && previous.teacherId && previous.teacherId !== replacementTeacherId) {
+        await client.query(`DELETE FROM teacher_lesson_sessions
+          WHERE school_id=$1 AND session_kind='standby' AND standby_coverage_id=$2`, [schoolId, previous.id])
+      }
       await client.query(`INSERT INTO voice_timetable_coverages(
         school_id,absence_date,source_record_id,source_entry_key,classroom_id,period_number,subject_name,absent_teacher_name,replacement_teacher_id,replacement_teacher_name)
-        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, [
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+        ON CONFLICT(school_id,source_record_id,source_entry_key) DO UPDATE SET
+          absence_date=EXCLUDED.absence_date,classroom_id=EXCLUDED.classroom_id,period_number=EXCLUDED.period_number,
+          subject_name=EXCLUDED.subject_name,absent_teacher_name=EXCLUDED.absent_teacher_name,
+          replacement_teacher_id=EXCLUDED.replacement_teacher_id,replacement_teacher_name=EXCLUDED.replacement_teacher_name`, [
         schoolId, absenceDate, recordId, entryKey, classroomId, period, cleanText(item?.subject, 240), absentName, replacementTeacherId, replacementName,
       ])
       synced += 1; if (classroomId && replacementTeacherId) mapped += 1

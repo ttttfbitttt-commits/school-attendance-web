@@ -454,6 +454,31 @@ async function rosterForClassroom(client, schoolId, classroomId) {
   return { mapping, students }
 }
 
+async function teacherLessonAccess(client, { schoolId, teacherId, importId, classroomId, date, weekday, periodNumber }) {
+  const assignment = await client.query(`SELECT a.id AS "assignmentId",a.classroom_id AS "classroomId",c.name AS classroom,
+      a.subject_name AS subject,a.teacher_id AS "scheduledTeacherId"
+    FROM lesson_schedule_assignments a JOIN lesson_classrooms c ON c.id=a.classroom_id AND c.school_id=a.school_id
+    WHERE a.school_id=$1 AND a.import_id=$2 AND a.classroom_id=$3 AND a.weekday=$4 AND a.period_number=$5`,
+  [schoolId, importId, classroomId, weekday, periodNumber])
+  if (!assignment.rowCount) return { error: 'lesson_not_assigned' }
+  const coverage = await client.query(`SELECT id,subject_name AS subject,absent_teacher_name AS "absentTeacherName"
+    FROM voice_timetable_coverages
+    WHERE school_id=$1 AND absence_date=$2 AND classroom_id=$3 AND period_number=$4 AND replacement_teacher_id=$5
+    LIMIT 1`, [schoolId, date, classroomId, periodNumber, teacherId])
+  const ownScheduledLesson = assignment.rows[0].scheduledTeacherId === teacherId
+  if (!ownScheduledLesson && !coverage.rowCount) return { error: 'lesson_not_assigned' }
+  const standby = coverage.rows[0] || null
+  return {
+    assignment: {
+      ...assignment.rows[0],
+      subject: standby?.subject || assignment.rows[0].subject || '',
+      kind: standby ? 'standby' : 'scheduled',
+      absentTeacherName: standby?.absentTeacherName || '',
+      coverageId: standby?.id || null,
+    },
+  }
+}
+
 function rosterWithHistoricalStudents(currentStudents, historicalRows) {
   const students = new Map(currentStudents.map(student => [student.id, student]))
   for (const row of historicalRows) {
@@ -470,10 +495,11 @@ function rosterWithHistoricalStudents(currentStudents, historicalRows) {
   return [...students.values()].sort((left, right) => left.name.localeCompare(right.name, 'ar', { numeric: true }))
 }
 
-async function reportRows(client, schoolId, filters = {}, teacherId = null) {
+async function reportRows(client, schoolId, filters = {}, teacherId = null, sessionKind = 'scheduled') {
   const clauses = ['s.school_id=$1']
   const values = [schoolId]
   const add = value => { values.push(value); return `$${values.length}` }
+  if (sessionKind) clauses.push(`s.session_kind=${add(sessionKind)}`)
   if (teacherId) clauses.push(`s.teacher_id=${add(teacherId)}`)
   if (filters.teacherId && validId(filters.teacherId)) clauses.push(`s.teacher_id=${add(filters.teacherId)}`)
   if (filters.date && validDate(filters.date)) clauses.push(`s.session_date=${add(filters.date)}::date`)
@@ -485,6 +511,7 @@ async function reportRows(client, schoolId, filters = {}, teacherId = null) {
   const sessions = (await client.query(`SELECT s.id,to_char(s.session_date,'YYYY-MM-DD') AS date,s.weekday,
       s.period_number AS "periodNumber",s.teacher_id AS "teacherId",s.teacher_name AS "teacherName",s.classroom_name AS classroom,
       s.subject_name AS subject,s.grade_value AS grade,s.classroom_value AS "classroomValue",s.saved_at AS "savedAt",
+      s.session_kind AS "sessionKind",s.standby_absent_teacher_name AS "absentTeacherName",
       COUNT(r.student_id)::int AS "studentsCount",
       COUNT(r.student_id) FILTER (WHERE r.attendance_status='present')::int AS "presentCount",
       COUNT(r.student_id) FILTER (WHERE r.attendance_status='late')::int AS "lateCount",
@@ -575,7 +602,13 @@ export async function migrateTeacherPortal(adminPool) {
       saved_at timestamptz NOT NULL DEFAULT now(),
       UNIQUE (school_id,teacher_id,classroom_id,session_date,period_number)
     );
+    ALTER TABLE teacher_lesson_sessions ADD COLUMN IF NOT EXISTS session_kind text NOT NULL DEFAULT 'scheduled';
+    ALTER TABLE teacher_lesson_sessions ADD COLUMN IF NOT EXISTS standby_coverage_id uuid REFERENCES voice_timetable_coverages(id) ON DELETE SET NULL;
+    ALTER TABLE teacher_lesson_sessions ADD COLUMN IF NOT EXISTS standby_absent_teacher_name text NOT NULL DEFAULT '';
+    ALTER TABLE teacher_lesson_sessions DROP CONSTRAINT IF EXISTS teacher_lesson_sessions_session_kind_check;
+    ALTER TABLE teacher_lesson_sessions ADD CONSTRAINT teacher_lesson_sessions_session_kind_check CHECK (session_kind IN ('scheduled','standby'));
     CREATE INDEX IF NOT EXISTS teacher_lesson_sessions_school_date ON teacher_lesson_sessions(school_id,session_date DESC,teacher_id);
+    CREATE INDEX IF NOT EXISTS teacher_lesson_sessions_standby_history ON teacher_lesson_sessions(school_id,teacher_id,session_kind,session_date DESC);
 
     CREATE TABLE IF NOT EXISTS teacher_lesson_student_records (
       id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -1065,13 +1098,25 @@ export async function handleTeacherPortalRequest(context) {
           LEFT JOIN lesson_time_slots t ON t.school_id=a.school_id AND t.weekday=a.weekday AND t.period_number=a.period_number
         WHERE a.school_id=$1 AND a.import_id=$2 AND a.teacher_id=$3
         ORDER BY a.weekday,a.period_number,c.name`, [user.school_id, active.id, user.teacher_id])).rows : []
+      const standbySchedule = active ? (await client.query(`SELECT ('standby-' || coverage.id::text) AS "assignmentId",
+          coverage.classroom_id AS "classroomId",classroom.name AS classroom,$2::smallint AS weekday,
+          coverage.period_number AS "periodNumber",COALESCE(NULLIF(coverage.subject_name,''),assignment.subject_name,'') AS subject,
+          to_char(slot.starts_at,'HH24:MI') AS "startTime",to_char(slot.ends_at,'HH24:MI') AS "endTime",
+          coverage.absent_teacher_name AS "absentTeacherName",true AS "isStandby"
+        FROM voice_timetable_coverages coverage
+          JOIN lesson_classrooms classroom ON classroom.id=coverage.classroom_id AND classroom.school_id=coverage.school_id AND classroom.active=true
+          LEFT JOIN lesson_schedule_assignments assignment ON assignment.school_id=coverage.school_id AND assignment.import_id=$1
+            AND assignment.classroom_id=coverage.classroom_id AND assignment.weekday=$2 AND assignment.period_number=coverage.period_number
+          LEFT JOIN lesson_time_slots slot ON slot.school_id=coverage.school_id AND slot.weekday=$2 AND slot.period_number=coverage.period_number
+        WHERE coverage.school_id=$3 AND coverage.absence_date=$4 AND coverage.replacement_teacher_id=$5
+        ORDER BY coverage.period_number,classroom.name`, [active.id, weekday, user.school_id, date, user.teacher_id])).rows : []
       const weekSchedule = schedule.map(row => ({ ...row, weekday: Number(row.weekday), periodNumber: Number(row.periodNumber) }))
       const configuredPeriods = periodRows.rows.map(row => Number(row.periodNumber)).filter(Number.isInteger)
       const lastScheduledPeriod = Math.max(0, ...weekSchedule.map(row => row.periodNumber))
       const periodNumbers = configuredPeriods.length ? configuredPeriods : Array.from({ length: lastScheduledPeriod }, (_, index) => index + 1)
       const activityEvidenceCount = Number((await client.query(`SELECT COUNT(*)::int AS count FROM activity_leader_activity_recipients
         WHERE school_id=$1 AND teacher_id=$2 AND seen_at IS NULL`, [user.school_id, user.teacher_id])).rows[0]?.count || 0)
-      return { schoolName: school.rows[0].name, teacher: teacher.rows[0], date, weekday, schedule: weekSchedule.filter(row => row.weekday === weekday), weekSchedule, periodNumbers, activityEvidenceCount }
+      return { schoolName: school.rows[0].name, teacher: teacher.rows[0], date, weekday, schedule: weekSchedule.filter(row => row.weekday === weekday), weekSchedule, standbySchedule: standbySchedule.map(row => ({ ...row, weekday: Number(row.weekday), periodNumber: Number(row.periodNumber), isStandby: true })), periodNumbers, activityEvidenceCount }
     })
     if (result.missing) { json(res, 404, { error: 'teacher_account_not_ready' }); return true }
     json(res, 200, result)
@@ -1090,34 +1135,33 @@ export async function handleTeacherPortalRequest(context) {
     const result = await scoped(user.school_id, async client => {
       const active = await activeImport(client, user.school_id)
       if (!active) return { error: 'schedule_not_imported' }
-      const assignment = await client.query(`SELECT a.id AS "assignmentId",a.classroom_id AS "classroomId",c.name AS classroom,a.subject_name AS subject
-        FROM lesson_schedule_assignments a JOIN lesson_classrooms c ON c.id=a.classroom_id AND c.school_id=a.school_id
-        WHERE a.school_id=$1 AND a.import_id=$2 AND a.teacher_id=$3 AND a.classroom_id=$4 AND a.weekday=$5 AND a.period_number=$6`, [user.school_id, active.id, user.teacher_id, classroomId, weekday, periodNumber])
-      if (!assignment.rowCount) return { error: 'lesson_not_assigned' }
+      const access = await teacherLessonAccess(client, { schoolId: user.school_id, teacherId: user.teacher_id, importId: active.id, classroomId, date, weekday, periodNumber })
+      if (access.error) return access
+      const assignment = access.assignment
       const roster = await rosterForClassroom(client, user.school_id, classroomId)
       if (!roster.mapping) {
         const groups = (await client.query(`SELECT grade,classroom,COUNT(*)::int AS count FROM students WHERE school_id=$1 AND active=true GROUP BY grade,classroom ORDER BY grade,classroom`, [user.school_id])).rows
-        return { error: 'classroom_student_mapping_needed', classroom: assignment.rows[0].classroom, candidateGroups: groups }
+        return { error: 'classroom_student_mapping_needed', classroom: assignment.classroom, candidateGroups: groups }
       }
       const requestedTypes = sheetType === 'combined' ? COMBINED_SHEET_TYPES : [sheetType]
       const configTypes = sheetType === 'noor' ? [...COMBINED_SHEET_TYPES, 'noor'] : requestedTypes
-      await ensureAssessmentConfigs(client, { schoolId: user.school_id, teacherId: user.teacher_id, subject: assignment.rows[0].subject || '', assessmentPeriod, sheetTypes: configTypes })
-      const configResult = await client.query(`SELECT DISTINCT ON (sheet_type) id,subject_name AS subject,sheet_type AS "sheetType",assessment_period AS "assessmentPeriod",version,columns,noor_mappings AS "noorMappings",created_at AS "createdAt"
-        FROM teacher_sheet_configs WHERE school_id=$1 AND teacher_id=$2 AND subject_name=$3 AND assessment_period=$4 AND sheet_type=ANY($5::text[]) AND active=true ORDER BY sheet_type,version DESC`, [user.school_id, user.teacher_id, assignment.rows[0].subject || '', assessmentPeriod, requestedTypes])
+      if (assignment.kind !== 'standby') await ensureAssessmentConfigs(client, { schoolId: user.school_id, teacherId: user.teacher_id, subject: assignment.subject || '', assessmentPeriod, sheetTypes: configTypes })
+      const configResult = assignment.kind === 'standby' ? { rows: [] } : await client.query(`SELECT DISTINCT ON (sheet_type) id,subject_name AS subject,sheet_type AS "sheetType",assessment_period AS "assessmentPeriod",version,columns,noor_mappings AS "noorMappings",created_at AS "createdAt"
+        FROM teacher_sheet_configs WHERE school_id=$1 AND teacher_id=$2 AND subject_name=$3 AND assessment_period=$4 AND sheet_type=ANY($5::text[]) AND active=true ORDER BY sheet_type,version DESC`, [user.school_id, user.teacher_id, assignment.subject || '', assessmentPeriod, requestedTypes])
       const sheetConfigs = configResult.rows.map(config => ({ ...config, version: Number(config.version) })).sort((left, right) => requestedTypes.indexOf(left.sheetType) - requestedTypes.indexOf(right.sheetType))
       const sheetConfig = sheetConfigs[0] || null
       let sourceConfigs = []
       let noorMappings = []
-      if (sheetType === 'noor' && sheetConfig) {
+      if (assignment.kind !== 'standby' && sheetType === 'noor' && sheetConfig) {
         const sourceConfigResult = await client.query(`SELECT DISTINCT ON (sheet_type) id,subject_name AS subject,sheet_type AS "sheetType",assessment_period AS "assessmentPeriod",version,columns
-          FROM teacher_sheet_configs WHERE school_id=$1 AND teacher_id=$2 AND subject_name=$3 AND assessment_period=$4 AND sheet_type=ANY($5::text[]) AND active=true ORDER BY sheet_type,version DESC`, [user.school_id, user.teacher_id, assignment.rows[0].subject || '', assessmentPeriod, COMBINED_SHEET_TYPES])
+        FROM teacher_sheet_configs WHERE school_id=$1 AND teacher_id=$2 AND subject_name=$3 AND assessment_period=$4 AND sheet_type=ANY($5::text[]) AND active=true ORDER BY sheet_type,version DESC`, [user.school_id, user.teacher_id, assignment.subject || '', assessmentPeriod, COMBINED_SHEET_TYPES])
         sourceConfigs = sourceConfigResult.rows.map(config => ({ ...config, version: Number(config.version) }))
         noorMappings = cleanNoorMappings(sheetConfig.noorMappings, sheetConfig, sourceConfigs) || []
       }
       const saved = await client.query(`SELECT r.student_id AS "studentId",r.student_name AS "studentName",r.grade_value AS grade,
           r.classroom_value AS classroom,r.attendance_status AS status,r.note FROM teacher_lesson_sessions s
         JOIN teacher_lesson_student_records r ON r.lesson_session_id=s.id
-        WHERE s.school_id=$1 AND s.teacher_id=$2 AND s.classroom_id=$3 AND s.session_date=$4 AND s.period_number=$5`, [user.school_id, user.teacher_id, classroomId, date, periodNumber])
+        WHERE s.school_id=$1 AND s.teacher_id=$2 AND s.classroom_id=$3 AND s.session_date=$4 AND s.period_number=$5 AND s.session_kind=$6`, [user.school_id, user.teacher_id, classroomId, date, periodNumber, assignment.kind])
       const states = new Map(saved.rows.map(row => [row.studentId, row]))
       // The sheet is cumulative. A grade may have been entered on any earlier lesson date,
       // so opening today's lesson must load every value already saved for this subject and class.
@@ -1130,7 +1174,7 @@ export async function handleTeacherPortalRequest(context) {
           AND (e.classroom_id=$4 OR (e.grade_value=$5 AND e.classroom_value=$6))
           AND historical_assignment.subject_name=$7
         ORDER BY e.updated_at DESC,e.entry_date DESC`, [user.school_id, valueConfigs.map(config => config.id), user.teacher_id, classroomId,
-          roster.mapping.grade, roster.mapping.classroom, assignment.rows[0].subject || ''])).rows : []
+          roster.mapping.grade, roster.mapping.classroom, assignment.subject || ''])).rows : []
       const typeById = new Map(valueConfigs.map(config => [config.id, config.sheetType]))
       const valuesByStudent = new Map()
       for (const entry of entries) {
@@ -1143,7 +1187,7 @@ export async function handleTeacherPortalRequest(context) {
       }
       const lessonStudents = rosterWithHistoricalStudents(roster.students, [...saved.rows, ...entries])
       const noorCalculated = sheetType === 'noor' && noorMappings.length > 0
-      return { assignment: assignment.rows[0], date, periodNumber, assessmentPeriod, mapping: roster.mapping, sheetConfig, sheetConfigs, noorCalculated, students: lessonStudents.map(student => ({ ...student, status: states.get(student.id)?.status || 'present', note: states.get(student.id)?.note || '', sheetValues: noorCalculated ? calculatedNoorValues(noorMappings, sourceConfigs, valuesByStudent.get(student.id) || {}) : valuesByStudent.get(student.id) || {} })) }
+      return { assignment, date, periodNumber, assessmentPeriod, mapping: roster.mapping, sheetConfig, sheetConfigs, noorCalculated, students: lessonStudents.map(student => ({ ...student, status: states.get(student.id)?.status || 'present', note: states.get(student.id)?.note || '', sheetValues: noorCalculated ? calculatedNoorValues(noorMappings, sourceConfigs, valuesByStudent.get(student.id) || {}) : valuesByStudent.get(student.id) || {} })) }
     })
     if (result.error) { json(res, result.error === 'classroom_student_mapping_needed' ? 409 : 404, result); return true }
     json(res, 200, result)
@@ -1164,29 +1208,26 @@ export async function handleTeacherPortalRequest(context) {
     const result = await scoped(user.school_id, async client => {
       const active = await activeImport(client, user.school_id)
       if (!active) return { error: 'schedule_not_imported' }
-      const [teacher, assignment] = await Promise.all([
-        client.query('SELECT full_name AS name FROM lesson_teachers WHERE school_id=$1 AND id=$2 AND active=true', [user.school_id, user.teacher_id]),
-        client.query(`SELECT a.id,c.name AS classroom,a.subject_name AS subject FROM lesson_schedule_assignments a
-          JOIN lesson_classrooms c ON c.id=a.classroom_id AND c.school_id=a.school_id
-          WHERE a.school_id=$1 AND a.import_id=$2 AND a.teacher_id=$3 AND a.classroom_id=$4 AND a.weekday=$5 AND a.period_number=$6`, [user.school_id, active.id, user.teacher_id, classroomId, weekday, periodNumber]),
-      ])
-      if (!teacher.rowCount || !assignment.rowCount) return { error: 'lesson_not_assigned' }
+      const teacher = await client.query('SELECT full_name AS name FROM lesson_teachers WHERE school_id=$1 AND id=$2 AND active=true', [user.school_id, user.teacher_id])
+      const access = await teacherLessonAccess(client, { schoolId: user.school_id, teacherId: user.teacher_id, importId: active.id, classroomId, date, weekday, periodNumber })
+      if (!teacher.rowCount || access.error) return { error: 'lesson_not_assigned' }
+      const assignment = access.assignment
       const roster = await rosterForClassroom(client, user.school_id, classroomId)
       if (!roster.mapping) return { error: 'classroom_student_mapping_needed' }
       const requestedTypes = sheetType === 'combined' ? COMBINED_SHEET_TYPES : [sheetType]
       const configTypes = sheetType === 'noor' ? [...COMBINED_SHEET_TYPES, 'noor'] : requestedTypes
-      await ensureAssessmentConfigs(client, { schoolId: user.school_id, teacherId: user.teacher_id, subject: assignment.rows[0].subject || '', assessmentPeriod, sheetTypes: configTypes })
-      const configResult = await client.query(`SELECT id,sheet_type AS "sheetType",columns,noor_mappings AS "noorMappings" FROM teacher_sheet_configs
-        WHERE school_id=$1 AND teacher_id=$2 AND subject_name=$3 AND assessment_period=$4 AND sheet_type=ANY($5::text[]) AND active=true ORDER BY version DESC`, [user.school_id, user.teacher_id, assignment.rows[0].subject || '', assessmentPeriod, requestedTypes])
+      if (assignment.kind !== 'standby') await ensureAssessmentConfigs(client, { schoolId: user.school_id, teacherId: user.teacher_id, subject: assignment.subject || '', assessmentPeriod, sheetTypes: configTypes })
+      const configResult = assignment.kind === 'standby' ? { rows: [] } : await client.query(`SELECT id,sheet_type AS "sheetType",columns,noor_mappings AS "noorMappings" FROM teacher_sheet_configs
+        WHERE school_id=$1 AND teacher_id=$2 AND subject_name=$3 AND assessment_period=$4 AND sheet_type=ANY($5::text[]) AND active=true ORDER BY version DESC`, [user.school_id, user.teacher_id, assignment.subject || '', assessmentPeriod, requestedTypes])
       const sheetConfigs = []
       for (const config of configResult.rows) if (!sheetConfigs.some(item => item.sheetType === config.sheetType)) sheetConfigs.push(config)
       const sheetConfig = sheetConfigs[0] || null
-      if (sheetType === 'noor' && Array.isArray(sheetConfig?.noorMappings) && sheetConfig.noorMappings.length) return { error: 'noor_sheet_calculated' }
+      if (assignment.kind !== 'standby' && sheetType === 'noor' && Array.isArray(sheetConfig?.noorMappings) && sheetConfig.noorMappings.length) return { error: 'noor_sheet_calculated' }
       const historicalRecords = (await client.query(`SELECT r.student_id AS "studentId",r.student_name AS "studentName",
           r.grade_value AS grade,r.classroom_value AS classroom
         FROM teacher_lesson_sessions s JOIN teacher_lesson_student_records r ON r.lesson_session_id=s.id
-        WHERE s.school_id=$1 AND s.teacher_id=$2 AND s.classroom_id=$3 AND s.session_date=$4 AND s.period_number=$5`,
-      [user.school_id, user.teacher_id, classroomId, date, periodNumber])).rows
+        WHERE s.school_id=$1 AND s.teacher_id=$2 AND s.classroom_id=$3 AND s.session_date=$4 AND s.period_number=$5 AND s.session_kind=$6`,
+      [user.school_id, user.teacher_id, classroomId, date, periodNumber, assignment.kind])).rows
       const historicalEntries = sheetConfigs.length ? (await client.query(`SELECT DISTINCT ON (e.student_id)
           e.student_id AS "studentId",e.student_name AS "studentName",e.grade_value AS grade,e.classroom_value AS classroom
         FROM teacher_sheet_entries e
@@ -1196,7 +1237,7 @@ export async function handleTeacherPortalRequest(context) {
           AND historical_assignment.subject_name=$7
         ORDER BY e.student_id,e.updated_at DESC,e.entry_date DESC`,
       [user.school_id, sheetConfigs.map(config => config.id), user.teacher_id, classroomId,
-        roster.mapping.grade, roster.mapping.classroom, assignment.rows[0].subject || ''])).rows : []
+        roster.mapping.grade, roster.mapping.classroom, assignment.subject || ''])).rows : []
       const editableStudents = rosterWithHistoricalStudents(roster.students, [...historicalRecords, ...historicalEntries])
       const allowed = new Map(editableStudents.map(student => [student.id, student]))
       const payload = new Map()
@@ -1209,13 +1250,15 @@ export async function handleTeacherPortalRequest(context) {
       }
       for (const student of roster.students) if (!payload.has(student.id)) payload.set(student.id, { status: 'present', note: 'مشارك فعال', sheetValues: {} })
       const session = await client.query(`INSERT INTO teacher_lesson_sessions(
-          school_id,teacher_id,assignment_id,classroom_id,session_date,weekday,period_number,teacher_name,classroom_name,subject_name,grade_value,classroom_value,saved_by,saved_at)
-        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,now())
+          school_id,teacher_id,assignment_id,classroom_id,session_date,weekday,period_number,teacher_name,classroom_name,subject_name,grade_value,classroom_value,session_kind,standby_coverage_id,standby_absent_teacher_name,saved_by,saved_at)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,now())
         ON CONFLICT(school_id,teacher_id,classroom_id,session_date,period_number) DO UPDATE SET
           assignment_id=EXCLUDED.assignment_id,teacher_name=EXCLUDED.teacher_name,classroom_name=EXCLUDED.classroom_name,subject_name=EXCLUDED.subject_name,
-          grade_value=EXCLUDED.grade_value,classroom_value=EXCLUDED.classroom_value,saved_by=EXCLUDED.saved_by,saved_at=now()
-        RETURNING id`, [user.school_id, user.teacher_id, assignment.rows[0].id, classroomId, date, weekday, periodNumber,
-        teacher.rows[0].name, assignment.rows[0].classroom, assignment.rows[0].subject || '', roster.mapping.grade, roster.mapping.classroom, user.user_id])
+          grade_value=EXCLUDED.grade_value,classroom_value=EXCLUDED.classroom_value,session_kind=EXCLUDED.session_kind,
+          standby_coverage_id=EXCLUDED.standby_coverage_id,standby_absent_teacher_name=EXCLUDED.standby_absent_teacher_name,saved_by=EXCLUDED.saved_by,saved_at=now()
+        RETURNING id`, [user.school_id, user.teacher_id, assignment.assignmentId, classroomId, date, weekday, periodNumber,
+        teacher.rows[0].name, assignment.classroom, assignment.subject || '', roster.mapping.grade, roster.mapping.classroom,
+        assignment.kind, assignment.coverageId, assignment.absentTeacherName || '', user.user_id])
       for (const [studentId, value] of payload) {
         const student = allowed.get(studentId)
         await client.query(`INSERT INTO teacher_lesson_student_records(
@@ -1223,7 +1266,7 @@ export async function handleTeacherPortalRequest(context) {
           VALUES($1,$2,$3,$4,$5,$6,$7,$8,now())
           ON CONFLICT(lesson_session_id,student_id) DO UPDATE SET attendance_status=EXCLUDED.attendance_status,note=EXCLUDED.note,updated_at=now()`,
           [user.school_id, session.rows[0].id, student.id, student.name, student.grade, student.classroom, value.status, value.note])
-        for (const config of sheetConfigs) {
+        for (const config of (assignment.kind === 'standby' ? [] : sheetConfigs)) {
           const prefix = `${config.sheetType}:`
           const prefixedValues = Object.fromEntries(Object.entries(value.sheetValues).filter(([key]) => key.startsWith(prefix)).map(([key, entryValue]) => [key.slice(prefix.length), entryValue]))
           const sourceValues = Object.keys(prefixedValues).length || sheetConfigs.length > 1 ? prefixedValues : value.sheetValues
@@ -1234,7 +1277,7 @@ export async function handleTeacherPortalRequest(context) {
             ON CONFLICT(school_id,config_id,assignment_id,entry_date,student_id) DO UPDATE SET
               values=EXCLUDED.values,student_name=EXCLUDED.student_name,grade_value=EXCLUDED.grade_value,
               classroom_value=EXCLUDED.classroom_value,updated_at=now()`,
-            [user.school_id, config.id, user.teacher_id, assignment.rows[0].id, classroomId, date, student.id,
+            [user.school_id, config.id, user.teacher_id, assignment.assignmentId, classroomId, date, student.id,
               student.name, student.grade, student.classroom, JSON.stringify(cleanValues)])
         }
       }
@@ -1344,7 +1387,7 @@ export async function handleTeacherPortalRequest(context) {
           to_char(s.session_date,'YYYY-MM-DD') AS date,r.note
         FROM teacher_lesson_sessions s JOIN teacher_lesson_student_records r ON r.lesson_session_id=s.id AND r.school_id=s.school_id
         WHERE s.school_id=$1 AND s.teacher_id=$2 AND s.subject_name=$3
-          AND (s.classroom_id=$4 OR (s.grade_value=$5 AND s.classroom_value=$6)) AND ${statusClause}
+          AND s.session_kind='scheduled' AND (s.classroom_id=$4 OR (s.grade_value=$5 AND s.classroom_value=$6)) AND ${statusClause}
         ORDER BY date,r.student_name,r.note`, [user.school_id, user.teacher_id, subject, classroomId, roster.mapping.grade, roster.mapping.classroom])).rows
       const eventsByStudent = new Map(roster.students.map(student => [student.id, []]))
       for (const row of eventRows) {
@@ -1367,6 +1410,13 @@ export async function handleTeacherPortalRequest(context) {
     if (!teacherOnly()) { json(res, 403, { error: 'forbidden' }); return true }
     const result = await scoped(user.school_id, client => reportRows(client, user.school_id, Object.fromEntries(url.searchParams), user.teacher_id))
     json(res, 200, { reports: result })
+    return true
+  }
+
+  if (req.method === 'GET' && url.pathname === '/api/teacher-portal/teacher/standby-lessons') {
+    if (!teacherOnly()) { json(res, 403, { error: 'forbidden' }); return true }
+    const reports = await scoped(user.school_id, client => reportRows(client, user.school_id, {}, user.teacher_id, 'standby'))
+    json(res, 200, { reports })
     return true
   }
 
