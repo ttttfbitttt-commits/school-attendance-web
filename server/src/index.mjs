@@ -4,7 +4,7 @@ import { URL } from 'node:url'
 import pg from 'pg'
 import { handleFeatureRequest, migrateFeatures } from './features.mjs'
 import { migrateEmailVerification, requestSchoolRegistration, verifySchoolRegistration } from './emailVerification.mjs'
-import { handleLessonFlowRequest, migrateLessonFlow } from './lessonFlow.mjs'
+import { handleLessonFlowRequest, migrateLessonFlow, syncVoiceTimetableCoverages } from './lessonFlow.mjs'
 import { handleTeacherPortalRequest, migrateTeacherPortal } from './teacherPortal.mjs'
 import { handleBehaviorRequest, migrateBehavior } from './behavior.mjs'
 import { handleStudentReferralRequest, migrateStudentReferrals } from './studentReferrals.mjs'
@@ -553,6 +553,16 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { user: account(counselor) })
     }
     if (req.method === 'POST' && url.pathname === '/api/auth/logout') { const t=parseCookies(req)[COOKIE]; if(t) await authPool.query('DELETE FROM sessions WHERE token_hash=$1',[tokenHash(t)]); res.setHeader('set-cookie',sessionCookie('',0)); return json(res,200,{ok:true}) }
+    if (req.method === 'POST' && url.pathname === '/api/internal/voice-coverages') {
+      const expected = String(process.env.VOICE_TIMETABLE_BRIDGE_SECRET || '')
+      const supplied = String(req.headers['x-voice-bridge-secret'] || '')
+      if (!expected || supplied.length !== expected.length || !crypto.timingSafeEqual(Buffer.from(supplied), Buffer.from(expected))) return json(res, 403, { error: 'forbidden' })
+      const input = await body(req)
+      const schoolId = String(input.schoolId || '')
+      if (!/^[0-9a-f-]{36}$/i.test(schoolId)) return json(res, 400, { error: 'invalid_school' })
+      const result = await syncVoiceTimetableCoverages({ scoped, schoolId, date: input.date, entries: input.entries })
+      return json(res, 200, { ok: true, ...result })
+    }
     const user = await auth(req)
     if (!user) return json(res, 401, { error: 'unauthorized' })
     if (req.method === 'GET' && url.pathname === '/api/internal/voice-auth') {

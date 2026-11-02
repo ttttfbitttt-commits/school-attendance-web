@@ -308,6 +308,23 @@ export async function migrateLessonFlow(pool) {
       recorded_at timestamptz NOT NULL DEFAULT now(),
       UNIQUE (school_id,teacher_id,absence_date)
     );
+    -- Optional overrides received from the embedded voice timetable. They never
+    -- change the school's imported schedule or manually entered lesson records.
+    CREATE TABLE IF NOT EXISTS voice_timetable_coverages (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      school_id uuid NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+      absence_date date NOT NULL,
+      source_record_id text NOT NULL,
+      source_entry_key text NOT NULL,
+      classroom_id uuid REFERENCES lesson_classrooms(id) ON DELETE CASCADE,
+      period_number smallint NOT NULL CHECK (period_number BETWEEN 1 AND 12),
+      subject_name text NOT NULL DEFAULT '',
+      absent_teacher_name text NOT NULL DEFAULT '',
+      replacement_teacher_id uuid REFERENCES lesson_teachers(id) ON DELETE SET NULL,
+      replacement_teacher_name text NOT NULL DEFAULT '',
+      created_at timestamptz NOT NULL DEFAULT now(),
+      UNIQUE (school_id,source_record_id,source_entry_key)
+    );
     CREATE UNIQUE INDEX IF NOT EXISTS teacher_incidents_one_open_per_lesson
       ON teacher_incidents(school_id,classroom_id,incident_date,period_number)
       WHERE status IN ('draft','confirmed');
@@ -315,7 +332,46 @@ export async function migrateLessonFlow(pool) {
     CREATE INDEX IF NOT EXISTS lesson_assignments_active_lookup ON lesson_schedule_assignments(school_id,import_id,classroom_id,weekday,period_number);
     CREATE INDEX IF NOT EXISTS teacher_incidents_school_date ON teacher_incidents(school_id,incident_date DESC,detected_at DESC);
     CREATE INDEX IF NOT EXISTS teacher_day_absences_school_date ON teacher_day_absences(school_id,absence_date,teacher_id);
+    CREATE INDEX IF NOT EXISTS voice_timetable_coverages_lookup ON voice_timetable_coverages(school_id,absence_date,classroom_id,period_number);
   `)
+}
+
+export async function syncVoiceTimetableCoverages({ scoped, schoolId, date, entries }) {
+  const absenceDate = validDate(date)
+  if (!absenceDate) throw new Error('invalid_voice_coverage_date')
+  const weekday = weekdayForDate(absenceDate)
+  const incoming = Array.isArray(entries) ? entries.slice(0, 1000) : []
+  return scoped(schoolId, async client => {
+    // Replace only this date's automatic layer. Manual lesson-flow data is not touched.
+    await client.query('DELETE FROM voice_timetable_coverages WHERE school_id=$1 AND absence_date=$2', [schoolId, absenceDate])
+    const active = await activeImport(client, schoolId)
+    if (!active) return { synced: 0, mapped: 0, skipped: incoming.length, noSchedule: true }
+    let synced = 0; let mapped = 0
+    for (const item of incoming) {
+      const period = asPeriod(item?.period)
+      const className = cleanText(item?.className, 160)
+      const replacementName = cleanText(item?.replacementName, 240)
+      const absentName = cleanText(item?.absentName, 240)
+      const recordId = cleanText(item?.recordId, 120)
+      const entryKey = cleanText(item?.entryKey, 180)
+      if (!period || !className || !replacementName || !recordId || !entryKey) continue
+      const normalizedClass = normalizeName(className)
+      const normalizedReplacement = normalizeName(replacementName)
+      const classroom = await client.query('SELECT id FROM lesson_classrooms WHERE school_id=$1 AND active=true AND normalized_name=$2 LIMIT 2', [schoolId, normalizedClass])
+      const teacher = await client.query('SELECT id FROM lesson_teachers WHERE school_id=$1 AND active=true AND normalized_name=$2 LIMIT 2', [schoolId, normalizedReplacement])
+      // An ambiguous or unmatched name is retained only as no mapping: it must
+      // never replace a teacher incorrectly during barcode scanning.
+      const classroomId = classroom.rowCount === 1 ? classroom.rows[0].id : null
+      const replacementTeacherId = teacher.rowCount === 1 ? teacher.rows[0].id : null
+      await client.query(`INSERT INTO voice_timetable_coverages(
+        school_id,absence_date,source_record_id,source_entry_key,classroom_id,period_number,subject_name,absent_teacher_name,replacement_teacher_id,replacement_teacher_name)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, [
+        schoolId, absenceDate, recordId, entryKey, classroomId, period, cleanText(item?.subject, 240), absentName, replacementTeacherId, replacementName,
+      ])
+      synced += 1; if (classroomId && replacementTeacherId) mapped += 1
+    }
+    return { synced, mapped, skipped: incoming.length - synced, weekday }
+  })
 }
 
 export async function handleLessonFlowRequest(context) {
@@ -612,6 +668,18 @@ export async function handleLessonFlowRequest(context) {
       ])
       if (!assignment.rowCount) return { error: 'lesson_not_scheduled', classroom: classroom.rows[0], clock, slot: slot.rows[0] }
       if (!assignment.rows[0].teacherId) return { error: 'teacher_mapping_needed', classroom: classroom.rows[0], clock, slot: slot.rows[0], rawTeacherName: assignment.rows[0].rawTeacherName }
+      const voiceCoverage = await client.query(`SELECT coverage.replacement_teacher_id AS "teacherId",teacher.full_name AS "teacherName",
+          teacher.identity_number AS "identityNumber",coverage.subject_name AS "subjectName"
+        FROM voice_timetable_coverages coverage JOIN lesson_teachers teacher ON teacher.id=coverage.replacement_teacher_id
+        WHERE coverage.school_id=$1 AND coverage.absence_date=$2 AND coverage.classroom_id=$3 AND coverage.period_number=$4
+        LIMIT 1`, [user.school_id, clock.date, classroom.rows[0].id, slot.rows[0].periodNumber])
+      if (voiceCoverage.rowCount) {
+        const replacement = voiceCoverage.rows[0]
+        assignment.rows[0].teacherId = replacement.teacherId
+        assignment.rows[0].teacherName = replacement.teacherName
+        assignment.rows[0].identityNumber = replacement.identityNumber
+        assignment.rows[0].subjectName = replacement.subjectName || assignment.rows[0].subjectName
+      }
       const absentTeacher = await client.query(`SELECT 1 FROM teacher_day_absences
         WHERE school_id=$1 AND teacher_id=$2 AND absence_date=$3`, [user.school_id, assignment.rows[0].teacherId, clock.date])
       if (absentTeacher.rowCount) return {

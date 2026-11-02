@@ -1,8 +1,9 @@
 from http.server import ThreadingHTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
+from urllib.request import Request, urlopen
 from http.cookies import SimpleCookie
-import copy, json, threading, uuid, os, base64, io, datetime, html, subprocess, tempfile, secrets, hmac, contextvars
+import copy, json, threading, uuid, os, base64, io, datetime, html, subprocess, tempfile, secrets, hmac, contextvars, time
 import openpyxl
 from teacher_import import teacher_preview
 from teacher_contacts import contact_preview, apply_contacts
@@ -67,6 +68,66 @@ def write(d):
         sound_auth.save_project(user_id,d)
         return
     temp=STATE.with_suffix('.tmp'); temp.write_text(json.dumps(d,ensure_ascii=False),encoding='utf-8'); temp.replace(STATE)
+
+def sync_hasr_lesson_flow(project, date_text):
+    """Publish the automatic standby layer for one school/date to HSR.
+
+    This is intentionally available only to the embedded copy. The standalone
+    product keeps its own data and never calls into نظام الحصر.
+    """
+    if not HASR_EMBEDDED: return
+    bridge_url=os.environ.get('HASR_BRIDGE_URL','').strip()
+    bridge_secret=os.environ.get('VOICE_TIMETABLE_BRIDGE_SECRET','').strip()
+    school_id=str(request_user_id.get() or '').removeprefix('hasr:')
+    try: school_id=str(uuid.UUID(school_id))
+    except (ValueError, AttributeError): raise RuntimeError('تعذر التحقق من هوية المدرسة لمزامنة سير الحصص.')
+    if not bridge_url or not bridge_secret:
+        raise RuntimeError('إعداد ربط سير الحصص غير مكتمل.')
+    entries=[]
+    for record in project.get('absenceRecords',[]):
+        if str(record.get('date',''))!=str(date_text): continue
+        for entry in record.get('entries',[]):
+            replacement=str(entry.get('replacementName') or '').strip()
+            if not replacement: continue
+            entries.append({
+                'recordId':str(record.get('id','')),
+                'entryKey':f"{entry.get('absentId','')}:{entry.get('slot','')}",
+                'period':entry.get('period'),
+                'className':entry.get('className',''),
+                'subject':entry.get('subject',''),
+                'absentName':entry.get('absentName',''),
+                'replacementName':replacement,
+            })
+    payload=json.dumps({'schoolId':school_id,'date':date_text,'entries':entries},ensure_ascii=False).encode('utf-8')
+    request=Request(bridge_url,data=payload,headers={
+        'Content-Type':'application/json; charset=utf-8',
+        'X-Voice-Bridge-Secret':bridge_secret,
+    },method='POST')
+    try:
+        with urlopen(request,timeout=10) as response:
+            if response.status!=200: raise RuntimeError(f'حالة المزامنة {response.status}')
+    except Exception as error:
+        raise RuntimeError('تعذر مزامنة التكليفات مع سير الحصص. لم يُحفظ تغيير الغياب.') from error
+
+def sync_existing_embedded_coverages():
+    """Restore the automatic layer after a service restart without user action."""
+    if not HASR_EMBEDDED: return
+    for attempt in range(4):
+        try:
+            for state in EMBEDDED_DATA.glob('*.json'):
+                try: project=ensure_terms(json.loads(state.read_text(encoding='utf-8')))
+                except (OSError,json.JSONDecodeError): continue
+                token=request_user_id.set(f'hasr:{state.stem}')
+                try:
+                    for date_text in {str(record.get('date','')) for record in project.get('absenceRecords',[]) if record.get('date')}:
+                        sync_hasr_lesson_flow(project,date_text)
+                finally:
+                    request_user_id.reset(token)
+            return
+        except Exception:
+            # API and timetable containers may start in either order. Retrying
+            # keeps this reconciliation invisible to the school administrator.
+            time.sleep(2)
 
 def signature_project(token):
     if HASR_EMBEDDED:
@@ -572,7 +633,9 @@ class Handler(SimpleHTTPRequestHandler):
                     try: record=distribute_absence(current,date,body.get('teacherIds',[]),previous)
                     except ValueError as error: return self.reply({'errors':[str(error)]},422)
                     current['absenceRecords']=[r for r in records if r['date']!=date]+[record]
-                    current['revision']+=1;write(current)
+                    current['revision']+=1
+                    sync_hasr_lesson_flow(current,date)
+                    write(current)
                 record=reconcile_missing_emergency_assignments(current, record)
                 return self.reply({'project':current,'record':record})
             if path=='/api/signature-tasks':
@@ -601,7 +664,9 @@ class Handler(SimpleHTTPRequestHandler):
                         updated, record=cancel_absence_record(current, date, teacher_ids)
                     except ValueError as error:
                         return self.reply({'errors':[str(error)]},422)
-                    updated['revision']=current['revision']+1; write(updated)
+                    updated['revision']=current['revision']+1
+                    sync_hasr_lesson_flow(updated,date)
+                    write(updated)
                     if record:
                         record=reconcile_missing_emergency_assignments(updated, record)
                     return self.reply({'project':updated,'record':record})
@@ -681,4 +746,6 @@ if __name__=='__main__':
     port=int(os.environ.get('NASQ_PORT','8767'))
     bind=os.environ.get('NASQ_BIND','127.0.0.1')
     print(f'Local timetable: http://{bind}:{port}',flush=True)
+    if HASR_EMBEDDED:
+        threading.Thread(target=sync_existing_embedded_coverages,daemon=True).start()
     ThreadingHTTPServer((bind,port),Handler).serve_forever()

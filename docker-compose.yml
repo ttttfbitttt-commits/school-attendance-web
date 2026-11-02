@@ -31,6 +31,7 @@ services:
       PUBLIC_APP_URL: ${PUBLIC_APP_URL:-https://7asr2030.com}
       PLATFORM_ADMIN_USERNAME: ${PLATFORM_ADMIN_USERNAME:-ttt.fbi.ttt@gmail.com}
       PLATFORM_ADMIN_PASSWORD: ${PLATFORM_ADMIN_PASSWORD:-}
+      VOICE_TIMETABLE_BRIDGE_SECRET: ${VOICE_TIMETABLE_BRIDGE_SECRET:-}
     depends_on:
       db:
         condition: service_healthy
@@ -50,6 +51,8 @@ services:
       SOUNDTABLE_AUTH: "1"
       # يسمح بطلبات الاستيراد القادمة من النسخة المدمجة تحت نطاق نظام الحصر.
       SOUNDTABLE_PUBLIC_URL: "https://7asr2030.com"
+      HASR_BRIDGE_URL: "http://api:3000/api/internal/voice-coverages"
+      VOICE_TIMETABLE_BRIDGE_SECRET: ${VOICE_TIMETABLE_BRIDGE_SECRET:-}
       NASQ_BIND: "0.0.0.0"
       NASQ_PORT: "8767"
     volumes:
