@@ -138,7 +138,15 @@ def distribute(project, date_text, selected, existing=None):
     # Older complete imports preserved the assignments but predated the local
     # approval fingerprint.  Seal that imported order once, instead of forcing
     # the school to regenerate and lose the source-system priorities.
-    if standby.get('importedFromSmartTable') and not standby.get('signature'):
+    if standby.get('importedFromSmartTable'):
+        # الاستيراد الكامل من «الجدول الذكي» يتضمن ترتيب المنتظرين المعتمد.
+        # قد تضيف النسخة المدمجة بيانات وصفية للفصل بعد الحفظ؛ لا ينبغي أن
+        # يحجب ذلك الغياب ما دام كل صف انتظار ما زال يشير إلى معلم وحصة صحيحين.
+        valid_teachers=set(teachers)
+        valid_slots=set(range(len(project.get('slots',[]))))
+        imported_rows=standby.get('assignments',[])
+        if not imported_rows or any(row.get('teacherId') not in valid_teachers or row.get('slot') not in valid_slots for row in imported_rows):
+            raise ValueError('بيانات جدول المنتظرين المستورد غير مكتملة. أعد استيراد الجدول الكامل من الجدول الذكي.')
         standby['signature']=signature(project)
     if standby.get('signature')!=signature(project): raise ValueError('تغيّر الجدول الدراسي. أعد إنشاء جدول الانتظار واعتماده أولًا.')
     absent=set(selected)|set((existing or {}).get('teacherIds',[]))
