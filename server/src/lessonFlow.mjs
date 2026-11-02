@@ -358,11 +358,14 @@ export async function syncVoiceTimetableCoverages({ scoped, schoolId, date, entr
       const normalizedClass = normalizeName(className)
       const normalizedReplacement = normalizeName(replacementName)
       const classroom = await client.query('SELECT id FROM lesson_classrooms WHERE school_id=$1 AND active=true AND normalized_name=$2 LIMIT 2', [schoolId, normalizedClass])
-      const teacher = await client.query('SELECT id FROM lesson_teachers WHERE school_id=$1 AND active=true AND normalized_name=$2 LIMIT 2', [schoolId, normalizedReplacement])
+      const teacher = await client.query('SELECT id,full_name FROM lesson_teachers WHERE school_id=$1 AND active=true', [schoolId])
+      // Names imported from the two systems can differ only by "بن / ابن".
+      // Accept that exact token-equivalence, but never a partial/ambiguous name.
+      const teacherMatches = teacher.rows.filter(row => normalizeName(row.full_name) === normalizedReplacement || candidateScore(replacementName, row.full_name) >= 0.99)
       // An ambiguous or unmatched name is retained only as no mapping: it must
       // never replace a teacher incorrectly during barcode scanning.
       const classroomId = classroom.rowCount === 1 ? classroom.rows[0].id : null
-      const replacementTeacherId = teacher.rowCount === 1 ? teacher.rows[0].id : null
+      const replacementTeacherId = teacherMatches.length === 1 ? teacherMatches[0].id : null
       await client.query(`INSERT INTO voice_timetable_coverages(
         school_id,absence_date,source_record_id,source_entry_key,classroom_id,period_number,subject_name,absent_teacher_name,replacement_teacher_id,replacement_teacher_name)
         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)`, [
