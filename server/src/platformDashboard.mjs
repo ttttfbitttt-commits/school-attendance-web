@@ -13,7 +13,7 @@ export const SCHOOL_STORAGE_TABLES = [
   'lesson_teachers', 'lesson_classrooms', 'lesson_schedule_imports', 'lesson_name_mappings', 'lesson_time_slots', 'lesson_schedule_assignments',
   'teacher_incidents', 'teacher_day_absences', 'teacher_classroom_student_maps', 'teacher_lesson_sessions', 'teacher_lesson_student_records',
   'teacher_sheet_configs', 'teacher_sheet_entries', 'teacher_evidence_records', 'teacher_evidence_images', 'behavior_incidents', 'behavior_student_records', 'behavior_action_steps',
-  'behavior_score_movements', 'behavior_audit_logs', 'student_referrals', 'student_referral_events', 'student_leave_requests', 'teacher_attendance_contributions',
+  'behavior_score_movements', 'behavior_audit_logs', 'student_referrals', 'student_referral_events', 'student_leave_requests', 'school_circulars', 'school_circular_acknowledgements', 'teacher_attendance_contributions',
   'administrative_staff', 'student_counselors', 'student_counselor_grade_assignments', 'school_vice_principals', 'vice_principal_grade_assignments', 'school_activity_leaders',
 ]
 

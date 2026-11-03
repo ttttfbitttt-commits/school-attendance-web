@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#075a62" />
+    <title>التوقيع بالعلم على تعميم</title>
+    <link rel="stylesheet" href="/circular-signature.css" />
+  </head>
+  <body>
+    <main class="circular-page"><section class="circular-card" aria-live="polite">
+      <header class="circular-brand"><img src="/moe-logo.png" alt="وزارة التعليم" /><div><span>نظام الحصر</span><strong>التوقيع بالعلم على تعميم</strong></div></header>
+      <div id="loading" class="circular-message">جارٍ تحميل التعميم…</div>
+      <section id="content" hidden>
+        <div class="circular-intro"><span>تعميم رسمي</span><h1 id="title">—</h1><p id="school">—</p></div>
+        <dl class="circular-meta"><div><dt>المعلم</dt><dd id="teacher">—</dd></div><div><dt>اليوم والتاريخ</dt><dd id="date">—</dd></div></dl>
+        <section class="circular-file"><header><strong>مرفق التعميم</strong><small id="file-name">—</small></header><div id="file-viewer"></div></section>
+        <section class="circular-signature"><div><strong>توقيع المعلم بالعلم والاطلاع</strong><button id="clear" type="button">مسح التوقيع</button></div><canvas id="signature" aria-label="مساحة توقيع المعلم"></canvas><small>بعد الاطلاع على التعميم كاملاً، وقّع داخل المساحة باللون الأزرق ثم اضغط زر التوقيع بالعلم.</small></section>
+        <p id="error" class="circular-error" hidden></p><button id="sign" type="button" class="circular-submit">التوقيع بالعلم</button>
+      </section>
+      <section id="complete" class="circular-complete" hidden></section>
+    </section></main>
+    <script type="module" src="/circular-signature.js"></script>
+  </body>
+</html>

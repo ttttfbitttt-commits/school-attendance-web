@@ -16,6 +16,7 @@ import { handleCounselorPortalRequest, migrateCounselorPortal } from './counselo
 import { handleVicePrincipalPortalRequest, migrateVicePrincipalPortal } from './vicePrincipalPortal.mjs'
 import { handleActivityLeaderPortalRequest, migrateActivityLeaderPortal } from './activityLeaderPortal.mjs'
 import { handleStudentExcusePublicRequest, handleStudentExcuseRequest, migrateStudentExcuses } from './studentExcuses.mjs'
+import { handleCircularPublicRequest, handleCircularRequest, migrateCirculars } from './circulars.mjs'
 import { guideCanAccessStudent, gradeScope, studentGuideGrades } from './counselorScope.mjs'
 import { handlePlatformRequest, migratePlatformDashboard, SCHOOL_STORAGE_TABLES } from './platformDashboard.mjs'
 
@@ -331,7 +332,7 @@ async function configureDatabaseRoles() {
     teacher_classroom_student_maps, teacher_lesson_sessions, teacher_lesson_student_records,
     teacher_sheet_configs, teacher_sheet_entries, teacher_evidence_records, teacher_evidence_images, behavior_incidents, behavior_student_records,
     behavior_action_steps, behavior_score_movements, behavior_audit_logs, student_referrals, administrative_staff,
-    student_referral_events, student_leave_requests, teacher_attendance_contributions, student_portfolio_files, teacher_portfolio_correction_settings, student_portfolio_corrections, student_counselors, student_counselor_grade_assignments,
+    student_referral_events, student_leave_requests, school_circulars, school_circular_acknowledgements, teacher_attendance_contributions, student_portfolio_files, teacher_portfolio_correction_settings, student_portfolio_corrections, student_counselors, student_counselor_grade_assignments,
     school_vice_principals, vice_principal_grade_assignments, school_activity_leaders, activity_leader_activity_recipients TO attendance_app`)
   await adminPool.query('GRANT SELECT ON behavior_catalog_rules TO attendance_app')
   await adminPool.query('GRANT USAGE, SELECT ON SEQUENCE behavior_audit_logs_id_seq TO attendance_app')
@@ -385,6 +386,8 @@ async function enforceTenantRowSecurity() {
     ['student_referrals', 'school_id', 'student_referrals_school_scope'],
     ['student_referral_events', 'school_id', 'student_referral_events_school_scope'],
     ['student_leave_requests', 'school_id', 'student_leave_requests_school_scope'],
+    ['school_circulars', 'school_id', 'school_circulars_school_scope'],
+    ['school_circular_acknowledgements', 'school_id', 'school_circular_acknowledgements_school_scope'],
     ['teacher_attendance_contributions', 'school_id', 'teacher_attendance_contributions_school_scope'],
     ['administrative_staff', 'school_id', 'administrative_staff_school_scope'],
     ['student_portfolio_files', 'school_id', 'student_portfolio_files_school_scope'],
@@ -424,6 +427,7 @@ async function migrateDatabase() {
   await migrateBehavior(adminPool)
   await migrateStudentReferrals(adminPool)
   await migrateStudentExcuses(adminPool)
+  await migrateCirculars(adminPool)
   await migrateTeacherCooperation(adminPool)
   await migrateBackupRestore(adminPool)
   await enforceTenantRowSecurity()
@@ -572,6 +576,7 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { ok: true, ...result })
     }
     if (await handleStudentExcusePublicRequest({ req, res, url, body, json, publicPool })) return
+    if (await handleCircularPublicRequest({ req, res, url, body, json, publicPool })) return
     const user = await auth(req)
     if (!user) return json(res, 401, { error: 'unauthorized' })
     if (req.method === 'GET' && url.pathname === '/api/internal/voice-auth') {
@@ -608,6 +613,7 @@ const server = http.createServer(async (req, res) => {
     if (await handleTeacherCooperationRequest({ req, res, url, user, body, json, scoped })) return
     if (await handleStudentReferralRequest({ req, res, url, user, body, json, scoped, todayRiyadh })) return
     if (await handleStudentExcuseRequest({ req, res, url, user, body, json, scoped, todayRiyadh })) return
+    if (await handleCircularRequest({ req, res, url, user, body, json, scoped, todayRiyadh })) return
     if (await handleActivityLeaderPortalRequest({ req, res, url, user, body, json, scoped, authPool, passwordHash })) return
     if (await handleTeacherPortalRequest({ req, res, url, user, pool, authPool, body, json, scoped, todayRiyadh, passwordHash })) return
     if (await handleStudentPortalRequest({ req, res, url, user, pool, authPool, body, json, scoped, todayRiyadh, passwordHash })) return
