@@ -63,6 +63,7 @@ export type StudentExcuseRequest = {
 export type SchoolCircular = { id: string; title: string; circularDate: string; fileName: string; fileType: 'image/png' | 'image/jpeg' | 'image/webp' | 'application/pdf'; createdByName: string; createdAt: string | null; recipients: number; signed: number; pending: number; sent: number }
 export type CircularRecipient = { id: string; teacherId: string; teacherName: string; teacherPhone: string; status: 'pending' | 'signed'; generatedAt: string | null; sentByName: string; sentAt: string | null; signedAt: string | null; signatureData?: string }
 export type SchoolCircularDetail = { circular: SchoolCircular & { fileData: string }; recipients: CircularRecipient[] }
+export type TeacherCircular = { id: string; circularId: string; title: string; circularDate: string; fileName: string; fileType: 'image/png' | 'image/jpeg' | 'image/webp' | 'application/pdf'; fileData: string; status: 'pending' | 'signed'; signedAt: string | null; signatureData: string }
 export type AbsenceStatus = 'unexcused' | 'excused' | 'special'
 export type AbsenceSummaryStatus = AbsenceStatus | 'mixed'
 export type AbsenceRow = {
@@ -450,9 +451,11 @@ export const api = {
   markStudentExcuseSent: (id: string) => request<{ request: StudentExcuseRequest }>(`/student-excuses/${encodeURIComponent(id)}/sent`, { method: 'POST', body: '{}' }),
   circulars: () => request<{ circulars: SchoolCircular[] }>('/circulars'),
   circular: (id: string) => request<SchoolCircularDetail>(`/circulars/${encodeURIComponent(id)}`),
-  createCircular: (payload: { title: string; circularDate: string; fileName: string; fileData: string }) => request<{ circular: SchoolCircular }>('/circulars', { method: 'POST', body: JSON.stringify(payload) }),
+  createCircular: (payload: { title: string; circularDate: string; fileName: string; fileData: string }) => request<{ circular: SchoolCircular; generated: number; total: number }>('/circulars', { method: 'POST', body: JSON.stringify(payload) }),
   generateCircularRecipients: (id: string) => request<{ generated: number; total: number; recipients: CircularRecipient[] }>(`/circulars/${encodeURIComponent(id)}/recipients`, { method: 'POST', body: '{}' }),
   sendCircularRecipient: (circularId: string, recipientId: string) => request<{ recipient: CircularRecipient; link: string }>(`/circulars/${encodeURIComponent(circularId)}/recipients/${encodeURIComponent(recipientId)}/send`, { method: 'POST', body: '{}' }),
+  teacherCirculars: () => request<{ circulars: TeacherCircular[] }>('/circulars/teacher'),
+  signTeacherCircular: (recipientId: string, signatureData: string) => request<{ recipient: Pick<TeacherCircular, 'id' | 'status' | 'signedAt' | 'signatureData'> }>(`/circulars/teacher/${encodeURIComponent(recipientId)}/sign`, { method: 'POST', body: JSON.stringify({ signatureData }) }),
   absenceReport: (from: string, to: string, studentId = '') => request<AbsenceReport>(`/reports/absences?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}${studentId ? `&studentId=${encodeURIComponent(studentId)}` : ''}`),
   calculateAbsences: (date: string, studentIds: string[] = []) => request<{ ok: boolean; date: string; created: number; confirmed: number }>('/absences/calculate', { method: 'POST', body: JSON.stringify({ date, ...(studentIds.length ? { studentIds } : {}) }) }),
   cancelAbsences: (date: string) => request<{ ok: boolean; date: string; deleted: number }>('/absences/cancel', { method: 'POST', body: JSON.stringify({ date }) }),

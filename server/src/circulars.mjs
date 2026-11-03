@@ -25,6 +25,13 @@ function recipientRow(row, withSignature = true) {
     signedAt: row.signedAt || null, signatureData: withSignature ? (row.signatureData || '') : undefined,
   }
 }
+function teacherCircularRow(row) {
+  return {
+    id: row.id, circularId: row.circularId, title: row.title, circularDate: row.circularDate,
+    fileName: row.fileName, fileType: row.fileType, fileData: row.fileData,
+    status: row.status, signedAt: row.signedAt || null, signatureData: row.signatureData || '',
+  }
+}
 function circularRow(row) {
   return {
     id: row.id, title: row.title, circularDate: row.circularDate, fileName: row.fileName, fileType: row.fileType,
@@ -37,6 +44,21 @@ const recipientColumns = `a.id,a.teacher_id AS "teacherId",a.teacher_name AS "te
   to_char(a.sent_at AT TIME ZONE 'Asia/Riyadh','YYYY-MM-DD HH24:MI') AS "sentAt",
   to_char(a.signed_at AT TIME ZONE 'Asia/Riyadh','YYYY-MM-DD HH24:MI') AS "signedAt",a.signature_data AS "signatureData"`
 const recipientReturningColumns = recipientColumns.replaceAll('a.', '')
+
+async function createCircularRecipients(client, schoolId, circularId) {
+  const teachers = await client.query(`SELECT id,full_name,phone FROM lesson_teachers WHERE school_id=$1 AND active=true ORDER BY full_name`, [schoolId])
+  let generated = 0
+  for (const teacher of teachers.rows) {
+    const token = crypto.randomBytes(32).toString('base64url')
+    const inserted = await client.query(`INSERT INTO school_circular_acknowledgements(circular_id,school_id,teacher_id,teacher_name,teacher_phone,access_token_hash)
+      VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(circular_id,teacher_id) DO NOTHING RETURNING id`, [circularId, schoolId, teacher.id, teacher.full_name, teacher.phone || '', tokenHash(token)])
+    generated += inserted.rowCount
+  }
+  return { generated, total: teachers.rowCount }
+}
+
+function teacherOnly(user) { return user?.role === 'teacher' && validUuid(user.teacher_id) }
+function validSignature(value) { return /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(String(value || '')) && String(value).length <= 1_600_000 }
 
 export async function migrateCirculars(adminPool) {
   await adminPool.query(`
@@ -76,6 +98,34 @@ export async function migrateCirculars(adminPool) {
 
 export async function handleCircularRequest({ req, res, url, user, body, json, scoped, todayRiyadh }) {
   if (!url.pathname.startsWith('/api/circulars')) return false
+
+  if (url.pathname.startsWith('/api/circulars/teacher')) {
+    if (!teacherOnly(user)) { json(res, 403, { error: 'teacher_circulars_only' }); return true }
+    if (req.method === 'GET' && url.pathname === '/api/circulars/teacher') {
+      const result = await scoped(user.school_id, client => client.query(`SELECT a.id,a.circular_id AS "circularId",a.status,
+        to_char(a.signed_at AT TIME ZONE 'Asia/Riyadh','YYYY-MM-DD HH24:MI') AS "signedAt",a.signature_data AS "signatureData",
+        c.title,to_char(c.circular_date,'YYYY-MM-DD') AS "circularDate",c.file_name AS "fileName",c.file_type AS "fileType",c.file_data AS "fileData"
+        FROM school_circular_acknowledgements a JOIN school_circulars c ON c.id=a.circular_id AND c.school_id=a.school_id
+        WHERE a.school_id=$1 AND a.teacher_id=$2 ORDER BY c.circular_date DESC,c.created_at DESC`, [user.school_id, user.teacher_id]))
+      json(res, 200, { circulars: result.rows.map(teacherCircularRow) })
+      return true
+    }
+    const teacherSignMatch = /^\/api\/circulars\/teacher\/([0-9a-f-]{36})\/sign$/i.exec(url.pathname)
+    if (req.method === 'POST' && teacherSignMatch) {
+      const input = await body(req, 1_800_000)
+      if (!validSignature(input.signatureData)) { json(res, 400, { error: 'invalid_signature' }); return true }
+      const result = await scoped(user.school_id, client => client.query(`UPDATE school_circular_acknowledgements a SET status='signed',signature_data=$4,signed_at=now()
+        WHERE a.school_id=$1 AND a.teacher_id=$2 AND a.id=$3 AND a.status='pending'
+        RETURNING a.id,a.circular_id AS "circularId",a.status,to_char(a.signed_at AT TIME ZONE 'Asia/Riyadh','YYYY-MM-DD HH24:MI') AS "signedAt",a.signature_data AS "signatureData"`,
+      [user.school_id, user.teacher_id, teacherSignMatch[1], input.signatureData]))
+      if (!result.rowCount) { json(res, 409, { error: 'already_signed_or_not_found' }); return true }
+      json(res, 200, { recipient: result.rows[0] })
+      return true
+    }
+    json(res, 404, { error: 'not_found' })
+    return true
+  }
+
   if (!accessAllowed(user)) { json(res, 403, { error: 'forbidden' }); return true }
 
   if (req.method === 'GET' && url.pathname === '/api/circulars') {
@@ -95,11 +145,15 @@ export async function handleCircularRequest({ req, res, url, user, body, json, s
     const circularDate = validDate(input.circularDate) || todayRiyadh()
     const attachment = supportedAttachment(input)
     if (title.length < 2 || !attachment || !circularDate) { json(res, 400, { error: 'invalid_circular' }); return true }
-    const saved = await scoped(user.school_id, client => client.query(`INSERT INTO school_circulars(school_id,title,circular_date,file_name,file_type,file_data,created_by,created_by_name)
-      VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id,title,to_char(circular_date,'YYYY-MM-DD') AS "circularDate",file_name AS "fileName",file_type AS "fileType",
-      created_by_name AS "createdByName",to_char(created_at AT TIME ZONE 'Asia/Riyadh','YYYY-MM-DD HH24:MI') AS "createdAt",0::int AS recipients,0::int AS signed,0::int AS pending,0::int AS sent`,
-    [user.school_id, title, circularDate, attachment.fileName, attachment.fileType, attachment.fileData, user.user_id, clean(user.display_name, 160)]))
-    json(res, 201, { circular: circularRow(saved.rows[0]) })
+    const saved = await scoped(user.school_id, async client => {
+      const circular = (await client.query(`INSERT INTO school_circulars(school_id,title,circular_date,file_name,file_type,file_data,created_by,created_by_name)
+        VALUES($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id,title,to_char(circular_date,'YYYY-MM-DD') AS "circularDate",file_name AS "fileName",file_type AS "fileType",
+        created_by_name AS "createdByName",to_char(created_at AT TIME ZONE 'Asia/Riyadh','YYYY-MM-DD HH24:MI') AS "createdAt",0::int AS recipients,0::int AS signed,0::int AS pending,0::int AS sent`,
+      [user.school_id, title, circularDate, attachment.fileName, attachment.fileType, attachment.fileData, user.user_id, clean(user.display_name, 160)])).rows[0]
+      const recipients = await createCircularRecipients(client, user.school_id, circular.id)
+      return { circular: { ...circular, recipients: recipients.total, pending: recipients.total }, generated: recipients.generated, total: recipients.total }
+    })
+    json(res, 201, { circular: circularRow(saved.circular), generated: saved.generated, total: saved.total })
     return true
   }
 
@@ -122,16 +176,9 @@ export async function handleCircularRequest({ req, res, url, user, body, json, s
     const result = await scoped(user.school_id, async client => {
       const circular = await client.query('SELECT id FROM school_circulars WHERE school_id=$1 AND id=$2', [user.school_id, generateMatch[1]])
       if (!circular.rowCount) return { missing: true }
-      const teachers = await client.query(`SELECT id,full_name,phone FROM lesson_teachers WHERE school_id=$1 AND active=true ORDER BY full_name`, [user.school_id])
-      let generated = 0
-      for (const teacher of teachers.rows) {
-        const token = crypto.randomBytes(32).toString('base64url')
-        const inserted = await client.query(`INSERT INTO school_circular_acknowledgements(circular_id,school_id,teacher_id,teacher_name,teacher_phone,access_token_hash)
-          VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(circular_id,teacher_id) DO NOTHING RETURNING id`, [generateMatch[1], user.school_id, teacher.id, teacher.full_name, teacher.phone || '', tokenHash(token)])
-        generated += inserted.rowCount
-      }
+      const { generated, total } = await createCircularRecipients(client, user.school_id, generateMatch[1])
       const recipients = await client.query(`SELECT ${recipientColumns} FROM school_circular_acknowledgements a WHERE a.school_id=$1 AND a.circular_id=$2 ORDER BY a.teacher_name`, [user.school_id, generateMatch[1]])
-      return { generated, total: teachers.rowCount, recipients: recipients.rows }
+      return { generated, total, recipients: recipients.rows }
     })
     if (result.missing) { json(res, 404, { error: 'circular_not_found' }); return true }
     json(res, 200, { generated: result.generated, total: result.total, recipients: result.recipients.map(row => recipientRow(row)) })
@@ -173,7 +220,7 @@ export async function handleCircularPublicRequest({ req, res, url, body, json, p
   if (req.method === 'POST' && url.pathname === '/api/circulars/public/sign') {
     const input = await body(req, 1_800_000)
     const signature = String(input.signatureData || '')
-    if (!/^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(signature) || signature.length > 1_600_000) { json(res, 400, { error: 'invalid_signature' }); return true }
+    if (!validSignature(signature)) { json(res, 400, { error: 'invalid_signature' }); return true }
     const result = await publicPool.query(`UPDATE school_circular_acknowledgements SET status='signed',signature_data=$2,signed_at=now()
       WHERE access_token_hash=$1 AND status='pending' RETURNING id`, [hash, signature])
     if (!result.rowCount) { json(res, 409, { error: 'already_signed' }); return true }

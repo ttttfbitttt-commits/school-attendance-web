@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { BarChart3, BookOpenCheck, CalendarDays, Check, Copy, FileSpreadsheet, FolderOpen, Handshake, KeyRound, LayoutDashboard, LogOut, Menu, Plus, Printer, Save, Send, Trash2, UserRound, X } from 'lucide-react'
+import { BarChart3, BookOpenCheck, CalendarDays, Check, Copy, FileSpreadsheet, FileText, FolderOpen, Handshake, KeyRound, LayoutDashboard, LogOut, Menu, Plus, Printer, Save, Send, Trash2, UserRound, X } from 'lucide-react'
 import { api, type Account, type NoorSheetMapping, type NoorSheetMappingSource, type TeacherAssessmentPeriod, type TeacherCooperationStatus, type TeacherComprehensiveReport, type TeacherComprehensiveReportOption, type TeacherComprehensiveReportType, type TeacherLesson, type TeacherLessonReport, type TeacherNote, type TeacherPortalDashboard, type TeacherPortalScheduleItem, type TeacherSheetColumn, type TeacherSheetConfig, type TeacherSheetOpenType, type TeacherSheetSubject, type TeacherSheetType } from './api'
 import { HijriDatePicker } from './HijriDatePicker'
 import { formatHijriDate } from './dateUtils'
@@ -9,6 +9,7 @@ import { TeacherCooperationPanel } from './TeacherCooperation'
 import { StudentPortfolioBoard } from './StudentPortfolio'
 import { TeacherEvidence } from './TeacherEvidence'
 import { addReportBrandToDocument, brandReportFragment, prependReportHeaderToWorksheet } from './SchoolFeatures'
+import { TeacherCirculars } from './TeacherCirculars'
 
 const notes: TeacherNote[] = ['هروب من الحصة', 'نائم أثناء الدرس', 'لم يحل الواجب', 'عدم التفاعل والمشاركة', 'مشارك فعال', 'لم يحضر الكتاب أو أوراق العمل', 'استخدام الجوال أثناء الحصة', 'الحديث مع زملائه أثناء الدرس']
 const dayNames = ['', 'الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت']
@@ -34,7 +35,7 @@ const displaySheetValue = (value: string | number | boolean | undefined, type?: 
 
 type TeacherAttendanceStatus = 'present' | 'absent' | 'late' | 'excused'
 type StudentState = { status: TeacherAttendanceStatus; note: TeacherNote | ''; sheetValues: Record<string, string | number | boolean> }
-type TeacherTab = 'home' | 'schedule' | 'standby' | 'cooperation' | 'referrals' | 'sheets' | 'portfolio' | 'evidence' | 'reports' | 'password'
+type TeacherTab = 'home' | 'schedule' | 'standby' | 'cooperation' | 'referrals' | 'circulars' | 'sheets' | 'portfolio' | 'evidence' | 'reports' | 'password'
 type RenderSheetColumn = TeacherSheetColumn & { key: string; sheetType: TeacherSheetType }
 const getSheetColumns = (lesson: TeacherLesson): RenderSheetColumn[] => lesson.sheetConfigs.flatMap(config => config.columns.map(column => ({ ...column, key: `${config.sheetType}:${column.id}`, sheetType: config.sheetType })))
 const attendanceStatusLabel = (status: TeacherAttendanceStatus) => status === 'present' ? 'حاضر' : status === 'late' ? 'تأخر عن الحصة' : status === 'excused' ? 'مستأذن' : 'غائب'
@@ -821,6 +822,7 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
         <button type="button" className={activeTab === 'standby' ? 'active' : ''} onClick={() => navigate('standby')}><CalendarDays size={18} /> حصص الانتظار{dashboard?.standbySchedule?.length ? <span>اليوم</span> : null}</button>
         {cooperationStatus?.available && <button type="button" className={`teacher-cooperation-nav ${activeTab === 'cooperation' ? 'active' : ''}`} onClick={() => navigate('cooperation')}><Handshake size={18} /> تعاون المعلم<span>متاح الآن</span></button>}
         <button type="button" className={activeTab === 'referrals' ? 'active' : ''} onClick={() => navigate('referrals')}><Send size={18} /> إحالة طالب</button>
+        <button type="button" className={activeTab === 'circulars' ? 'active' : ''} onClick={() => navigate('circulars')}><FileText size={18} /> التعاميم</button>
         <button type="button" className={activeTab === 'sheets' ? 'active' : ''} onClick={() => navigate('sheets')}><FileSpreadsheet size={18} /> الكشوف</button>
         <button type="button" className={activeTab === 'portfolio' ? 'active' : ''} onClick={() => navigate('portfolio')}><FolderOpen size={18} /> ملف الإنجاز</button>
         <button type="button" className={activeTab === 'evidence' ? 'active' : ''} onClick={() => navigate('evidence')}><BookOpenCheck size={18} /> شواهد {dashboard?.activityEvidenceCount ? <span>هام</span> : null}</button>
@@ -877,6 +879,7 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
     </>}
     {activeTab === 'cooperation' && cooperationStatus?.available && <TeacherCooperationPanel status={cooperationStatus} onRefresh={loadCooperationStatus} />}
     {activeTab === 'referrals' && <TeacherReferralCenter date={date} schedule={dashboard?.schedule || []} schoolName={dashboard?.schoolName || 'المدرسة'} teacherName={dashboard?.teacher.name || account.displayName} />}
+    {activeTab === 'circulars' && <TeacherCirculars schoolName={dashboard?.schoolName || 'المدرسة'} />}
     {activeTab === 'sheets' && <section className="teacher-card"><div className="teacher-section-head"><div><span>إدارة الكشوف</span><h2>الكشوف</h2><p>جهز كشف كل مادة مرة واحدة، أو ابدأ المتابعة مباشرة.</p></div><FileSpreadsheet size={30} /></div>
       {sheetMode === 'menu' && <div className="teacher-sheet-menu"><button type="button" onClick={() => { setLesson(null); setSelected(null); setSheetOnlyView(false); setSheetMode('setup') }}><FileSpreadsheet size={30} /><strong>إعداد الكشوف</strong><small>أنشئ الأعمدة والدرجات لكل مادة</small></button><button type="button" onClick={() => setSheetMode('start')}><BookOpenCheck size={30} /><strong>بدء المتابعة</strong><small>اختر المادة والفصل والكشف ثم افتح الطلاب</small></button><button type="button" className="teacher-noor-sheet-menu-button" onClick={() => { setLesson(null); setSelected(null); setSheetOnlyView(false); setSheetMode('noorGuide') }}><span className="teacher-experimental-badge">تجريبي</span><Copy size={30} /><strong>نسخ نموذج من نور</strong><small>ارفع لقطة نور وأنشئ أعمدة الدرجات</small></button><button type="button" onClick={() => { setLesson(null); setSelected(null); setSheetOnlyView(false); setSheetMode('noorMapping') }}><Copy size={30} /><strong>ربط كشف نور</strong><small>اجمع درجات الكشوف في أعمدة نور</small></button></div>}
       {sheetMode === 'setup' && <><button type="button" className="outline-button teacher-sheet-back" onClick={() => setSheetMode('menu')}>العودة إلى الكشوف</button><TeacherSheetsSetup sheets={sheets} onSaved={config => setSheets(current => current.map(subject => subject.subject === config.subject ? { ...subject, configs: [...subject.configs.filter(item => item.sheetType !== config.sheetType || item.assessmentPeriod !== config.assessmentPeriod), config] } : subject))} onDeleted={(subjectName, sheetType, assessmentPeriod) => setSheets(current => current.map(subject => subject.subject === subjectName ? { ...subject, configs: subject.configs.filter(config => config.sheetType !== sheetType || config.assessmentPeriod !== assessmentPeriod) } : subject))} /></>}

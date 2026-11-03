@@ -136,7 +136,7 @@ export function CircularsCenter({ schoolName }: { schoolName: string }) {
       const fileData = await readAttachment(attachment)
       const created = await api.createCircular({ title: title.trim(), circularDate, fileName: attachment.name, fileData })
       setCirculars(currentRows => [created.circular, ...currentRows])
-      setTitle(''); setAttachment(null); setAdding(false); setNotice('تم حفظ التعميم. افتحه ثم اضغط «إنشاء روابط المعلمين».')
+      setTitle(''); setAttachment(null); setAdding(false); setNotice(`تم حفظ التعميم وإنشاء سجلات توقيعه لـ ${created.total} من المعلمين. يظهر تلقائيًا في حساب كل معلم لديه حساب دخول، وواتساب خيار إضافي فقط.`)
       void openCircular(created.circular.id)
     } catch { setError('تعذر حفظ التعميم. تحقق من الملف ثم أعد المحاولة.') } finally { setBusy('') }
   }
