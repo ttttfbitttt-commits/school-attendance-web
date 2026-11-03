@@ -55,6 +55,7 @@ const requestColumns = `r.id,r.student_id AS "studentId",r.student_name AS "stud
   to_char(r.created_at AT TIME ZONE 'Asia/Riyadh','YYYY-MM-DD HH24:MI') AS "createdAt",
   to_char(r.responded_at AT TIME ZONE 'Asia/Riyadh','YYYY-MM-DD HH24:MI') AS "respondedAt",
   r.parent_decision AS "parentDecision",r.parent_signature_data AS "signatureData"`
+const returningColumns = requestColumns.replaceAll('r.', '')
 
 export async function migrateStudentExcuses(adminPool) {
   await adminPool.query(`
@@ -138,7 +139,7 @@ export async function handleStudentExcuseRequest({ req, res, url, user, body, js
       const saved = await client.query(`INSERT INTO student_leave_requests(
         school_id,student_id,student_name,guardian_phone,grade_value,classroom_value,reason,request_date,access_token_hash,created_by,created_by_name)
         VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-        RETURNING ${requestColumns}`,
+        RETURNING ${returningColumns}`,
       [user.school_id, row.id, row.name, row.phone || '', row.grade, row.classroom, reason, requestDate, tokenHash(token), user.user_id, clean(user.display_name, 160)])
       return { row: saved.rows[0], token }
     })
@@ -154,7 +155,7 @@ export async function handleStudentExcuseRequest({ req, res, url, user, body, js
       const values = [user.school_id, sentMatch[1], user.user_id, clean(user.display_name, 160)]
       const scopedGrades = gradeScope(values, grades, 'grade_value')
       return client.query(`UPDATE student_leave_requests SET sent_by=$3,sent_by_name=$4,sent_at=now()
-        WHERE school_id=$1 AND id=$2${scopedGrades} RETURNING ${requestColumns}`, values)
+        WHERE school_id=$1 AND id=$2${scopedGrades} RETURNING ${returningColumns}`, values)
     })
     if (!result.rowCount) { json(res, 404, { error: 'student_excuse_not_found' }); return true }
     json(res, 200, { request: requestRow(result.rows[0]) })

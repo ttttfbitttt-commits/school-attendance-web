@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { CheckCircle2, ClipboardList, MessageCircle, Printer, RefreshCw, Search, UserRound } from 'lucide-react'
+import { CheckCircle2, ClipboardList, ExternalLink, MessageCircle, Printer, RefreshCw, Search, UserRound } from 'lucide-react'
 import { api, type StudentExcuseReason, type StudentExcuseRequest, type StudentExcuseStudent } from './api'
 import { formatHijriDate } from './dateUtils'
 import { brandReportHtmlDocument, installReportPdfDownload } from './SchoolFeatures'
@@ -59,6 +59,7 @@ export function StudentExcuseCenter({ schoolName }: { schoolName: string }) {
   const [filter, setFilter] = useState('')
   const [gradeFilter, setGradeFilter] = useState('')
   const [classFilter, setClassFilter] = useState('')
+  const [whatsappFallback, setWhatsappFallback] = useState<{ url: string; phone: string } | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -92,16 +93,21 @@ export function StudentExcuseCenter({ schoolName }: { schoolName: string }) {
     if (!selected) { setError('ابحث عن الطالب ثم اختر اسمه أولًا.'); return }
     const phone = whatsappPhone(selected.phone)
     if (!phone) { setError('لا يوجد رقم جوال صالح لولي أمر هذا الطالب. حدّث رقم الجوال من بيانات الطلاب أولًا.'); return }
-    setSending(true); setError(''); setNotice('')
+    setSending(true); setError(''); setNotice(''); setWhatsappFallback(null)
     const whatsappTab = window.open('about:blank', '_blank')
+    if (whatsappTab) {
+      whatsappTab.document.title = 'تجهيز رسالة واتساب'
+      whatsappTab.document.body.innerHTML = '<main dir="rtl" style="font-family:Tahoma,Arial;padding:32px;text-align:center;color:#075a62">جارٍ تجهيز رسالة واتساب لولي الأمر…</main>'
+    }
     try {
       const created = await api.createStudentExcuse({ studentId: selected.id, reason, requestDate })
       const marked = await api.markStudentExcuseSent(created.request.id)
       setRequests(current => [marked.request, ...current.filter(row => row.id !== marked.request.id)])
       const message = `ولي أمر الطالب/ـة ${selected.name}\nطلب استئذان بتاريخ ${requestDate} بسبب: ${REASONS.find(item => item.value === reason)?.label || ''}\nيرجى فتح الرابط للتوقيع واختيار الموافقة أو الرفض:\n${created.link}`
       const target = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`
-      if (whatsappTab) whatsappTab.location.href = target
+      if (whatsappTab) whatsappTab.location.replace(target)
       else window.open(target, '_blank')
+      setWhatsappFallback({ url: target, phone })
       setNotice(`تم تجهيز الرابط وتوثيق إرسالِه باسم المستخدم. سيفتح واتساب لرقم ولي الأمر.`)
       setSelected(null); setQuery(''); setResults([])
     } catch (caught: any) {
@@ -119,7 +125,7 @@ export function StudentExcuseCenter({ schoolName }: { schoolName: string }) {
       {results.length > 0 && <div className="student-excuse-results">{results.map(student => <button key={student.id} type="button" onClick={() => { setSelected(student); setQuery(student.name); setResults([]) }}><strong>{student.name}</strong><span>{student.grade} · الفصل {student.classroom}</span><small dir="ltr">{student.phone || 'لا يوجد رقم جوال'}</small></button>)}</div>}
       {selected && <div className="student-excuse-selected"><CheckCircle2 size={20} /><div><strong>{selected.name}</strong><span>{selected.grade} · الفصل {selected.classroom} · <b dir="ltr">{selected.phone || 'لا يوجد رقم جوال'}</b></span></div></div>}
       <div className="student-excuse-options"><label>سبب الاستئذان<select value={reason} onChange={event => setReason(event.target.value as StudentExcuseReason)}>{REASONS.map(item => <option key={item.value} value={item.value}>{item.label}</option>)}</select></label><label>تاريخ الاستئذان<input type="date" value={requestDate} onChange={event => setRequestDate(event.target.value)} /></label><button type="button" className="primary-button" onClick={() => void createAndSend()} disabled={sending}><MessageCircle size={18} />{sending ? 'جارٍ تجهيز الرابط…' : 'إرسال رابط عبر واتساب'}</button></div>
-      {notice && <p className="teacher-notice success">{notice}</p>}{error && <p className="teacher-notice error">{error}</p>}
+      {notice && <p className="teacher-notice success">{notice}</p>}{whatsappFallback && <a className="student-excuse-whatsapp-fallback" href={whatsappFallback.url} target="_blank" rel="noreferrer"><ExternalLink size={16} />لم يفتح واتساب؟ افتحه الآن للرقم {whatsappFallback.phone}</a>}{error && <p className="teacher-notice error">{error}</p>}
     </section>
     <section className="student-excuse-log">
       <header><div><span>سجل موثق</span><h3>سجل الاستئذان</h3><p>يوثق اسم المستخدم الذي أرسل الرابط ووقت الإرسال، مع نتيجة وتوقيع ولي الأمر.</p></div><div className="student-excuse-actions"><button type="button" className="outline-button" onClick={() => studentExcuseReport(filtered, schoolName)} disabled={!filtered.length}><Printer size={16} /> طباعة PDF</button><button type="button" className="outline-button" onClick={() => void load()} disabled={loading}><RefreshCw size={16} /> تحديث</button></div></header>
