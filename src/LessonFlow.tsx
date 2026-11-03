@@ -292,7 +292,6 @@ function incidentPrintHtml(
   schoolName: string,
   principalName: string,
   generalEducationAdministration: string,
-  educationOffice: string,
 ) {
   const identityNumber = Array.from(String(incident.identityNumber || '').replace(/\s/g, ''))
   const civilIdCells = Array.from({ length: Math.max(10, identityNumber.length) }, (_, index) => `<span>${escapeHtml(identityNumber[index] || '')}</span>`).join('')
@@ -302,12 +301,10 @@ function incidentPrintHtml(
     generalEducationAdministration.trim()
       .replace(/^الإدارة العامة للتعليم(?:\s+بمنطقة)?\s*/, '') || '................',
   )
-  const officeName = escapeHtml(educationOffice.trim().replace(/^مكتب التعليم\s*/, '') || '................')
   return `<main class="sheet">
     <header class="moe-header">
       <img class="moe-header-template" src="${headerUrl}" alt="ترويسة وزارة التعليم">
       <span class="moe-header-region">الإدارة العامة للتعليم بمنطقة: ${administrationName}</span>
-      <span class="moe-header-office">مكتب التعليم: ${officeName}</span>
       <span class="moe-header-school">مدرسة: ${escapeHtml(schoolName)}</span>
     </header>
     <div class="form-code">نموذج رقم (18)<br><span class="code">رمز النموذج: (و.م.ع.ن - 02 - 02)</span></div>
@@ -343,12 +340,10 @@ export function LessonFlowCenter({
   schoolName,
   principalName,
   generalEducationAdministration = '',
-  educationOffice = '',
 }: {
   schoolName: string
   principalName: string
   generalEducationAdministration?: string
-  educationOffice?: string
 }) {
   const [overview, setOverview] = useState<LessonFlowOverview | null>(null)
   const [activeSection, setActiveSection] = useState<SectionKey>('setup')
@@ -809,7 +804,6 @@ export function LessonFlowCenter({
       schoolName,
       principalName,
       generalEducationAdministration,
-      educationOffice,
     ))
   }
 

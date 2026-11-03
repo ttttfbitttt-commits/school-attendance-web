@@ -14,7 +14,7 @@ const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Riyadh' }
 const reportWeekday = (weekday: number) => ['الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'][weekday - 1] || '—'
 const escapeHtml = (value: unknown) => String(value ?? '').replace(/[&<>'"]/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[character] || character))
 const REPORT_BRAND_STORAGE_KEY = 'attendance-report-school-brand'
-const REPORT_HEADER_ROWS = 6
+const REPORT_HEADER_ROWS = 5
 let activeReportSchoolBrand: (ReportSchoolBrand & { schoolId: string }) | null = null
 const maskPhone = (phone: string) => phone.length > 4 ? `${phone.slice(0, 3)}••••${phone.slice(-3)}` : phone
 const formatDateTime = (value: string) => formatHijriDateTime(value)
@@ -116,29 +116,26 @@ function reportHeaderValues(schoolName: string) {
   const region = school.generalEducationAdministration
     .trim()
     .replace(/^الإدارة العامة للتعليم(?:\s+بمنطقة)?\s*/, '') || '................'
-  const office = school.educationOffice.trim().replace(/^مكتب التعليم\s*/, '') || '................'
   return {
     schoolName: (school.schoolName || schoolName).trim().replace(/^مدرسة\s*/, '') || '................',
     region,
-    office,
   }
 }
 
 export function reportInstitutionHeader(schoolName = '') {
-  const { schoolName: name, region, office } = reportHeaderValues(schoolName)
+  const { schoolName: name, region } = reportHeaderValues(schoolName)
   const templateUrl = `${window.location.origin}/moe-school-header.png`
-  return `<header class="report-brand-banner"><img class="report-brand-template" src="${templateUrl}" alt="ترويسة وزارة التعليم"><span class="report-brand-region">الإدارة العامة للتعليم بمنطقة: ${escapeHtml(region)}</span><span class="report-brand-office">مكتب التعليم: ${escapeHtml(office)}</span><span class="report-brand-school">مدرسة: ${escapeHtml(name)}</span></header>`
+  return `<header class="report-brand-banner"><img class="report-brand-template" src="${templateUrl}" alt="ترويسة وزارة التعليم"><span class="report-brand-region">الإدارة العامة للتعليم بمنطقة: ${escapeHtml(region)}</span><span class="report-brand-school">مدرسة: ${escapeHtml(name)}</span></header>`
 }
 
 const reportBrandStyles = `
 .report-brand-banner{position:relative;width:100%;aspect-ratio:541/112;margin:0 auto 3mm;direction:rtl;-webkit-print-color-adjust:exact;print-color-adjust:exact;forced-color-adjust:none}
 .report-brand-template{position:absolute;inset:0;display:block;width:100%;height:100%}
-.report-brand-region,.report-brand-office,.report-brand-school{position:absolute;display:grid;place-items:center;overflow:hidden;text-align:center;white-space:nowrap;direction:rtl;font-family:Arial,Tahoma,sans-serif;font-weight:800;-webkit-print-color-adjust:exact;print-color-adjust:exact;forced-color-adjust:none}
+.report-brand-region,.report-brand-school{position:absolute;display:grid;place-items:center;overflow:hidden;text-align:center;white-space:nowrap;direction:rtl;font-family:Arial,Tahoma,sans-serif;font-weight:800;-webkit-print-color-adjust:exact;print-color-adjust:exact;forced-color-adjust:none}
 .report-brand-region{top:8%;left:7%;width:55%;height:27%;color:#fff!important;font-size:11pt}
-.report-brand-office{top:40%;left:9%;width:42%;height:19%;color:#36e0c6!important;font-size:11pt}
 .report-brand-school{top:69%;left:29%;width:39%;height:22%;color:#fff!important;font-size:11pt}
 .report-brand-title{margin:0 0 5mm;color:#0c4277;text-align:center;font-size:18px;line-height:1.4}
-@media print{.report-brand-region,.report-brand-school{color:#fff!important}.report-brand-office{color:#36e0c6!important}}
+@media print{.report-brand-region,.report-brand-school{color:#fff!important}}
 `
 
 export function reportBrandHeader(title: string, schoolName: string) {
@@ -230,13 +227,12 @@ export function brandReportHtmlDocument(html: string, schoolName = '') {
 }
 
 export function reportWorkbookHeaderRows(schoolName: string, reportTitle: string, reportDate?: string | Date): Array<Array<string | number>> {
-  const { schoolName: name, region, office } = reportHeaderValues(schoolName)
+  const { schoolName: name, region } = reportHeaderValues(schoolName)
   const dateHeading = reportDate
     ? `اليوم والتاريخ: ${formatHijriDateWithWeekday(reportDate)}`
     : `تاريخ التصدير: ${formatHijriDate(today())}`
   return [
     [`الإدارة العامة للتعليم بمنطقة: ${region}`],
-    [`مكتب التعليم: ${office}`],
     [`مدرسة: ${name}`],
     [reportTitle],
     [dateHeading],
@@ -258,7 +254,7 @@ export function prependReportHeaderToWorksheet(sheet: XLSX.WorkSheet, reportTitl
   }
   const headerRows = reportWorkbookHeaderRows(schoolName, reportTitle)
   XLSX.utils.sheet_add_aoa(sheet, headerRows, { origin: 'A1' })
-  const headerMerges = Array.from({ length: 5 }, (_, row) => ({
+  const headerMerges = Array.from({ length: REPORT_HEADER_ROWS - 1 }, (_, row) => ({
     s: { r: row, c: 0 },
     e: { r: row, c: columnCount - 1 },
   }))
@@ -287,7 +283,7 @@ export function prependReportHeaderToWorksheet(sheet: XLSX.WorkSheet, reportTitl
     ...(view.state === 'frozen' ? { ySplit: (view.ySplit || 0) + REPORT_HEADER_ROWS } : { state: 'frozen', ySplit: REPORT_HEADER_ROWS }),
   }))
   sheet['!rows'] = [
-    { hpt: 24 }, { hpt: 22 }, { hpt: 22 }, { hpt: 24 }, { hpt: 20 }, { hpt: 8 },
+    { hpt: 24 }, { hpt: 22 }, { hpt: 24 }, { hpt: 20 }, { hpt: 8 },
     ...(sheet['!rows'] || []),
   ]
   return REPORT_HEADER_ROWS
@@ -323,13 +319,11 @@ export function openOfficialFormDocument(title: string, contents: string) {
   </style><style>
     .moe-header{position:relative;width:100%;aspect-ratio:541/112;margin:0 0 3mm;direction:rtl;-webkit-print-color-adjust:exact;print-color-adjust:exact;forced-color-adjust:none}
     .moe-header-template{position:absolute;inset:0;display:block;width:100%;height:100%}
-    .moe-header-region,.moe-header-office,.moe-header-school{position:absolute;display:grid;place-items:center;overflow:hidden;text-align:center;white-space:nowrap;direction:rtl;font-family:Arial,Tahoma,sans-serif;font-weight:700;-webkit-print-color-adjust:exact;print-color-adjust:exact;forced-color-adjust:none}
+    .moe-header-region,.moe-header-school{position:absolute;display:grid;place-items:center;overflow:hidden;text-align:center;white-space:nowrap;direction:rtl;font-family:Arial,Tahoma,sans-serif;font-weight:700;-webkit-print-color-adjust:exact;print-color-adjust:exact;forced-color-adjust:none}
     .moe-header-region{top:8%;left:7%;width:55%;height:27%;color:#fff;font-size:11pt}
-    .moe-header-office{top:40%;left:9%;width:42%;height:19%;color:#36e0c6;font-size:11pt;font-weight:800}
     .moe-header-school{top:69%;left:29%;width:39%;height:22%;color:#fff;font-size:11pt}
     @media print{
       .moe-header-region,.moe-header-school{color:#fff!important;font-weight:800}
-      .moe-header-office{color:#36e0c6!important;font-weight:800}
     }
   </style><style>
     .preview-actions{position:fixed;z-index:1000;top:8px;left:8px;right:8px;display:flex;justify-content:center;gap:8px;padding:8px;background:rgba(15,23,42,.92);border-radius:10px;font-family:Tahoma,Arial,sans-serif}

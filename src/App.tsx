@@ -111,7 +111,7 @@ const DEFAULT_SCHOOL_SETTINGS: SchoolSettings = {
   schoolName: 'مدرسة الفزاري الثانوية',
   principalName: 'مدير المدرسة',
   generalEducationAdministration: 'الإدارة العامة للتعليم بمنطقة الرياض',
-  educationOffice: 'مكتب التعليم بالرياض',
+  educationOffice: '',
   academicYear: '1448 / 1449',
   semester: 'الفصل الأول',
 }
@@ -2194,15 +2194,6 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
                   />
                 </label>
                 <label className="school-settings-field">
-                  <span>مكتب التعليم</span>
-                  <input
-                    type="text"
-                    value={schoolSettingsDraft.educationOffice}
-                    onChange={(event) => setSchoolSettingsDraft((current) => ({ ...current, educationOffice: event.target.value }))}
-                    placeholder="اكتب اسم مكتب التعليم"
-                  />
-                </label>
-                <label className="school-settings-field">
                   <span>العام الدراسي</span>
                   <input
                     type="text"
@@ -2756,7 +2747,6 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
           schoolName={schoolSettings.schoolName}
           principalName={schoolSettings.principalName}
           generalEducationAdministration={schoolSettings.generalEducationAdministration}
-          educationOffice={schoolSettings.educationOffice}
         />}
 
         {activeNav === 'teachers' && <TeacherAdminCenter schoolName={schoolSettings.schoolName} />}

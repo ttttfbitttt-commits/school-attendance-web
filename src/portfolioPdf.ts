@@ -163,10 +163,7 @@ async function schoolHeaderImage() {
   context.font = 'bold 47px Arial, Tahoma, sans-serif'
   context.fillStyle = '#ffffff'
   const region = school.generalEducationAdministration.trim().replace(/^الإدارة العامة للتعليم(?:\s+بمنطقة)?\s*/, '') || '................'
-  const office = school.educationOffice.trim().replace(/^مكتب التعليم\s*/, '') || '................'
   context.fillText(`الإدارة العامة للتعليم بمنطقة: ${region}`, canvas.width * 0.345, canvas.height * 0.215, canvas.width * 0.55)
-  context.fillStyle = '#36e0c6'
-  context.fillText(`مكتب التعليم: ${office}`, canvas.width * 0.30, canvas.height * 0.49, canvas.width * 0.42)
   context.fillStyle = '#ffffff'
   context.fillText(`مدرسة: ${school.schoolName || '................'}`, canvas.width * 0.485, canvas.height * 0.80, canvas.width * 0.39)
   return canvas.toDataURL('image/png')

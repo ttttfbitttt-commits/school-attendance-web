@@ -37,7 +37,6 @@ export function AdministratorPortal({ account, onLogout }: { account: Account; o
   const [schoolName, setSchoolName] = useState('')
   const [principalName, setPrincipalName] = useState('')
   const [generalEducationAdministration, setGeneralEducationAdministration] = useState('')
-  const [educationOffice, setEducationOffice] = useState('')
   const [lessonFlowAccess, setLessonFlowAccess] = useState(Boolean(account.lessonFlowAccess))
   const [circularsAccess] = useState(Boolean(account.circularsAccess))
   const [students, setStudents] = useState<AdministratorAttendanceStudent[]>([])
@@ -114,7 +113,7 @@ export function AdministratorPortal({ account, onLogout }: { account: Account; o
   const loadAttendance = async () => {
     try {
       const result = await api.administratorAttendance()
-      setSchoolName(result.schoolName); setPrincipalName(result.principalName); setGeneralEducationAdministration(result.generalEducationAdministration); setEducationOffice(result.educationOffice); setLessonFlowAccess(result.lessonFlowAccess); setStudents(result.students); setRecords(result.records)
+      setSchoolName(result.schoolName); setPrincipalName(result.principalName); setGeneralEducationAdministration(result.generalEducationAdministration); setLessonFlowAccess(result.lessonFlowAccess); setStudents(result.students); setRecords(result.records)
     }
     catch { setNotice({ type: 'error', text: 'تعذر تحميل سجل الحضور. تحقق من الاتصال ثم حدّث الصفحة.' }) }
   }
@@ -298,7 +297,6 @@ export function AdministratorPortal({ account, onLogout }: { account: Account; o
       schoolName={schoolName}
       principalName={principalName}
       generalEducationAdministration={generalEducationAdministration}
-      educationOffice={educationOffice}
     />}
     {view === 'circulars' && circularsAccess && <CircularsCenter schoolName={schoolName} />}
     {view === 'reports' && <section className="administrator-report"><header><div><span>التقارير</span><h2>سجل الحضور اليومي</h2></div><FileDown size={29} /></header><div className="administrator-report-actions"><label>التاريخ<input type="date" value={reportDate} onChange={event => setReportDate(event.target.value)} /></label><button className="primary-button" onClick={() => void loadReport()} disabled={busy}>عرض التقرير</button></div><div className="teacher-report-actions"><button className="primary-button" onClick={exportReport} disabled={!reportRecords.length}><FileDown size={16} /> Excel</button><button className="outline-button" onClick={() => openPrintDocument('سجل حضور الطلاب', reportHtml(reportRecords, reportDate, account.displayName), schoolName)}><Printer size={16} /> PDF / طباعة</button></div><div className="administrator-report-table"><table><thead><tr><th>الطالب</th><th>الصف والفصل</th><th>الحالة</th><th>الوقت</th><th>المسجل</th></tr></thead><tbody>{reportRecords.map(row => <tr key={row.studentId}><td>{row.name}</td><td>{row.grade} · {row.classroom}</td><td>{row.status === 'late' ? 'متأخر' : 'حاضر'}</td><td dir="ltr">{row.time}</td><td>{row.recordedBy || '—'}</td></tr>)}</tbody></table>{!reportRecords.length && <p>لا توجد سجلات في التاريخ المحدد.</p>}</div></section>}
