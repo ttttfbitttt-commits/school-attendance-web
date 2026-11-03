@@ -54,6 +54,17 @@ function prepareCanvas() {
 
 function setText(id, value) { document.querySelector(id).textContent = value || '—' }
 
+function showCompleted(status) {
+  completePanel.hidden = false
+  completePanel.innerHTML = `<strong>${status === 'approved' ? 'تمت الموافقة على الاستئذان' : 'تم رفض الاستئذان'}</strong><span>${status === 'approved' ? 'شكرًا لك. وصل قرارك وتوقيعك إلى سجل المدرسة.' : 'شكرًا لك. وصل قرارك وتوقيعك إلى سجل المدرسة.'}</span><button id="close-page" type="button">إغلاق الصفحة</button>`
+  completePanel.querySelector('#close-page').addEventListener('click', () => {
+    window.close()
+    window.setTimeout(() => {
+      if (!window.closed && window.history.length > 1) window.history.back()
+    }, 180)
+  })
+}
+
 async function loadRequest() {
   if (!token) { showError('رابط الاستئذان غير مكتمل أو غير صالح.'); return }
   try {
@@ -63,8 +74,7 @@ async function loadRequest() {
     const item = data.request
     if (item.status !== 'pending') {
       loading.hidden = true
-      completePanel.hidden = false
-      completePanel.innerHTML = `<strong>${item.status === 'approved' ? 'تمت الموافقة على الاستئذان' : 'تم رفض الاستئذان'}</strong><span>تم تسجيل رد ولي الأمر مسبقًا، ولا يمكن تكرار الإرسال.</span>`
+      showCompleted(item.status)
       return
     }
     setText('#school-name', item.schoolName)
@@ -95,8 +105,7 @@ submitButton.addEventListener('click', async () => {
     const data = await response.json().catch(() => ({}))
     if (!response.ok) throw new Error(data.error || 'response_failed')
     requestPanel.hidden = true
-    completePanel.hidden = false
-    completePanel.innerHTML = `<strong>${decision === 'approved' ? 'تمت الموافقة على الاستئذان' : 'تم رفض الاستئذان'}</strong><span>شكرًا لك. وصل قرارك وتوقيعك إلى سجل المدرسة.</span>`
+    showCompleted(decision)
   } catch {
     errorPanel.textContent = 'تعذر إرسال القرار. تحقق من الاتصال ثم حاول مرة أخرى.'
     errorPanel.hidden = false
