@@ -65,19 +65,30 @@ async function circularAttachmentPages(circular: SchoolCircularDetail['circular'
   return images.map((image, index) => `<section class="page attachment-page">${attachmentHeader}<p class="attachment-page-number">صفحة ${index + 1} من ${images.length}</p><img class="circular-attachment-image" src="${image}" alt="صفحة ${index + 1} من مرفق التعميم" /></section>`).join('')
 }
 
+function acknowledgementPages(circular: SchoolCircularDetail['circular'], recipients: CircularRecipient[], schoolName: string) {
+  const groups = recipients.length ? Array.from({ length: Math.ceil(recipients.length / 28) }, (_, index) => recipients.slice(index * 28, index * 28 + 28)) : [[]]
+  return groups.map((group, index) => {
+    const rows = group.map(item => {
+      const state = status(item)
+      const timing = item.signedAt ? `وقت التوقيع: ${item.signedAt}` : item.sentAt ? `وقت الإرسال: ${item.sentAt}` : 'لم يُرسل الرابط بعد'
+      return `<tr><td class="teacher-cell"><strong>${esc(item.teacherName)}</strong></td><td class="ack-status"><strong>${esc(state.label)}</strong><small>${esc(timing)}</small></td><td class="signature-cell">${item.signatureData ? `<img class="signature" src="${item.signatureData}" alt="توقيع المعلم" />` : '—'}</td></tr>`
+    }).join('')
+    const continuation = groups.length > 1 ? ` — الجزء ${index + 1} من ${groups.length}` : ''
+    return `<section class="page acknowledgement-page">${reportBrandHeader(`سجل التوقيع بالعلم على تعميم${continuation}`, schoolName)}<div class="details"><strong>عنوان التعميم:</strong> ${esc(circular.title)}<br><strong>تاريخ التعميم:</strong> ${esc(formatHijriDate(circular.circularDate))}<br><strong>المرفق:</strong> ${esc(circular.fileName)}</div><table><thead><tr><th>المعلم</th><th>حالة التوقيع والإرسال</th><th>التوقيع</th></tr></thead><tbody>${rows || '<tr><td colspan="3">لم تُنشأ روابط المعلمين بعد.</td></tr>'}</tbody></table></section>`
+  }).join('')
+}
+
 async function circularReport(circulars: SchoolCircularDetail[], schoolName: string) {
   const popup = window.open('', '_blank')
   if (!popup) return false
   popup.document.body.innerHTML = '<main dir="rtl" style="font-family:Tahoma,Arial;padding:32px;text-align:center;color:#075a62">جارٍ تجهيز التعميم كاملاً مع سجل التوقيعات…</main>'
   try {
     const pages = (await Promise.all(circulars.map(async ({ circular, recipients }) => {
-      const rows = recipients.map(item => `<tr><td>${esc(item.teacherName)}</td><td dir="ltr">${esc(item.teacherPhone || '—')}</td><td>${esc(status(item).label)}</td><td>${esc(item.sentByName || '—')}</td><td>${esc(item.sentAt || '—')}</td><td>${esc(item.signedAt || '—')}</td><td>${item.signatureData ? `<img class="signature" src="${item.signatureData}" alt="توقيع المعلم" />` : '—'}</td></tr>`).join('')
-      const acknowledgement = `<section class="page acknowledgement-page">${reportBrandHeader('سجل التوقيع بالعلم على تعميم', schoolName)}<div class="details"><strong>عنوان التعميم:</strong> ${esc(circular.title)}<br><strong>تاريخ التعميم:</strong> ${esc(formatHijriDate(circular.circularDate))}<br><strong>المرفق:</strong> ${esc(circular.fileName)}</div><table><thead><tr><th>المعلم</th><th>الجوال</th><th>الحالة</th><th>مرسل الرابط</th><th>وقت الإرسال</th><th>وقت التوقيع</th><th>التوقيع</th></tr></thead><tbody>${rows || '<tr><td colspan="7">لم تُنشأ روابط المعلمين بعد.</td></tr>'}</tbody></table></section>`
-      return `${await circularAttachmentPages(circular, schoolName)}${acknowledgement}`
+      return `${await circularAttachmentPages(circular, schoolName)}${acknowledgementPages(circular, recipients, schoolName)}`
     }))).join('')
-    const html = `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>سجل التوقيع على التعاميم</title><style>@page{size:A4 landscape;margin:10mm}*{box-sizing:border-box}body{font-family:Tahoma,Arial;color:#143d45;margin:0}.page{break-after:page}.page:last-child{break-after:auto}.details{margin:0 0 11px;line-height:1.9;font-size:12px}.attachment-page-number{margin:-4px 0 7px;color:#5a7678;font-size:11px;font-weight:700}.circular-attachment-image{display:block;max-width:100%;width:auto;max-height:158mm;margin:0 auto;object-fit:contain}.acknowledgement-page table{width:100%;border-collapse:collapse;font-size:10.5px}th,td{border:1px solid #a8c7c0;padding:6px;text-align:right;vertical-align:middle}th{background:#075a62;color:#fff}.signature{width:90px;height:28px;object-fit:contain}.actions{position:sticky;top:0;background:#075a62;padding:8px;display:flex;gap:8px}.actions button{border:0;border-radius:7px;padding:9px 14px;cursor:pointer}@media print{.actions{display:none}}</style></head><body><div class="actions"><button onclick="window.print()">طباعة / حفظ PDF</button><button onclick="window.close()">إغلاق</button></div>${pages}</body></html>`
+    const html = `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>سجل التوقيع على التعاميم</title><style>@page{size:A4 portrait;margin:8mm}*{box-sizing:border-box}body{font-family:Tahoma,Arial;color:#143d45;margin:0}.page{break-after:page}.page:last-child{break-after:auto}.details{margin:0 0 9px;line-height:1.75;font-size:11px}.attachment-page-number{margin:-4px 0 6px;color:#5a7678;font-size:10px;font-weight:700}.circular-attachment-image{display:block;max-width:100%;width:auto;max-height:216mm;margin:0 auto;object-fit:contain}.acknowledgement-page table{width:100%;border-collapse:collapse;font-size:10.5px}th,td{border:1px solid #a8c7c0;padding:6px;text-align:right;vertical-align:middle}th{background:#075a62;color:#fff}.teacher-cell{width:42%}.teacher-cell strong,.ack-status strong,.ack-status small{display:block}.teacher-cell small,.ack-status small{margin-top:3px;color:#557276;font-size:9px}.ack-status{width:40%}.signature-cell{width:18%;text-align:center}.signature{width:78px;height:28px;object-fit:contain}.actions{position:sticky;top:0;background:#075a62;padding:8px;display:flex;gap:8px}.actions button{border:0;border-radius:7px;padding:9px 14px;cursor:pointer}@media print{.actions{display:none}}</style></head><body><div class="actions"><button onclick="window.print()">طباعة / حفظ PDF</button><button onclick="window.close()">إغلاق</button></div>${pages}</body></html>`
     const objectUrl = URL.createObjectURL(new Blob([brandReportHtmlDocument(html, schoolName)], { type: 'text/html;charset=utf-8' }))
-    popup.onload = () => installReportPdfDownload(popup.document, 'سجل التوقيع على التعاميم', 'landscape')
+    popup.onload = () => installReportPdfDownload(popup.document, 'سجل التوقيع على التعاميم', 'portrait')
     popup.location.href = objectUrl
     window.setTimeout(() => URL.revokeObjectURL(objectUrl), 600000)
     return true
