@@ -5,7 +5,10 @@ const clean = (value, maximum = 240) => String(value ?? '').replace(/[\r\n\t]+/g
 const tokenHash = token => crypto.createHash('sha256').update(token).digest('hex')
 const publicBaseUrl = () => String(process.env.PUBLIC_APP_URL || 'https://7asr2030.com').replace(/\/$/, '')
 
-function accessAllowed(user) { return ['admin', 'vice_principal'].includes(user?.role) }
+function accessAllowed(user) {
+  return ['admin', 'vice_principal', 'counselor', 'activity_leader'].includes(user?.role)
+    || (user?.role === 'administrator' && user?.circulars_access === true)
+}
 function validDate(value) { return /^\d{4}-\d{2}-\d{2}$/.test(String(value || '')) ? String(value) : '' }
 function supportedAttachment(input) {
   const fileData = String(input?.fileData || '')

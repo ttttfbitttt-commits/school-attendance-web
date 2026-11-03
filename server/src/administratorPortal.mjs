@@ -60,6 +60,7 @@ export async function migrateAdministratorPortal(adminPool) {
       active boolean NOT NULL DEFAULT true,
       must_change_password boolean NOT NULL DEFAULT true,
       lesson_flow_access boolean NOT NULL DEFAULT false,
+      circulars_access boolean NOT NULL DEFAULT false,
       created_at timestamptz NOT NULL DEFAULT now(),
       updated_at timestamptz NOT NULL DEFAULT now(),
       PRIMARY KEY(school_id,administrator_id),
@@ -67,6 +68,7 @@ export async function migrateAdministratorPortal(adminPool) {
       UNIQUE(school_id,user_id)
     );
     ALTER TABLE administrative_login_accounts ADD COLUMN IF NOT EXISTS lesson_flow_access boolean NOT NULL DEFAULT false;
+    ALTER TABLE administrative_login_accounts ADD COLUMN IF NOT EXISTS circulars_access boolean NOT NULL DEFAULT false;
     CREATE INDEX IF NOT EXISTS administrative_login_accounts_identity ON administrative_login_accounts(identity_number) WHERE active=true;
   `)
 }
@@ -91,10 +93,10 @@ export async function handleAdministratorPortalRequest({ req, res, url, user, bo
       const staffRows = await scoped(user.school_id, async client => (await client.query(`SELECT id AS "administratorId",full_name AS name,identity_number AS "identityNumber",phone,active
         FROM administrative_staff WHERE school_id=$1 ORDER BY active DESC,full_name`, [user.school_id])).rows)
       const accountRows = (await authPool.query(`SELECT administrator_id AS "administratorId",user_id AS "userId",active AS "accountActive",
-        must_change_password AS "mustChangePassword",lesson_flow_access AS "lessonFlowAccess",(temporary_password_encrypted IS NOT NULL) AS "credentialsAvailable"
+        must_change_password AS "mustChangePassword",lesson_flow_access AS "lessonFlowAccess",circulars_access AS "circularsAccess",(temporary_password_encrypted IS NOT NULL) AS "credentialsAvailable"
         FROM administrative_login_accounts WHERE school_id=$1`, [user.school_id])).rows
       const accounts = new Map(accountRows.map(row => [row.administratorId, row]))
-      const staff = staffRows.map(row => ({ ...row, accountCreated: Boolean(accounts.get(row.administratorId)?.userId), accountActive: Boolean(accounts.get(row.administratorId)?.accountActive), mustChangePassword: Boolean(accounts.get(row.administratorId)?.mustChangePassword), lessonFlowAccess: Boolean(accounts.get(row.administratorId)?.lessonFlowAccess), credentialsAvailable: Boolean(accounts.get(row.administratorId)?.credentialsAvailable) }))
+      const staff = staffRows.map(row => ({ ...row, accountCreated: Boolean(accounts.get(row.administratorId)?.userId), accountActive: Boolean(accounts.get(row.administratorId)?.accountActive), mustChangePassword: Boolean(accounts.get(row.administratorId)?.mustChangePassword), lessonFlowAccess: Boolean(accounts.get(row.administratorId)?.lessonFlowAccess), circularsAccess: Boolean(accounts.get(row.administratorId)?.circularsAccess), credentialsAvailable: Boolean(accounts.get(row.administratorId)?.credentialsAvailable) }))
       return json(res, 200, { staff })
     }
     if (req.method === 'POST' && url.pathname === '/api/administrator-portal/admin/import') {
@@ -169,6 +171,14 @@ export async function handleAdministratorPortalRequest({ req, res, url, user, bo
         WHERE school_id=$2 AND administrator_id=$3 RETURNING user_id`, [input.lessonFlowAccess, user.school_id, administratorId])
       if (!result.rowCount) { json(res, 404, { error: 'administrator_account_not_found' }); return true }
       return json(res, 200, { ok: true, lessonFlowAccess: input.lessonFlowAccess })
+    }
+    if (req.method === 'PATCH' && url.pathname === '/api/administrator-portal/admin/accounts/circulars-access') {
+      const input = await body(req); const administratorId = String(input.administratorId || '')
+      if (!validId(administratorId) || typeof input.circularsAccess !== 'boolean') { json(res, 400, { error: 'invalid_administrator_circulars_access' }); return true }
+      const result = await authPool.query(`UPDATE administrative_login_accounts SET circulars_access=$1,updated_at=now()
+        WHERE school_id=$2 AND administrator_id=$3 RETURNING user_id`, [input.circularsAccess, user.school_id, administratorId])
+      if (!result.rowCount) { json(res, 404, { error: 'administrator_account_not_found' }); return true }
+      return json(res, 200, { ok: true, circularsAccess: input.circularsAccess })
     }
     return false
   }

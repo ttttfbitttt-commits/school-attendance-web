@@ -6,8 +6,9 @@ import { CounselorReferralCenter } from './StudentReferrals'
 import { MessageCenter, ReportsCenter } from './SchoolFeatures'
 import { AbsenceProcedureGuide, CounselorAbsenceReferralQueue } from './AbsenceProcedureGuide'
 import { StudentExcuseCenter } from './StudentExcuses'
+import { CircularsCenter } from './Circulars'
 
-type CounselorView = 'home' | 'behavior' | 'referrals' | 'absenceProcedures' | 'studentExcuses' | 'reports' | 'teachers' | 'students' | 'messages' | 'password'
+type CounselorView = 'home' | 'behavior' | 'referrals' | 'absenceProcedures' | 'studentExcuses' | 'circulars' | 'reports' | 'teachers' | 'students' | 'messages' | 'password'
 
 const nav: Array<{ id: CounselorView; label: string; icon: typeof Home }> = [
   { id: 'home', label: 'الرئيسية', icon: Home },
@@ -15,6 +16,7 @@ const nav: Array<{ id: CounselorView; label: string; icon: typeof Home }> = [
   { id: 'referrals', label: 'الإحالات', icon: Send },
   { id: 'absenceProcedures', label: 'إجراءات التعامل مع الغياب', icon: ClipboardList },
   { id: 'studentExcuses', label: 'استئذان الطلاب', icon: ClipboardList },
+  { id: 'circulars', label: 'التعاميم', icon: FileText },
   { id: 'reports', label: 'التقارير', icon: FileText },
   { id: 'teachers', label: 'المعلمون', icon: Users },
   { id: 'students', label: 'الطلاب', icon: GraduationCap },
@@ -79,7 +81,7 @@ export function CounselorPortal({ account, onLogout }: { account: Account; onLog
     <button type="button" className="student-mobile-menu" onClick={() => setMenuOpen(true)} aria-label="فتح القائمة"><Menu size={21} /></button>
     <aside className={`student-sidebar${menuOpen ? ' open' : ''}`}>
       <div className="student-brand"><UserRound size={24} /><div><strong>بوابة الموجّه الطلابي</strong><small>{dashboard.counselor.name}</small></div><button type="button" onClick={() => setMenuOpen(false)} aria-label="إغلاق القائمة"><X size={18} /></button></div>
-      <nav>{nav.map(item => { const Icon = item.icon; return <button key={item.id} type="button" className={view === item.id ? 'active' : ''} onClick={() => go(item.id)}><Icon size={18} />{item.label}{item.id === 'absenceProcedures' && <b className="absence-procedure-new-badge">جديد</b>}</button> })}</nav>
+      <nav>{nav.map(item => { const Icon = item.icon; return <button key={item.id} type="button" className={view === item.id ? 'active' : ''} onClick={() => go(item.id)}><Icon size={18} />{item.label}{(item.id === 'absenceProcedures' || item.id === 'circulars') && <b className="absence-procedure-new-badge">جديد</b>}</button> })}</nav>
       <button type="button" className="student-logout" onClick={onLogout}><LogOut size={18} /> تسجيل الخروج</button>
     </aside>
     <section className="student-workspace counselor-workspace">
@@ -91,6 +93,7 @@ export function CounselorPortal({ account, onLogout }: { account: Account; onLog
       {view === 'referrals' && <CounselorReferralCenter schoolName={dashboard.schoolName} />}
       {view === 'absenceProcedures' && <><AbsenceProcedureGuide role="counselor" /><CounselorAbsenceReferralQueue /></>}
       {view === 'studentExcuses' && <StudentExcuseCenter schoolName={dashboard.schoolName} />}
+      {view === 'circulars' && <CircularsCenter schoolName={dashboard.schoolName} />}
       {view === 'reports' && <ReportsCenter students={dashboard.students} schoolName={dashboard.schoolName} viewer="counselor" />}
       {view === 'messages' && <MessageCenter students={dashboard.students} attendance={attendance as never[]} schoolName={dashboard.schoolName} />}
       {view === 'teachers' && <section className="counselor-directory"><header><div><span>بيانات المدرسة</span><h2>المعلمون</h2><p>عرض قائمة المعلمين ووسائل التواصل.</p></div><Users size={30} /></header><input value={search} onChange={event => setSearch(event.target.value)} placeholder="ابحث باسم المعلم أو رقم الهوية أو الجوال" /> <div className="counselor-directory-grid">{teachers.map(teacher => <article key={teacher.teacherId}><strong>{teacher.name}</strong><span>رقم الهوية <b dir="ltr">{teacher.identityNumber || '—'}</b></span><small dir="ltr">{teacher.phone || 'لا يوجد رقم جوال'}</small></article>)}</div>{!teachers.length && <p className="teacher-empty">لا يوجد معلمون مطابقون للبحث.</p>}</section>}
