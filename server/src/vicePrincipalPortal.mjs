@@ -174,7 +174,6 @@ export async function handleVicePrincipalPortalRequest(context) {
     const userId = account.rows[0]?.user_id
     if (userId) {
       await authPool.query('DELETE FROM sessions WHERE user_id=$1 AND school_id=$2', [userId, user.school_id])
-      await authPool.query(`DELETE FROM memberships WHERE school_id=$1 AND user_id=$2 AND role='vice_principal'`, [user.school_id, userId])
     }
     json(res, 200, { ok: true }); return true
   }
