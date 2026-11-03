@@ -23,6 +23,11 @@ function status(recipient: CircularRecipient) {
   return { label: recipient.sentAt ? 'تحت الإجراء' : 'جاهز للإرسال', tone: recipient.sentAt ? 'pending' : 'ready' }
 }
 
+// Keep every acknowledgement sheet shorter than an A4 page. The PDF exporter
+// rasterises each `.page` independently, so this prevents it from cutting a
+// teacher row in half or continuing a sheet without the official header.
+const ACKNOWLEDGEMENT_ROWS_PER_PAGE = 14
+
 function readAttachment(file: File) {
   return new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onerror = () => reject(new Error('file_read')); reader.onload = () => resolve(String(reader.result || '')); reader.readAsDataURL(file) })
 }
@@ -66,15 +71,14 @@ async function circularAttachmentPages(circular: SchoolCircularDetail['circular'
 }
 
 function acknowledgementPages(circular: SchoolCircularDetail['circular'], recipients: CircularRecipient[], schoolName: string) {
-  const groups = recipients.length ? Array.from({ length: Math.ceil(recipients.length / 28) }, (_, index) => recipients.slice(index * 28, index * 28 + 28)) : [[]]
-  return groups.map((group, index) => {
+  const groups = recipients.length ? Array.from({ length: Math.ceil(recipients.length / ACKNOWLEDGEMENT_ROWS_PER_PAGE) }, (_, index) => recipients.slice(index * ACKNOWLEDGEMENT_ROWS_PER_PAGE, index * ACKNOWLEDGEMENT_ROWS_PER_PAGE + ACKNOWLEDGEMENT_ROWS_PER_PAGE)) : [[]]
+  return groups.map(group => {
     const rows = group.map(item => {
       const state = status(item)
       const timing = item.signedAt ? `وقت التوقيع: ${item.signedAt}` : item.sentAt ? `وقت الإرسال: ${item.sentAt}` : 'لم يُرسل الرابط بعد'
       return `<tr><td class="teacher-cell"><strong>${esc(item.teacherName)}</strong></td><td class="ack-status"><strong>${esc(state.label)}</strong><small>${esc(timing)}</small></td><td class="signature-cell">${item.signatureData ? `<img class="signature" src="${item.signatureData}" alt="توقيع المعلم" />` : '—'}</td></tr>`
     }).join('')
-    const continuation = groups.length > 1 ? ` — الجزء ${index + 1} من ${groups.length}` : ''
-    return `<section class="page acknowledgement-page">${reportBrandHeader(`سجل التوقيع بالعلم على تعميم${continuation}`, schoolName)}<div class="details"><strong>عنوان التعميم:</strong> ${esc(circular.title)}<br><strong>تاريخ التعميم:</strong> ${esc(formatHijriDate(circular.circularDate))}<br><strong>المرفق:</strong> ${esc(circular.fileName)}</div><table><thead><tr><th>المعلم</th><th>حالة التوقيع والإرسال</th><th>التوقيع</th></tr></thead><tbody>${rows || '<tr><td colspan="3">لم تُنشأ روابط المعلمين بعد.</td></tr>'}</tbody></table></section>`
+    return `<section class="page acknowledgement-page">${reportBrandHeader('سجل التوقيع بالعلم على تعميم', schoolName)}<div class="details"><strong>عنوان التعميم:</strong> ${esc(circular.title)}<br><strong>تاريخ التعميم:</strong> ${esc(formatHijriDate(circular.circularDate))}<br><strong>المرفق:</strong> ${esc(circular.fileName)}</div><table><thead><tr><th>المعلم</th><th>حالة التوقيع والإرسال</th><th>التوقيع</th></tr></thead><tbody>${rows || '<tr><td colspan="3">لم تُنشأ روابط المعلمين بعد.</td></tr>'}</tbody></table></section>`
   }).join('')
 }
 
