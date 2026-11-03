@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { CheckCircle2, Eraser, FileText, PenLine, RefreshCw } from 'lucide-react'
+import { CheckCircle2, Eraser, FileText, PenLine, RefreshCw, X } from 'lucide-react'
 import { api, type TeacherCircular } from './api'
 import { formatHijriDate } from './dateUtils'
 
@@ -24,7 +24,8 @@ export function TeacherCirculars({ schoolName }: { schoolName: string }) {
     try {
       const result = await api.teacherCirculars()
       setCirculars(result.circulars)
-      setSelectedId(current => current && result.circulars.some(item => item.id === current) ? current : (result.circulars[0]?.id || ''))
+      // The register stays compact on entry; teachers explicitly open only the circular they need.
+      setSelectedId(current => current && result.circulars.some(item => item.id === current) ? current : '')
     } catch { setError('تعذر تحميل التعاميم الآن. حدّث الصفحة ثم أعد المحاولة.') }
     finally { setLoading(false) }
   }
@@ -113,7 +114,7 @@ export function TeacherCirculars({ schoolName }: { schoolName: string }) {
         {loading ? <p className="teacher-empty">جارٍ تحميل التعاميم…</p> : !circulars.length ? <p className="teacher-empty">لا توجد تعاميم موجهة لك حاليًا.</p> : circulars.map(item => <button type="button" key={item.id} className={selected?.id === item.id ? 'selected' : ''} onClick={() => { setSelectedId(item.id); setNotice(''); setError('') }}><FileText size={18} /><span><strong>{item.title}</strong><small>{formatHijriDate(item.circularDate)}</small></span><b className={item.status}>{circularStatus(item)}</b></button>)}</aside>
       <section className="teacher-circular-read">
         {!selected ? <p className="teacher-empty">اختر تعميمًا لقراءته والتوقيع بالعلم.</p> : <>
-          <header><span>تعميم رسمي</span><h3>{selected.title}</h3><p>{schoolName} · {formatHijriDate(selected.circularDate)}</p></header>
+          <header><div><span>تعميم رسمي</span><h3>{selected.title}</h3><p>{schoolName} · {formatHijriDate(selected.circularDate)}</p></div><button type="button" className="outline-button teacher-circular-close" onClick={() => { setSelectedId(''); setNotice(''); setError('') }}><X size={15} />إغلاق العرض</button></header>
           <section className="teacher-circular-file"><div><strong>مرفق التعميم</strong><small>{selected.fileName}</small></div>{selected.fileType === 'application/pdf' ? <object data={selected.fileData} type="application/pdf">يتعذر عرض ملف PDF هنا؛ نزّله ثم اقرأه.</object> : <img src={selected.fileData} alt={`تعميم: ${selected.title}`} />}</section>
           {selected.status === 'signed' ? <section className="teacher-circular-signed"><CheckCircle2 size={25} /><div><strong>تم التوقيع بالعلم</strong><span>{selected.signedAt ? `وقت التوقيع: ${selected.signedAt}` : 'تم حفظ التوقيع في سجل المدرسة.'}</span></div>{selected.signatureData && <img src={selected.signatureData} alt="توقيع المعلم" />}</section> : <section className="teacher-circular-signature"><header><div><PenLine size={20} /><div><strong>التوقيع بالعلم والاطلاع</strong><small>ارسم توقيعك بالماوس أو باللمس ثم اضغط زر الاعتماد.</small></div></div><button type="button" className="outline-button" onClick={clearSignature} disabled={busy}><Eraser size={15} /> مسح التوقيع</button></header><canvas ref={canvasRef} className="teacher-circular-signature-pad" onPointerDown={beginDrawing} onPointerMove={draw} onPointerUp={stopDrawing} onPointerCancel={stopDrawing} /><button type="button" className="primary-button" onClick={() => void sign()} disabled={busy}>{busy ? 'جارٍ حفظ التوقيع…' : 'التوقيع بالعلم'}</button></section>}
         </>}
