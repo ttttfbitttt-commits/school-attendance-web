@@ -55,7 +55,7 @@ export async function migrateVicePrincipalPortal(adminPool) {
   `)
 }
 
-const selectedGrade = value => clean(value, 120)
+const selectedGrades = value => [...new Set((Array.isArray(value) ? value : []).map(grade => clean(grade, 120)).filter(Boolean))]
 
 async function gradeOptions(client, schoolId) {
   const rows = (await client.query(`SELECT grade, vice_principal_id AS "vicePrincipalId" FROM vice_principal_grade_assignments WHERE school_id=$1
@@ -69,20 +69,24 @@ async function gradeOptions(client, schoolId) {
   }, new Map())
 }
 
-async function validateGrade(client, schoolId, grade, vicePrincipalId = '') {
-  if (!grade) return { error: 'vice_principal_grade_required' }
-  const valid = await client.query(`SELECT 1 FROM students WHERE school_id=$1 AND active=true AND grade=$2 LIMIT 1`, [schoolId, grade])
-  if (!valid.rowCount) return { error: 'invalid_vice_principal_grade' }
+async function validateGrades(client, schoolId, grades, vicePrincipalId = '', transferGrades = [], allowEmpty = false) {
+  if (!grades.length) return allowEmpty ? { grades: [] } : { error: 'vice_principal_grades_required' }
+  if (transferGrades.some(grade => !grades.includes(grade))) return { error: 'invalid_vice_principal_transfer' }
+  const valid = await client.query(`SELECT DISTINCT grade FROM students
+    WHERE school_id=$1 AND active=true AND grade=ANY($2::text[])`, [schoolId, grades])
+  if (valid.rowCount !== grades.length) return { error: 'invalid_vice_principal_grades' }
   const used = await client.query(`SELECT grade FROM vice_principal_grade_assignments
-    WHERE school_id=$1 AND grade=$2${vicePrincipalId ? ' AND vice_principal_id<>$3' : ''}`, vicePrincipalId ? [schoolId, grade, vicePrincipalId] : [schoolId, grade])
-  if (used.rowCount) return { error: 'vice_principal_grade_taken', grade }
-  return { grade }
+    WHERE school_id=$1 AND grade=ANY($2::text[])${vicePrincipalId ? ' AND vice_principal_id<>$3' : ''}`,
+  vicePrincipalId ? [schoolId, grades, vicePrincipalId] : [schoolId, grades])
+  const conflictingGrades = used.rows.map(row => row.grade)
+  if (conflictingGrades.some(grade => !transferGrades.includes(grade))) return { error: 'vice_principal_grade_taken', grades: conflictingGrades }
+  return { grades, transferredGrades: conflictingGrades }
 }
 
 async function overview(user, scoped, authPool) {
   const data = await scoped(user.school_id, async client => {
     const vicePrincipals = (await client.query(`SELECT p.id AS "vicePrincipalId",p.full_name AS name,p.identity_number AS "identityNumber",p.phone,p.active,
-      COALESCE(MAX(a.grade) FILTER (WHERE a.grade IS NOT NULL),'') AS grade
+      COALESCE(array_agg(a.grade ORDER BY a.grade) FILTER (WHERE a.grade IS NOT NULL),'{}'::text[]) AS "assignedGrades"
       FROM school_vice_principals p LEFT JOIN vice_principal_grade_assignments a ON a.school_id=p.school_id AND a.vice_principal_id=p.id
       WHERE p.school_id=$1 GROUP BY p.id ORDER BY p.active DESC,p.full_name`, [user.school_id])).rows
     return { vicePrincipals, grades: [...(await gradeOptions(client, user.school_id)).values()] }
@@ -116,41 +120,63 @@ export async function handleVicePrincipalPortalRequest(context) {
     const name = clean(input.name, 180)
     const identity = identityNumber(input.identityNumber)
     const phone = clean(input.phone, 48)
-    const grade = selectedGrade(input.grade)
+    const grades = selectedGrades(input.grades)
     if (!name || identity.length < 6 || !phone) { json(res, 400, { error: 'invalid_vice_principal' }); return true }
     const result = await scoped(user.school_id, async client => {
       await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [user.school_id])
-      const checked = await validateGrade(client, user.school_id, grade)
+      const checked = await validateGrades(client, user.school_id, grades)
       if (checked.error) return checked
       const inserted = await client.query(`INSERT INTO school_vice_principals(school_id,full_name,identity_number,phone)
         VALUES($1,$2,$3,$4) ON CONFLICT(school_id,identity_number) DO NOTHING
         RETURNING id AS "vicePrincipalId",full_name AS name,identity_number AS "identityNumber",phone,active`, [user.school_id, name, identity, phone])
       if (!inserted.rowCount) return { error: 'vice_principal_identity_exists' }
-      await client.query(`INSERT INTO vice_principal_grade_assignments(school_id,vice_principal_id,grade) VALUES($1,$2,$3)`, [user.school_id, inserted.rows[0].vicePrincipalId, grade])
-      return { vicePrincipal: { ...inserted.rows[0], grade } }
+      await client.query(`INSERT INTO vice_principal_grade_assignments(school_id,vice_principal_id,grade)
+        SELECT $1,$2,grade FROM unnest($3::text[]) AS grade`, [user.school_id, inserted.rows[0].vicePrincipalId, grades])
+      return { vicePrincipal: { ...inserted.rows[0], assignedGrades: grades } }
     })
     if (result.error) { json(res, ['vice_principal_identity_exists','vice_principal_grade_taken'].includes(result.error) ? 409 : 400, result); return true }
     json(res, 201, { ok: true, vicePrincipal: { ...result.vicePrincipal, active: true, accountCreated: false, accountActive: false, mustChangePassword: false } }); return true
   }
 
-  if (req.method === 'PUT' && url.pathname === '/api/vice-principals/admin/grade') {
+  if (req.method === 'PUT' && (url.pathname === '/api/vice-principals/admin/grades' || url.pathname === '/api/vice-principals/admin/grade')) {
     if (!adminOnly()) { json(res, 403, { error: 'forbidden' }); return true }
     const input = await body(req)
     const vicePrincipalId = String(input.vicePrincipalId || '')
-    const grade = selectedGrade(input.grade)
+    const grades = selectedGrades(url.pathname.endsWith('/grade') && !Array.isArray(input.grades) ? [input.grade] : input.grades)
+    const transferGrades = selectedGrades(input.transferGrades)
     if (!validUuid(vicePrincipalId)) { json(res, 400, { error: 'invalid_vice_principal' }); return true }
     const result = await scoped(user.school_id, async client => {
       await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [user.school_id])
       const principal = await client.query('SELECT 1 FROM school_vice_principals WHERE school_id=$1 AND id=$2', [user.school_id, vicePrincipalId])
       if (!principal.rowCount) return { error: 'vice_principal_not_found' }
-      const checked = await validateGrade(client, user.school_id, grade, vicePrincipalId)
+      const checked = await validateGrades(client, user.school_id, grades, vicePrincipalId, transferGrades, true)
       if (checked.error) return checked
+      if (checked.transferredGrades?.length) await client.query(`DELETE FROM vice_principal_grade_assignments
+        WHERE school_id=$1 AND grade=ANY($2::text[])`, [user.school_id, checked.transferredGrades])
       await client.query('DELETE FROM vice_principal_grade_assignments WHERE school_id=$1 AND vice_principal_id=$2', [user.school_id, vicePrincipalId])
-      await client.query(`INSERT INTO vice_principal_grade_assignments(school_id,vice_principal_id,grade) VALUES($1,$2,$3)`, [user.school_id, vicePrincipalId, grade])
-      return { grade }
+      if (grades.length) await client.query(`INSERT INTO vice_principal_grade_assignments(school_id,vice_principal_id,grade)
+        SELECT $1,$2,grade FROM unnest($3::text[]) AS grade`, [user.school_id, vicePrincipalId, grades])
+      return { assignedGrades: grades }
     })
     if (result.error) { json(res, result.error === 'vice_principal_grade_taken' ? 409 : result.error === 'vice_principal_not_found' ? 404 : 400, result); return true }
     json(res, 200, { ok: true, ...result }); return true
+  }
+
+  const deleteMatch = /^\/api\/vice-principals\/admin\/([0-9a-f-]{36})$/i.exec(url.pathname)
+  if (req.method === 'DELETE' && deleteMatch) {
+    if (!adminOnly()) { json(res, 403, { error: 'forbidden' }); return true }
+    const vicePrincipalId = deleteMatch[1]
+    const account = await authPool.query(`SELECT user_id FROM vice_principal_login_accounts
+      WHERE school_id=$1 AND vice_principal_id=$2`, [user.school_id, vicePrincipalId])
+    const deleted = await scoped(user.school_id, async client => (await client.query(`DELETE FROM school_vice_principals
+      WHERE school_id=$1 AND id=$2 RETURNING id`, [user.school_id, vicePrincipalId])).rowCount)
+    if (!deleted) { json(res, 404, { error: 'vice_principal_not_found' }); return true }
+    const userId = account.rows[0]?.user_id
+    if (userId) {
+      await authPool.query('DELETE FROM sessions WHERE user_id=$1 AND school_id=$2', [userId, user.school_id])
+      await authPool.query(`DELETE FROM memberships WHERE school_id=$1 AND user_id=$2 AND role='vice_principal'`, [user.school_id, userId])
+    }
+    json(res, 200, { ok: true }); return true
   }
 
   const activate = async (vicePrincipalId, reset = false) => {

@@ -86,15 +86,17 @@ async function gradeOptions(client, schoolId) {
   }, new Map())
 }
 
-async function validateGrades(client, schoolId, grades, counselorId = '') {
-  if (!grades.length) return { error: 'counselor_grades_required' }
+async function validateGrades(client, schoolId, grades, counselorId = '', transferGrades = [], allowEmpty = false) {
+  if (!grades.length) return allowEmpty ? { grades: [] } : { error: 'counselor_grades_required' }
+  if (transferGrades.some(grade => !grades.includes(grade))) return { error: 'invalid_counselor_transfer' }
   const valid = await client.query(`SELECT DISTINCT grade FROM students
     WHERE school_id=$1 AND active=true AND grade=ANY($2::text[])`, [schoolId, grades])
   if (valid.rowCount !== grades.length) return { error: 'invalid_counselor_grades' }
   const used = await client.query(`SELECT grade FROM student_counselor_grade_assignments
     WHERE school_id=$1 AND grade=ANY($2::text[])${counselorId ? ' AND counselor_id<>$3' : ''}`, counselorId ? [schoolId, grades, counselorId] : [schoolId, grades])
-  if (used.rowCount) return { error: 'counselor_grade_taken', grades: used.rows.map(row => row.grade) }
-  return { grades }
+  const conflictingGrades = used.rows.map(row => row.grade)
+  if (conflictingGrades.some(grade => !transferGrades.includes(grade))) return { error: 'counselor_grade_taken', grades: conflictingGrades }
+  return { grades, transferredGrades: conflictingGrades }
 }
 
 async function overview(user, scoped, authPool) {
@@ -157,21 +159,41 @@ export async function handleCounselorPortalRequest(context) {
     const input = await body(req)
     const counselorId = String(input.counselorId || '')
     const grades = selectedGrades(input.grades)
+    const transferGrades = selectedGrades(input.transferGrades)
     if (!validUuid(counselorId)) { json(res, 400, { error: 'invalid_counselor' }); return true }
     const result = await scoped(user.school_id, async client => {
       await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [user.school_id])
       const counselor = await client.query('SELECT 1 FROM student_counselors WHERE school_id=$1 AND id=$2', [user.school_id, counselorId])
       if (!counselor.rowCount) return { error: 'counselor_not_found' }
-      const checked = await validateGrades(client, user.school_id, grades, counselorId)
+      const checked = await validateGrades(client, user.school_id, grades, counselorId, transferGrades, true)
       if (checked.error) return checked
+      if (checked.transferredGrades?.length) await client.query(`DELETE FROM student_counselor_grade_assignments
+        WHERE school_id=$1 AND grade=ANY($2::text[])`, [user.school_id, checked.transferredGrades])
       await client.query('DELETE FROM student_counselor_grade_assignments WHERE school_id=$1 AND counselor_id=$2', [user.school_id, counselorId])
-      await client.query(`INSERT INTO student_counselor_grade_assignments(school_id,counselor_id,grade)
+      if (grades.length) await client.query(`INSERT INTO student_counselor_grade_assignments(school_id,counselor_id,grade)
         SELECT $1,$2,grade FROM unnest($3::text[]) AS grade`, [user.school_id, counselorId, grades])
       return { assignedGrades: grades }
     })
     if (result.error) { json(res, result.error === 'counselor_grade_taken' ? 409 : result.error === 'counselor_not_found' ? 404 : 400, result); return true }
     json(res, 200, { ok: true, ...result })
     return true
+  }
+
+  const deleteMatch = /^\/api\/counselor-portal\/admin\/counselors\/([0-9a-f-]{36})$/i.exec(url.pathname)
+  if (req.method === 'DELETE' && deleteMatch) {
+    if (!adminOnly()) { json(res, 403, { error: 'forbidden' }); return true }
+    const counselorId = deleteMatch[1]
+    const account = await authPool.query(`SELECT user_id FROM counselor_login_accounts
+      WHERE school_id=$1 AND counselor_id=$2`, [user.school_id, counselorId])
+    const deleted = await scoped(user.school_id, async client => (await client.query(`DELETE FROM student_counselors
+      WHERE school_id=$1 AND id=$2 RETURNING id`, [user.school_id, counselorId])).rowCount)
+    if (!deleted) { json(res, 404, { error: 'counselor_not_found' }); return true }
+    const userId = account.rows[0]?.user_id
+    if (userId) {
+      await authPool.query('DELETE FROM sessions WHERE user_id=$1 AND school_id=$2', [userId, user.school_id])
+      await authPool.query(`DELETE FROM memberships WHERE school_id=$1 AND user_id=$2 AND role='counselor'`, [user.school_id, userId])
+    }
+    json(res, 200, { ok: true }); return true
   }
 
   if (req.method === 'POST' && url.pathname === '/api/counselor-portal/admin/accounts/activate') {
