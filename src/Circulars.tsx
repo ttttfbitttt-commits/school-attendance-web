@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react'
 import { ChevronDown, ChevronUp, ExternalLink, FileText, Image, Plus, Printer, RefreshCw, Send, Upload, Users } from 'lucide-react'
+import * as pdfjs from 'pdfjs-dist'
+import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.mjs?url'
 import { api, type CircularRecipient, type SchoolCircular, type SchoolCircularDetail } from './api'
 import { formatHijriDate } from './dateUtils'
 import { brandReportHtmlDocument, installReportPdfDownload, reportBrandHeader } from './SchoolFeatures'
@@ -25,19 +27,64 @@ function readAttachment(file: File) {
   return new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onerror = () => reject(new Error('file_read')); reader.onload = () => resolve(String(reader.result || '')); reader.readAsDataURL(file) })
 }
 
-function circularReport(circulars: SchoolCircularDetail[], schoolName: string) {
-  const pages = circulars.map(({ circular, recipients }) => {
-    const rows = recipients.map(item => `<tr><td>${esc(item.teacherName)}</td><td dir="ltr">${esc(item.teacherPhone || '—')}</td><td>${esc(status(item).label)}</td><td>${esc(item.sentByName || '—')}</td><td>${esc(item.sentAt || '—')}</td><td>${esc(item.signedAt || '—')}</td><td>${item.signatureData ? `<img class="signature" src="${item.signatureData}" alt="توقيع المعلم" />` : '—'}</td></tr>`).join('')
-    return `<section class="page">${reportBrandHeader('سجل التوقيع بالعلم على تعميم', schoolName)}<div class="details"><strong>عنوان التعميم:</strong> ${esc(circular.title)}<br><strong>تاريخ التعميم:</strong> ${esc(formatHijriDate(circular.circularDate))}<br><strong>المرفق:</strong> ${esc(circular.fileName)}</div><table><thead><tr><th>المعلم</th><th>الجوال</th><th>الحالة</th><th>مرسل الرابط</th><th>وقت الإرسال</th><th>وقت التوقيع</th><th>التوقيع</th></tr></thead><tbody>${rows || '<tr><td colspan="7">لم تُنشأ روابط المعلمين بعد.</td></tr>'}</tbody></table></section>`
-  }).join('')
-  const html = `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>سجل التوقيع على التعاميم</title><style>@page{size:A4 landscape;margin:10mm}*{box-sizing:border-box}body{font-family:Tahoma,Arial;color:#143d45;margin:0}.page{break-after:page}.page:last-child{break-after:auto}.details{margin:0 0 11px;line-height:1.9;font-size:12px}table{width:100%;border-collapse:collapse;font-size:10.5px}th,td{border:1px solid #a8c7c0;padding:6px;text-align:right;vertical-align:middle}th{background:#075a62;color:#fff}.signature{width:90px;height:28px;object-fit:contain}.actions{position:sticky;top:0;background:#075a62;padding:8px;display:flex;gap:8px}.actions button{border:0;border-radius:7px;padding:9px 14px;cursor:pointer}@media print{.actions{display:none}}</style></head><body><div class="actions"><button onclick="window.print()">طباعة / حفظ PDF</button><button onclick="window.close()">إغلاق</button></div>${pages}</body></html>`
+pdfjs.GlobalWorkerOptions.workerSrc = pdfWorkerUrl
+
+function dataUrlBytes(dataUrl: string) {
+  const encoded = dataUrl.slice(dataUrl.indexOf(',') + 1)
+  const binary = atob(encoded)
+  const bytes = new Uint8Array(binary.length)
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index)
+  return bytes
+}
+
+async function pdfPages(fileData: string) {
+  const document = await pdfjs.getDocument({ data: dataUrlBytes(fileData) }).promise
+  const images: string[] = []
+  try {
+    for (let pageNumber = 1; pageNumber <= document.numPages; pageNumber += 1) {
+      const page = await document.getPage(pageNumber)
+      const viewport = page.getViewport({ scale: 2 })
+      const canvas = window.document.createElement('canvas')
+      canvas.width = Math.ceil(viewport.width)
+      canvas.height = Math.ceil(viewport.height)
+      const context = canvas.getContext('2d')
+      if (!context) throw new Error('pdf_canvas')
+      await page.render({ canvasContext: context, viewport }).promise
+      images.push(canvas.toDataURL('image/jpeg', 0.94))
+    }
+  } finally {
+    await document.destroy()
+  }
+  return images
+}
+
+async function circularAttachmentPages(circular: SchoolCircularDetail['circular'], schoolName: string) {
+  const attachmentHeader = `${reportBrandHeader('مرفق التعميم الرسمي', schoolName)}<div class="details"><strong>عنوان التعميم:</strong> ${esc(circular.title)}<br><strong>تاريخ التعميم:</strong> ${esc(formatHijriDate(circular.circularDate))}<br><strong>المرفق:</strong> ${esc(circular.fileName)}</div>`
+  if (circular.fileType !== 'application/pdf') return `<section class="page attachment-page">${attachmentHeader}<img class="circular-attachment-image" src="${circular.fileData}" alt="مرفق التعميم" /></section>`
+  const images = await pdfPages(circular.fileData)
+  return images.map((image, index) => `<section class="page attachment-page">${attachmentHeader}<p class="attachment-page-number">صفحة ${index + 1} من ${images.length}</p><img class="circular-attachment-image" src="${image}" alt="صفحة ${index + 1} من مرفق التعميم" /></section>`).join('')
+}
+
+async function circularReport(circulars: SchoolCircularDetail[], schoolName: string) {
   const popup = window.open('', '_blank')
   if (!popup) return false
-  const objectUrl = URL.createObjectURL(new Blob([brandReportHtmlDocument(html, schoolName)], { type: 'text/html;charset=utf-8' }))
-  popup.onload = () => installReportPdfDownload(popup.document, 'سجل التوقيع على التعاميم', 'landscape')
-  popup.location.href = objectUrl
-  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 600000)
-  return true
+  popup.document.body.innerHTML = '<main dir="rtl" style="font-family:Tahoma,Arial;padding:32px;text-align:center;color:#075a62">جارٍ تجهيز التعميم كاملاً مع سجل التوقيعات…</main>'
+  try {
+    const pages = (await Promise.all(circulars.map(async ({ circular, recipients }) => {
+      const rows = recipients.map(item => `<tr><td>${esc(item.teacherName)}</td><td dir="ltr">${esc(item.teacherPhone || '—')}</td><td>${esc(status(item).label)}</td><td>${esc(item.sentByName || '—')}</td><td>${esc(item.sentAt || '—')}</td><td>${esc(item.signedAt || '—')}</td><td>${item.signatureData ? `<img class="signature" src="${item.signatureData}" alt="توقيع المعلم" />` : '—'}</td></tr>`).join('')
+      const acknowledgement = `<section class="page acknowledgement-page">${reportBrandHeader('سجل التوقيع بالعلم على تعميم', schoolName)}<div class="details"><strong>عنوان التعميم:</strong> ${esc(circular.title)}<br><strong>تاريخ التعميم:</strong> ${esc(formatHijriDate(circular.circularDate))}<br><strong>المرفق:</strong> ${esc(circular.fileName)}</div><table><thead><tr><th>المعلم</th><th>الجوال</th><th>الحالة</th><th>مرسل الرابط</th><th>وقت الإرسال</th><th>وقت التوقيع</th><th>التوقيع</th></tr></thead><tbody>${rows || '<tr><td colspan="7">لم تُنشأ روابط المعلمين بعد.</td></tr>'}</tbody></table></section>`
+      return `${await circularAttachmentPages(circular, schoolName)}${acknowledgement}`
+    }))).join('')
+    const html = `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>سجل التوقيع على التعاميم</title><style>@page{size:A4 landscape;margin:10mm}*{box-sizing:border-box}body{font-family:Tahoma,Arial;color:#143d45;margin:0}.page{break-after:page}.page:last-child{break-after:auto}.details{margin:0 0 11px;line-height:1.9;font-size:12px}.attachment-page-number{margin:-4px 0 7px;color:#5a7678;font-size:11px;font-weight:700}.circular-attachment-image{display:block;max-width:100%;width:auto;max-height:158mm;margin:0 auto;object-fit:contain}.acknowledgement-page table{width:100%;border-collapse:collapse;font-size:10.5px}th,td{border:1px solid #a8c7c0;padding:6px;text-align:right;vertical-align:middle}th{background:#075a62;color:#fff}.signature{width:90px;height:28px;object-fit:contain}.actions{position:sticky;top:0;background:#075a62;padding:8px;display:flex;gap:8px}.actions button{border:0;border-radius:7px;padding:9px 14px;cursor:pointer}@media print{.actions{display:none}}</style></head><body><div class="actions"><button onclick="window.print()">طباعة / حفظ PDF</button><button onclick="window.close()">إغلاق</button></div>${pages}</body></html>`
+    const objectUrl = URL.createObjectURL(new Blob([brandReportHtmlDocument(html, schoolName)], { type: 'text/html;charset=utf-8' }))
+    popup.onload = () => installReportPdfDownload(popup.document, 'سجل التوقيع على التعاميم', 'landscape')
+    popup.location.href = objectUrl
+    window.setTimeout(() => URL.revokeObjectURL(objectUrl), 600000)
+    return true
+  } catch (error) {
+    popup.close()
+    throw error
+  }
 }
 
 export function CircularsCenter({ schoolName }: { schoolName: string }) {
@@ -110,7 +157,7 @@ export function CircularsCenter({ schoolName }: { schoolName: string }) {
 
   const printAll = async () => {
     setBusy('print-all'); setError('')
-    try { circularReport(await Promise.all(circulars.map(row => api.circular(row.id))), schoolName) } catch { setError('تعذر تجهيز طباعة التعاميم.') } finally { setBusy('') }
+    try { await circularReport(await Promise.all(circulars.map(row => api.circular(row.id))), schoolName) } catch { setError('تعذر تجهيز التعميم كاملاً للطباعة. تحقق من الملف ثم أعد المحاولة.') } finally { setBusy('') }
   }
 
   return <section className="circulars-center" dir="rtl">
@@ -118,7 +165,7 @@ export function CircularsCenter({ schoolName }: { schoolName: string }) {
     <div className="circulars-toolbar"><button type="button" className="primary-button" onClick={() => { setAdding(value => !value); setError(''); setNotice('') }}><Plus size={18} /> إضافة تعميم</button><button type="button" className="outline-button" onClick={() => void printAll()} disabled={!circulars.length || busy === 'print-all'}><Printer size={17} /> طباعة جميع التعاميم</button><button type="button" className="outline-button" onClick={() => void load()}><RefreshCw size={17} /> تحديث السجل</button></div>
     {adding && <section className="circular-create"><header><Upload size={23} /><div><h3>إضافة تعميم رسمي</h3><p>أدخل العنوان وأرفق صورة أو ملف PDF، ثم أنشئ روابط توقيع المعلمين بعد الحفظ.</p></div></header><div className="circular-create-fields"><label>عنوان التعميم<input value={title} onChange={event => setTitle(event.target.value)} placeholder="مثال: تعميم بشأن الانضباط المدرسي" /></label><label>تاريخ التعميم<input type="date" value={circularDate} onChange={event => setCircularDate(event.target.value)} /></label><label className="circular-upload">إرفاق التعميم<input type="file" accept="image/png,image/jpeg,image/webp,application/pdf" onChange={event => setAttachment(event.target.files?.[0] || null)} /><span>{attachment ? attachment.name : 'اختر صورة أو PDF (حتى 8 ميجابايت)'}</span></label><button type="button" className="primary-button" onClick={() => void create()} disabled={busy === 'create'}>{busy === 'create' ? 'جارٍ الحفظ…' : 'حفظ التعميم'}</button></div></section>}
     {notice && <p className="teacher-notice success">{notice}</p>}{error && <p className="teacher-notice error">{error}</p>}{fallbackLink && <a className="circular-whatsapp-fallback" href={fallbackLink.url} target="_blank" rel="noreferrer"><ExternalLink size={16} />لم يفتح واتساب؟ افتح رسالة {fallbackLink.name} الآن</a>}
-    <section className="circulars-log"><header><div><span>سجل متتابع</span><h3>سجل التعاميم والتوقيعات</h3><p>اضغط على أي صف لعرض تفاصيله. عند فتح تعميم آخر تُغلق التفاصيل السابقة تلقائيًا.</p></div></header>{!circulars.length ? <p className="teacher-empty">لا توجد تعاميم حتى الآن.</p> : <div className="circulars-list">{circulars.map(row => <article key={row.id} className={openId === row.id ? 'open' : ''}><button type="button" className="circular-summary" onClick={() => void openCircular(row.id)}><span className="circular-summary-icon">{row.fileType === 'application/pdf' ? <FileText size={20} /> : <Image size={20} />}</span><div><strong>{row.title}</strong><small>{formatHijriDate(row.circularDate)} · {row.fileName}</small></div><div className="circular-counts"><span>المعلمون {row.recipients}</span><b>{row.signed} وقّعوا</b><em>{row.pending} بانتظار التوقيع</em></div>{openId === row.id ? <ChevronUp size={20} /> : <ChevronDown size={20} />}</button>{openId === row.id && <div className="circular-detail">{busy === `open-${row.id}` || !detail ? <p className="teacher-empty">جارٍ تحميل تفاصيل التعميم…</p> : <CircularDetail detail={detail} generating={busy === 'generate'} onGenerate={() => void generateRecipients()} onSend={recipient => void sendRecipient(recipient)} busy={busy} onPrint={() => circularReport([detail], schoolName)} />}</div>}</article>)}</div>}</section>
+    <section className="circulars-log"><header><div><span>سجل متتابع</span><h3>سجل التعاميم والتوقيعات</h3><p>اضغط على أي صف لعرض تفاصيله. عند فتح تعميم آخر تُغلق التفاصيل السابقة تلقائيًا.</p></div></header>{!circulars.length ? <p className="teacher-empty">لا توجد تعاميم حتى الآن.</p> : <div className="circulars-list">{circulars.map(row => <article key={row.id} className={openId === row.id ? 'open' : ''}><button type="button" className="circular-summary" onClick={() => void openCircular(row.id)}><span className="circular-summary-icon">{row.fileType === 'application/pdf' ? <FileText size={20} /> : <Image size={20} />}</span><div><strong>{row.title}</strong><small>{formatHijriDate(row.circularDate)} · {row.fileName}</small></div><div className="circular-counts"><span>المعلمون {row.recipients}</span><b>{row.signed} وقّعوا</b><em>{row.pending} بانتظار التوقيع</em></div>{openId === row.id ? <ChevronUp size={20} /> : <ChevronDown size={20} />}</button>{openId === row.id && <div className="circular-detail">{busy === `open-${row.id}` || !detail ? <p className="teacher-empty">جارٍ تحميل تفاصيل التعميم…</p> : <CircularDetail detail={detail} generating={busy === 'generate'} onGenerate={() => void generateRecipients()} onSend={recipient => void sendRecipient(recipient)} busy={busy} onPrint={() => { void circularReport([detail], schoolName).catch(() => window.alert('تعذر تجهيز التعميم كاملاً للطباعة. تحقق من الملف ثم أعد المحاولة.')) }} />}</div>}</article>)}</div>}</section>
   </section>
 }
 
