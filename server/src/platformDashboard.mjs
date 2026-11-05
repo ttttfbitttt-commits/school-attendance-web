@@ -4,9 +4,21 @@ const PLATFORM_COOKIE = 'attendance_platform_session'
 const PLATFORM_SESSION_SECONDS = 12 * 60 * 60
 const platformUsername = String(process.env.PLATFORM_ADMIN_USERNAME || '').trim()
 const platformPassword = String(process.env.PLATFORM_ADMIN_PASSWORD || '')
-const platformPasswordHash = platformUsername.length <= 128 && platformUsername && platformPassword.length >= 16 && platformPassword.length <= 200
-  ? crypto.scryptSync(platformPassword, process.env.PLATFORM_ADMIN_USERNAME, 64)
-  : null
+
+function platformPasswordHash(value, salt = crypto.randomBytes(16).toString('hex')) {
+  return `${salt}:${crypto.scryptSync(String(value), salt, 64).toString('hex')}`
+}
+
+function platformPasswordMatches(value, saved) {
+  const [salt, expected] = String(saved || '').split(':')
+  if (!salt || !expected) return false
+  const actual = crypto.scryptSync(String(value), salt, 64).toString('hex')
+  return expected.length === actual.length && crypto.timingSafeEqual(Buffer.from(expected, 'hex'), Buffer.from(actual, 'hex'))
+}
+
+function canBootstrapPlatformAccount() {
+  return platformUsername.length <= 128 && platformUsername && platformPassword.length >= 16 && platformPassword.length <= 200
+}
 
 export const SCHOOL_STORAGE_TABLES = [
   'students', 'attendance_logs', 'almadar_accounts', 'student_excuses', 'message_logs', 'absence_records', 'absence_corrections', 'absence_follow_up_cases', 'absence_message_logs',
@@ -36,6 +48,12 @@ export async function migratePlatformDashboard(adminPool) {
       expires_at timestamptz NOT NULL,
       created_at timestamptz NOT NULL DEFAULT now()
     );
+    CREATE TABLE IF NOT EXISTS platform_admin_credentials (
+      singleton boolean PRIMARY KEY DEFAULT true CHECK (singleton),
+      username text NOT NULL UNIQUE,
+      password_hash text NOT NULL,
+      updated_at timestamptz NOT NULL DEFAULT now()
+    );
     CREATE TABLE IF NOT EXISTS platform_audit_logs (
       id bigserial PRIMARY KEY,
       actor_username text NOT NULL,
@@ -59,6 +77,11 @@ export async function migratePlatformDashboard(adminPool) {
       END IF;
     END $$;
   `)
+  const existingCredential = await adminPool.query('SELECT 1 FROM platform_admin_credentials WHERE singleton=true')
+  if (!existingCredential.rowCount && canBootstrapPlatformAccount()) {
+    await adminPool.query(`INSERT INTO platform_admin_credentials(singleton,username,password_hash)
+      VALUES(true,$1,$2)`, [platformUsername, platformPasswordHash(platformPassword)])
+  }
 }
 
 export async function getPlatformSchools(adminPool) {
@@ -251,6 +274,11 @@ async function validPlatformSession(req, adminPool) {
   return Boolean(session.rowCount)
 }
 
+async function platformCredentials(adminPool) {
+  const result = await adminPool.query(`SELECT username,password_hash FROM platform_admin_credentials WHERE singleton=true`)
+  return result.rows[0] || null
+}
+
 async function requirePlatformSession(req, res, json, adminPool) {
   if (await validPlatformSession(req, adminPool)) return true
   json(res, 401, { error: 'unauthorized' })
@@ -275,8 +303,22 @@ async function schoolHasRecentUsage(client, schoolId) {
 }
 
 async function recordPlatformAudit(adminPool, action, school, details = {}) {
+  const actor = (await platformCredentials(adminPool))?.username || platformUsername || 'المشرف العام'
   await adminPool.query(`INSERT INTO platform_audit_logs(actor_username,action,school_id,school_name,details)
-    VALUES($1,$2,$3,$4,$5::jsonb)`, [platformUsername, action, school?.id || null, school?.name || '', JSON.stringify(details)])
+    VALUES($1,$2,$3,$4,$5::jsonb)`, [actor, action, school?.id || null, school?.name || '', JSON.stringify(details)])
+}
+
+async function changePlatformPassword(req, adminPool, currentPassword, newPassword) {
+  const credentials = await platformCredentials(adminPool)
+  if (!credentials) return { error: 'platform_login_not_configured' }
+  if (!platformPasswordMatches(currentPassword, credentials.password_hash)) return { error: 'current_password_invalid' }
+  if (newPassword.length < 16 || newPassword.length > 200) return { error: 'invalid_new_password' }
+  await adminPool.query(`UPDATE platform_admin_credentials
+    SET password_hash=$1,updated_at=now() WHERE singleton=true`, [platformPasswordHash(newPassword)])
+  const currentToken = platformToken(req)
+  if (currentToken) await adminPool.query('DELETE FROM platform_sessions WHERE token_hash<>$1', [hashToken(currentToken)])
+  await recordPlatformAudit(adminPool, 'change_platform_password', null)
+  return { ok: true }
 }
 
 async function deleteSchool(adminPool, schoolId, confirmName) {
@@ -359,7 +401,8 @@ export async function handlePlatformRequest({
     const input = await body(req)
     const username = String(input.username || '').trim()
     const password = String(input.password || '')
-    if (!platformPasswordHash) {
+    const credentials = await platformCredentials(adminPool)
+    if (!credentials) {
       json(res, 503, { error: 'platform_login_not_configured' })
       return true
     }
@@ -368,10 +411,9 @@ export async function handlePlatformRequest({
       loginThrottleResponse(res, retryAfter)
       return true
     }
-    const attemptedPassword = crypto.scryptSync(password.slice(0, 200), process.env.PLATFORM_ADMIN_USERNAME, 64)
-    const passwordMatches = crypto.timingSafeEqual(platformPasswordHash, attemptedPassword)
+    const passwordMatches = platformPasswordMatches(password.slice(0, 200), credentials.password_hash)
     if (username.length > 128 || password.length > 200 ||
-        username.toLowerCase() !== platformUsername.toLowerCase() || !passwordMatches) {
+        username.toLowerCase() !== credentials.username.toLowerCase() || !passwordMatches) {
       recordFailedLogin(req, 'platform', username)
       json(res, 401, { error: 'invalid_login' })
       return true
@@ -401,6 +443,14 @@ export async function handlePlatformRequest({
   }
 
   if (!await requirePlatformSession(req, res, json, adminPool)) return true
+
+  if (req.method === 'POST' && url.pathname === '/api/platform/change-password') {
+    const input = await body(req, 10_000)
+    const result = await changePlatformPassword(req, adminPool, String(input.currentPassword || ''), String(input.newPassword || ''))
+    if (result.error) { json(res, result.error === 'current_password_invalid' ? 401 : result.error === 'invalid_new_password' ? 400 : 503, { error: result.error }); return true }
+    json(res, 200, result)
+    return true
+  }
 
   if (req.method === 'GET' && url.pathname === '/api/platform/schools') {
     json(res, 200, { schools: await getPlatformSchools(adminPool) })

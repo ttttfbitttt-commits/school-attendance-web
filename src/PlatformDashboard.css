@@ -316,6 +316,41 @@
   gap: 8px;
 }
 
+.platform-header-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.platform-password-panel {
+  display: grid;
+  gap: 16px;
+  max-width: 760px;
+  margin: 0 0 20px auto;
+  padding: 20px;
+  border: 1px solid #d7e7e1;
+  border-radius: 16px;
+  background: #fff;
+}
+
+.platform-password-panel > header {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  color: #177966;
+}
+
+.platform-password-panel h2 { margin: 0; color: #1d344b; font-size: 20px; }
+.platform-password-panel p { margin: 5px 0 0; color: #66788a; font-size: 13px; line-height: 1.7; }
+.platform-password-panel form { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
+.platform-password-panel label { display: grid; gap: 6px; color: #40596d; font-size: 13px; }
+.platform-password-panel input { min-height: 42px; padding: 0 11px; border: 1px solid #d2dfe7; border-radius: 9px; color: #1d344b; font: inherit; }
+.platform-password-panel form > div { display: flex; justify-content: flex-end; align-items: end; gap: 8px; grid-column: 1 / -1; }
+.platform-password-notice { margin: 0; padding: 10px 12px; border-radius: 9px; color: #9a5a09; background: #fff8e9; font-size: 13px; }
+.platform-password-panel .platform-password-notice { grid-column: 1 / -1; }
+.platform-password-success { margin: 0 0 18px; color: #14764f; background: #e9f8ef; }
+
 .platform-delete-button {
   padding: 8px 10px;
   border: 1px solid #f0c8c8;

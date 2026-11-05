@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
-import { Activity, Database, ExternalLink, LockKeyhole, LogOut, PauseCircle, PlayCircle, RefreshCw, School, Search, Users } from 'lucide-react'
+import { Activity, Database, ExternalLink, KeyRound, LockKeyhole, LogOut, PauseCircle, PlayCircle, RefreshCw, School, Search, Users } from 'lucide-react'
 import { api, type PlatformSchoolUsage } from './api'
 import './PlatformDashboard.css'
 
@@ -372,6 +372,12 @@ export function PlatformPortal() {
   const [passwordVisible, setPasswordVisible] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
+  const [passwordPanelOpen, setPasswordPanelOpen] = useState(false)
+  const [currentPassword, setCurrentPassword] = useState('')
+  const [newPassword, setNewPassword] = useState('')
+  const [passwordConfirmation, setPasswordConfirmation] = useState('')
+  const [passwordNotice, setPasswordNotice] = useState('')
+  const [passwordSaving, setPasswordSaving] = useState(false)
 
   useEffect(() => {
     api.platformMe()
@@ -409,6 +415,27 @@ export function PlatformPortal() {
     }
   }
 
+  const changePassword = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setPasswordNotice('')
+    if (newPassword.length < 16) { setPasswordNotice('يجب أن تتكون كلمة المرور الجديدة من 16 حرفًا على الأقل.'); return }
+    if (newPassword !== passwordConfirmation) { setPasswordNotice('تأكيد كلمة المرور غير مطابق.'); return }
+    setPasswordSaving(true)
+    try {
+      await api.changePlatformPassword(currentPassword, newPassword)
+      setCurrentPassword('')
+      setNewPassword('')
+      setPasswordConfirmation('')
+      setPasswordPanelOpen(false)
+      setPasswordNotice('تم تغيير كلمة مرور المشرف العام بنجاح.')
+    } catch (reason) {
+      const apiError = reason as Error & { code?: string }
+      setPasswordNotice(apiError.code === 'current_password_invalid' ? 'كلمة المرور الحالية غير صحيحة.' : 'تعذر تغيير كلمة المرور. أعد المحاولة.')
+    } finally {
+      setPasswordSaving(false)
+    }
+  }
+
   if (checkingSession) return <main className="auth-page" dir="rtl"><p>جارٍ التحقق من جلسة المشرف...</p></main>
 
   if (!authenticated) return <main className="auth-page" dir="rtl">
@@ -433,8 +460,22 @@ export function PlatformPortal() {
   return <main className="platform-portal" dir="rtl">
     <header className="platform-portal-header">
       <div><strong>إشراف نظام الحصر</strong><span>بوابة المشرف المستقلة</span></div>
-      <button type="button" className="secondary-button" onClick={() => void logout()}><LogOut size={16} /> تسجيل خروج المشرف</button>
+      <div className="platform-header-actions">
+        <button type="button" className="secondary-button" onClick={() => { setPasswordPanelOpen(open => !open); setPasswordNotice('') }}><KeyRound size={16} /> تغيير كلمة المرور</button>
+        <button type="button" className="secondary-button" onClick={() => void logout()}><LogOut size={16} /> تسجيل خروج المشرف</button>
+      </div>
     </header>
+    {passwordPanelOpen && <section className="platform-password-panel" aria-label="تغيير كلمة مرور المشرف">
+      <header><KeyRound size={22} /><div><h2>تغيير كلمة المرور</h2><p>استخدم كلمة مرور من 16 حرفًا على الأقل، ولا تشاركها مع أي مستخدم.</p></div></header>
+      <form onSubmit={event => void changePassword(event)}>
+        <label>كلمة المرور الحالية<input type="password" value={currentPassword} onChange={event => setCurrentPassword(event.target.value)} autoComplete="current-password" required /></label>
+        <label>كلمة المرور الجديدة<input type="password" value={newPassword} onChange={event => setNewPassword(event.target.value)} autoComplete="new-password" minLength={16} required /></label>
+        <label>تأكيد كلمة المرور الجديدة<input type="password" value={passwordConfirmation} onChange={event => setPasswordConfirmation(event.target.value)} autoComplete="new-password" minLength={16} required /></label>
+        {passwordNotice && <p className="platform-password-notice" role="status">{passwordNotice}</p>}
+        <div><button type="button" className="secondary-button" onClick={() => setPasswordPanelOpen(false)} disabled={passwordSaving}>إلغاء</button><button className="primary-button" type="submit" disabled={passwordSaving}>{passwordSaving ? 'جارٍ الحفظ...' : 'حفظ كلمة المرور'}</button></div>
+      </form>
+    </section>}
+    {!passwordPanelOpen && passwordNotice && <p className="platform-password-notice platform-password-success" role="status">{passwordNotice}</p>}
     <PlatformDashboard />
   </main>
 }

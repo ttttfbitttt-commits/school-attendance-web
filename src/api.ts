@@ -410,6 +410,7 @@ export const api = {
   platformMe: () => request<{ authenticated: true }>('/platform/me'),
   platformLogin: (username: string, password: string) => request<{ authenticated: true }>('/platform/login', { method: 'POST', body: JSON.stringify({ username, password }) }),
   platformLogout: () => request<{ ok: true }>('/platform/logout', { method: 'POST' }),
+  changePlatformPassword: (currentPassword: string, newPassword: string) => request<{ ok: true }>('/platform/change-password', { method: 'POST', body: JSON.stringify({ currentPassword, newPassword }) }),
   updatePlatformSchoolStatus: (schoolId: string, status: 'active' | 'suspended') => request<{ ok: true }>(`/platform/schools/${encodeURIComponent(schoolId)}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }),
   openPlatformSchool: (schoolId: string) => request<{ ok: true; schoolName: string }>(`/platform/schools/${encodeURIComponent(schoolId)}/open`, { method: 'POST', body: '{}' }),
   deletePlatformSchool: (schoolId: string, confirmName: string) => request<{ ok: true }>(`/platform/schools/${encodeURIComponent(schoolId)}/delete`, { method: 'POST', body: JSON.stringify({ confirmName }) }),
