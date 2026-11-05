@@ -19,6 +19,11 @@ export const SCHOOL_STORAGE_TABLES = [
 
 export async function migratePlatformDashboard(adminPool) {
   await adminPool.query(`
+    ALTER TABLE schools ADD COLUMN IF NOT EXISTS platform_status text NOT NULL DEFAULT 'active'
+      CHECK (platform_status IN ('active','suspended'));
+    ALTER TABLE schools ADD COLUMN IF NOT EXISTS suspended_at timestamptz;
+    ALTER TABLE schools ADD COLUMN IF NOT EXISTS suspension_reason text NOT NULL DEFAULT '';
+
     CREATE TABLE IF NOT EXISTS school_login_activity (
       school_id uuid NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
       activity_date date NOT NULL,
@@ -31,6 +36,16 @@ export async function migratePlatformDashboard(adminPool) {
       expires_at timestamptz NOT NULL,
       created_at timestamptz NOT NULL DEFAULT now()
     );
+    CREATE TABLE IF NOT EXISTS platform_audit_logs (
+      id bigserial PRIMARY KEY,
+      actor_username text NOT NULL,
+      action text NOT NULL,
+      school_id uuid,
+      school_name text NOT NULL DEFAULT '',
+      details jsonb NOT NULL DEFAULT '{}'::jsonb,
+      created_at timestamptz NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS platform_audit_logs_school_created ON platform_audit_logs(school_id,created_at DESC);
     ALTER TABLE school_login_activity ENABLE ROW LEVEL SECURITY;
     ALTER TABLE school_login_activity FORCE ROW LEVEL SECURITY;
     DO $$ BEGIN
@@ -54,7 +69,7 @@ export async function getPlatformSchools(adminPool) {
     GROUP BY school_id`).join('\nUNION ALL\n')
 
   const [schools, teachers, students, logins, usage, storage, portfolio, schoolRows] = await Promise.all([
-    adminPool.query(`SELECT school.id,school.name,school.principal_name,school.created_at,
+    adminPool.query(`SELECT school.id,school.name,school.principal_name,school.created_at,school.platform_status,school.suspended_at,school.suspension_reason,
         creator.display_name AS activated_by_name,creator.email AS activated_by_email,
         COALESCE(accounts.registered_emails,'[]'::json) AS registered_emails
       FROM schools AS school
@@ -164,6 +179,9 @@ export async function getPlatformSchools(adminPool) {
       id: school.id,
       name: school.name,
       activatedAt: school.created_at,
+      platformStatus: school.platform_status === 'suspended' ? 'suspended' : 'active',
+      suspendedAt: school.suspended_at || null,
+      suspensionReason: school.suspension_reason || '',
       activatedBy: {
         name: school.activated_by_name || school.principal_name || 'غير مسجل',
         email: school.activated_by_email || '',
@@ -256,7 +274,12 @@ async function schoolHasRecentUsage(client, schoolId) {
   return Boolean(result.rows[0]?.active)
 }
 
-async function deleteInactiveSchool(adminPool, schoolId, confirmName) {
+async function recordPlatformAudit(adminPool, action, school, details = {}) {
+  await adminPool.query(`INSERT INTO platform_audit_logs(actor_username,action,school_id,school_name,details)
+    VALUES($1,$2,$3,$4,$5::jsonb)`, [platformUsername, action, school?.id || null, school?.name || '', JSON.stringify(details)])
+}
+
+async function deleteSchool(adminPool, schoolId, confirmName) {
   const client = await adminPool.connect()
   try {
     await client.query('BEGIN')
@@ -270,10 +293,8 @@ async function deleteInactiveSchool(adminPool, schoolId, confirmName) {
       await client.query('ROLLBACK')
       return { error: 'school_name_confirmation_mismatch' }
     }
-    if (await schoolHasRecentUsage(client, schoolId)) {
-      await client.query('ROLLBACK')
-      return { error: 'school_is_active' }
-    }
+    await client.query(`INSERT INTO platform_audit_logs(actor_username,action,school_id,school_name,details)
+      VALUES($1,'delete_school',$2,$3,$4::jsonb)`, [platformUsername, school.id, school.name, JSON.stringify({ confirmed: true })])
     await client.query('DELETE FROM school_backup_audit WHERE school_id=$1', [schoolId])
     await client.query('DELETE FROM schools WHERE id=$1', [schoolId])
     await client.query(`DELETE FROM users AS account
@@ -288,6 +309,36 @@ async function deleteInactiveSchool(adminPool, schoolId, confirmName) {
   }
 }
 
+async function updateSchoolStatus(adminPool, authPool, schoolId, status, reason = '') {
+  const selected = await adminPool.query(`UPDATE schools
+    SET platform_status=$1,
+        suspended_at=CASE WHEN $1='suspended' THEN now() ELSE NULL END,
+        suspension_reason=CASE WHEN $1='suspended' THEN $2 ELSE '' END
+    WHERE id=$3
+    RETURNING id,name,platform_status,suspended_at,suspension_reason`, [status, String(reason || '').trim().slice(0, 500), schoolId])
+  const school = selected.rows[0]
+  if (!school) return { error: 'school_not_found' }
+  if (status === 'suspended') await authPool.query('DELETE FROM sessions WHERE school_id=$1', [schoolId])
+  await recordPlatformAudit(adminPool, status === 'suspended' ? 'suspend_school' : 'resume_school', school, { reason: school.suspension_reason || '' })
+  return { school }
+}
+
+async function openSchoolSupportSession({ adminPool, authPool, createSession, res, schoolId }) {
+  const schoolResult = await adminPool.query(`SELECT id,name,platform_status FROM schools WHERE id=$1`, [schoolId])
+  const school = schoolResult.rows[0]
+  if (!school) return { error: 'school_not_found' }
+  if (school.platform_status === 'suspended') return { error: 'school_suspended' }
+  const account = await adminPool.query(`SELECT membership.user_id
+    FROM memberships AS membership
+    WHERE membership.school_id=$1 AND membership.role='admin'
+    ORDER BY membership.user_id ASC
+    LIMIT 1`, [schoolId])
+  if (!account.rowCount) return { error: 'school_admin_not_found' }
+  await createSession(res, account.rows[0].user_id, schoolId)
+  await recordPlatformAudit(adminPool, 'open_school_support_session', school, { mode: 'full_access' })
+  return { ok: true, schoolName: school.name }
+}
+
 export async function handlePlatformRequest({
   req,
   res,
@@ -295,6 +346,8 @@ export async function handlePlatformRequest({
   body,
   json,
   adminPool,
+  authPool,
+  createSession,
   loginRateLimited,
   recordFailedLogin,
   clearLoginAttempts,
@@ -354,11 +407,30 @@ export async function handlePlatformRequest({
     return true
   }
 
+  const statusMatch = url.pathname.match(/^\/api\/platform\/schools\/([0-9a-f-]{36})\/status$/i)
+  if (req.method === 'PATCH' && statusMatch) {
+    const input = await body(req, 10_000)
+    const status = input.status === 'suspended' ? 'suspended' : input.status === 'active' ? 'active' : ''
+    if (!status) { json(res, 400, { error: 'invalid_school_status' }); return true }
+    const result = await updateSchoolStatus(adminPool, authPool, statusMatch[1], status, input.reason)
+    if (result.error) { json(res, 404, { error: result.error }); return true }
+    json(res, 200, { ok: true, school: result.school })
+    return true
+  }
+
+  const openMatch = url.pathname.match(/^\/api\/platform\/schools\/([0-9a-f-]{36})\/open$/i)
+  if (req.method === 'POST' && openMatch) {
+    const result = await openSchoolSupportSession({ adminPool, authPool, createSession, res, schoolId: openMatch[1] })
+    if (result.error) { json(res, result.error === 'school_not_found' ? 404 : 409, { error: result.error }); return true }
+    json(res, 200, result)
+    return true
+  }
+
   const deleteMatch = url.pathname.match(/^\/api\/platform\/schools\/([0-9a-f-]{36})\/delete$/i)
   if (req.method === 'POST' && deleteMatch) {
     const input = await body(req, 10_000)
     const confirmName = String(input.confirmName || '')
-    const result = await deleteInactiveSchool(adminPool, deleteMatch[1], confirmName)
+    const result = await deleteSchool(adminPool, deleteMatch[1], confirmName)
     if (result.error === 'school_not_found') {
       json(res, 404, { error: result.error })
       return true

@@ -28,6 +28,9 @@ export type PlatformSchoolUsage = {
   id: string
   name: string
   activatedAt: string
+  platformStatus: 'active' | 'suspended'
+  suspendedAt: string | null
+  suspensionReason: string
   activatedBy: { name: string; email: string }
   registeredEmails: string[]
   teacherCount: number
@@ -407,6 +410,8 @@ export const api = {
   platformMe: () => request<{ authenticated: true }>('/platform/me'),
   platformLogin: (username: string, password: string) => request<{ authenticated: true }>('/platform/login', { method: 'POST', body: JSON.stringify({ username, password }) }),
   platformLogout: () => request<{ ok: true }>('/platform/logout', { method: 'POST' }),
+  updatePlatformSchoolStatus: (schoolId: string, status: 'active' | 'suspended') => request<{ ok: true }>(`/platform/schools/${encodeURIComponent(schoolId)}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }),
+  openPlatformSchool: (schoolId: string) => request<{ ok: true; schoolName: string }>(`/platform/schools/${encodeURIComponent(schoolId)}/open`, { method: 'POST', body: '{}' }),
   deletePlatformSchool: (schoolId: string, confirmName: string) => request<{ ok: true }>(`/platform/schools/${encodeURIComponent(schoolId)}/delete`, { method: 'POST', body: JSON.stringify({ confirmName }) }),
   students: () => request<{ students: StudentRecord[] }>('/students'),
   saveStudents: (students: unknown[]) => request<{ ok: boolean }>('/students', { method: 'PUT', body: JSON.stringify({ students }) }),

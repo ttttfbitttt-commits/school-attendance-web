@@ -147,6 +147,58 @@
   max-width: 210px;
 }
 
+.platform-school-state {
+  display: inline-block;
+  margin-top: 7px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.platform-school-state.active {
+  color: #14764f;
+  background: #e6f6ef;
+}
+
+.platform-school-state.suspended {
+  color: #9b3f42;
+  background: #fff0f0;
+}
+
+.platform-action-list {
+  display: grid;
+  gap: 7px;
+  min-width: 165px;
+}
+
+.platform-action-list .secondary-button,
+.platform-suspend-button,
+.platform-delete-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  width: 100%;
+  min-height: 34px;
+  font-size: 12px;
+}
+
+.platform-suspend-button {
+  padding: 7px 10px;
+  border: 1px solid #f1c995;
+  border-radius: 8px;
+  background: #fff8ed;
+  color: #9a5a09;
+  cursor: pointer;
+}
+
+.platform-suspend-button:disabled,
+.platform-action-list .secondary-button:disabled {
+  opacity: .55;
+  cursor: not-allowed;
+}
+
 .platform-usage-status {
   display: inline-block;
   padding: 5px 8px;

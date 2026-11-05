@@ -135,7 +135,11 @@ async function auth(req) {
       LEFT JOIN activity_leader_login_accounts activity_leader_account ON activity_leader_account.user_id=s.user_id AND activity_leader_account.school_id=s.school_id
     WHERE s.token_hash=$1 AND s.expires_at > now()
       AND ((m.role NOT IN ('teacher','administrator','student','counselor','vice_principal','activity_leader')) OR (m.role='teacher' AND account.active=true) OR (m.role='administrator' AND administrator_account.active=true) OR (m.role='student' AND student_account.active=true) OR (m.role='counselor' AND counselor_account.active=true) OR (m.role='vice_principal' AND vice_principal_account.active=true) OR (m.role='activity_leader' AND activity_leader_account.active=true))`, [tokenHash(token)])
-  return rows[0] || null
+  const user = rows[0]
+  if (!user) return null
+  const school = await scopedOn(authPool, user.school_id,
+    client => client.query(`SELECT 1 FROM schools WHERE id=$1 AND platform_status='active'`, [user.school_id]))
+  return school.rowCount ? user : null
 }
 async function createSession(res, userId, schoolId) {
   const token = crypto.randomBytes(32).toString('base64url')
@@ -169,6 +173,14 @@ function normalizeUnifiedIdentifier(value) {
 function isEmailIdentifier(value) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value)
 }
+async function activeSchoolLoginRows(rows) {
+  if (!rows.length) return rows
+  const schoolIds = [...new Set(rows.map(row => row.school_id).filter(Boolean))]
+  const statusRows = await Promise.all(schoolIds.map(schoolId => scopedOn(authPool, schoolId,
+    client => client.query(`SELECT id FROM schools WHERE id=$1 AND platform_status='active'`, [schoolId]))))
+  const activeIds = new Set(statusRows.flatMap(result => result.rows.map(row => row.id)))
+  return rows.filter(row => activeIds.has(row.school_id))
+}
 async function unifiedLoginCandidates(identifier) {
   if (isEmailIdentifier(identifier)) {
     const result = await authPool.query(`SELECT u.id AS user_id,u.email,u.display_name,m.school_id,m.role,u.password_hash,
@@ -176,7 +188,7 @@ async function unifiedLoginCandidates(identifier) {
         false AS lesson_flow_access,false AS circulars_access,false AS student_attendance_cooperation_access,false AS must_change_password
       FROM users u JOIN memberships m ON m.user_id=u.id
       WHERE u.email=lower($1) AND m.role IN ('admin','staff')`, [identifier])
-    return result.rows
+    return activeSchoolLoginRows(result.rows)
   }
 
   const identity = identifier.replace(/\D/g, '').slice(0, 32)
@@ -217,7 +229,7 @@ async function unifiedLoginCandidates(identifier) {
     FROM activity_leader_login_accounts account JOIN users u ON u.id=account.user_id
       JOIN memberships m ON m.user_id=account.user_id AND m.school_id=account.school_id
     WHERE account.identity_number=$1 AND account.active=true AND m.role='activity_leader'`, [identity])
-  return result.rows
+  return activeSchoolLoginRows(result.rows)
 }
 async function unifiedLoginChoices(rows) {
   return Promise.all(rows.map(async row => {
@@ -463,7 +475,7 @@ const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, `http://${req.headers.host}`)
     if (req.method === 'GET' && url.pathname === '/api/health') return json(res, 200, { ok: true })
-    if (await handlePlatformRequest({ req, res, url, body, json, adminPool: platformPool, loginRateLimited, recordFailedLogin, clearLoginAttempts, loginThrottleResponse })) return
+    if (await handlePlatformRequest({ req, res, url, body, json, adminPool: platformPool, authPool, createSession, loginRateLimited, recordFailedLogin, clearLoginAttempts, loginThrottleResponse })) return
     if (req.method === 'POST' && url.pathname === '/api/auth/register') return await requestSchoolRegistration({ req, res, authPool, body, json, passwordHash })
     if (req.method === 'POST' && url.pathname === '/api/auth/verify-email') return await verifySchoolRegistration({ req, res, authPool, body, json, scopedOn, createSession })
     if (req.method === 'POST' && url.pathname === '/api/auth/unified-login') {

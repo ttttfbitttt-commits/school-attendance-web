@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { FormEvent } from 'react'
-import { Activity, Database, LockKeyhole, LogOut, RefreshCw, School, Search, Users } from 'lucide-react'
+import { Activity, Database, ExternalLink, LockKeyhole, LogOut, PauseCircle, PlayCircle, RefreshCw, School, Search, Users } from 'lucide-react'
 import { api, type PlatformSchoolUsage } from './api'
 import './PlatformDashboard.css'
 
@@ -37,10 +37,14 @@ function formatDate(value: string | null) {
   return new Intl.DateTimeFormat('ar-SA', { dateStyle: 'medium' }).format(date)
 }
 
-function PlatformSchoolRow({ school, deleting, onDelete }: {
+function PlatformSchoolRow({ school, deleting, updating, opening, onDelete, onStatus, onOpen }: {
   school: PlatformSchoolUsage
   deleting: boolean
+  updating: boolean
+  opening: boolean
   onDelete: (school: PlatformSchoolUsage) => void
+  onStatus: (school: PlatformSchoolUsage) => void
+  onOpen: (school: PlatformSchoolUsage) => void
 }) {
   const statusClass = `platform-usage-status ${school.usage.status}`
   return (
@@ -48,6 +52,8 @@ function PlatformSchoolRow({ school, deleting, onDelete }: {
       <td className="platform-school-name">
         <strong>{school.name}</strong>
         <small>تاريخ التفعيل: {formatDate(school.activatedAt)}</small>
+        <span className={`platform-school-state ${school.platformStatus}`}>{school.platformStatus === 'suspended' ? 'الحساب موقوف' : 'الحساب مفعّل'}</span>
+        {school.platformStatus === 'suspended' && <small>الإيقاف: {formatDate(school.suspendedAt)}</small>}
       </td>
       <td>
         <strong>{school.activatedBy.name}</strong>
@@ -87,11 +93,18 @@ function PlatformSchoolRow({ school, deleting, onDelete }: {
         <small>ملفات الإنجاز: {formatBytes(school.storage.portfolioBytes)} ({formatNumber(school.storage.portfolioFiles)} ملف)</small>
       </td>
       <td>
-        {school.usage.status === 'active'
-          ? <small>الحذف متاح بعد مرور 90 يومًا دون استخدام.</small>
-          : <button className="platform-delete-button" type="button" disabled={deleting} onClick={() => onDelete(school)}>
-            {deleting ? 'جارٍ الحذف...' : 'حذف جميع بيانات المدرسة'}
-          </button>}
+        <div className="platform-action-list">
+          <button className="secondary-button" type="button" disabled={opening || school.platformStatus === 'suspended'} onClick={() => onOpen(school)}>
+            <ExternalLink size={15} /> {opening ? 'جارٍ الفتح...' : 'دخول إلى نظام المدرسة'}
+          </button>
+          <button className={school.platformStatus === 'suspended' ? 'secondary-button' : 'platform-suspend-button'} type="button" disabled={updating} onClick={() => onStatus(school)}>
+            {school.platformStatus === 'suspended' ? <PlayCircle size={15} /> : <PauseCircle size={15} />}
+            {updating ? 'جارٍ الحفظ...' : school.platformStatus === 'suspended' ? 'إعادة التفعيل' : 'إيقاف الحساب'}
+          </button>
+          <button className="platform-delete-button" type="button" disabled={deleting} onClick={() => onDelete(school)}>
+            {deleting ? 'جارٍ الحذف...' : 'حذف المدرسة نهائيًا'}
+          </button>
+        </div>
       </td>
     </tr>
   )
@@ -103,6 +116,8 @@ export function PlatformDashboard() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [deletingSchoolId, setDeletingSchoolId] = useState('')
+  const [updatingSchoolId, setUpdatingSchoolId] = useState('')
+  const [openingSchoolId, setOpeningSchoolId] = useState('')
   const [schoolPendingDeletion, setSchoolPendingDeletion] = useState<PlatformSchoolUsage | null>(null)
   const [deleteConfirmation, setDeleteConfirmation] = useState('')
 
@@ -176,9 +191,7 @@ export function PlatformDashboard() {
       await loadSchools()
     } catch (reason) {
       const apiError = reason as Error & { code?: string }
-      setError(apiError.code === 'school_is_active'
-        ? 'رُفض الحذف لأن للمدرسة نشاطًا فعليًا خلال آخر 90 يومًا.'
-        : apiError.code === 'school_name_confirmation_mismatch'
+      setError(apiError.code === 'school_name_confirmation_mismatch'
           ? 'لم يطابق اسم التأكيد؛ لم يتم حذف أي بيانات.'
           : 'تعذر حذف المدرسة. لم تكتمل العملية؛ أعد المحاولة أو راجع سجل الخادم.')
     } finally {
@@ -186,8 +199,43 @@ export function PlatformDashboard() {
     }
   }
 
+  const changeSchoolStatus = async (school: PlatformSchoolUsage) => {
+    const suspend = school.platformStatus !== 'suspended'
+    const question = suspend
+      ? `هل تريد إيقاف حساب ${school.name}؟ سيتم تسجيل خروج جميع مستخدمي المدرسة فورًا، وتبقى البيانات محفوظة.`
+      : `هل تريد إعادة تفعيل حساب ${school.name}؟`
+    if (!window.confirm(question)) return
+    setUpdatingSchoolId(school.id)
+    setError('')
+    try {
+      await api.updatePlatformSchoolStatus(school.id, suspend ? 'suspended' : 'active')
+      await loadSchools()
+    } catch {
+      setError('تعذر تغيير حالة حساب المدرسة. لم يتغير شيء.')
+    } finally {
+      setUpdatingSchoolId('')
+    }
+  }
+
+  const openSchool = async (school: PlatformSchoolUsage) => {
+    setOpeningSchoolId(school.id)
+    setError('')
+    try {
+      await api.openPlatformSchool(school.id)
+      window.location.assign('/')
+    } catch (reason) {
+      const apiError = reason as Error & { code?: string }
+      setError(apiError.code === 'school_suspended'
+        ? 'لا يمكن فتح مدرسة موقوفة. أعد تفعيلها أولًا.'
+        : 'تعذر فتح جلسة الإشراف لهذه المدرسة.')
+      setOpeningSchoolId('')
+    }
+  }
+
   const summary = useMemo(() => ({
     schools: schools.length,
+    enabled: schools.filter(school => school.platformStatus === 'active').length,
+    suspended: schools.filter(school => school.platformStatus === 'suspended').length,
     active: schools.filter(school => school.usage.status === 'active').length,
     loginOnly: schools.filter(school => school.usage.status === 'login_only').length,
     students: schools.reduce((total, school) => total + school.studentCount, 0),
@@ -212,7 +260,12 @@ export function PlatformDashboard() {
         <article className="platform-summary-card">
           <School size={21} />
           <span>مدارس مفعّلة</span>
-          <strong>{formatNumber(summary.schools)}</strong>
+          <strong>{formatNumber(summary.enabled)}</strong>
+        </article>
+        <article className="platform-summary-card">
+          <PauseCircle size={21} />
+          <span>مدارس موقوفة</span>
+          <strong>{formatNumber(summary.suspended)}</strong>
         </article>
         <article className="platform-summary-card">
           <Activity size={21} />
@@ -267,13 +320,13 @@ export function PlatformDashboard() {
                     <th>إجراء المشرف</th>
                   </tr>
                 </thead>
-                <tbody>{filteredSchools.map(school => <PlatformSchoolRow key={school.id} school={school} deleting={deletingSchoolId === school.id} onDelete={requestSchoolDeletion} />)}</tbody>
+                <tbody>{filteredSchools.map(school => <PlatformSchoolRow key={school.id} school={school} deleting={deletingSchoolId === school.id} updating={updatingSchoolId === school.id} opening={openingSchoolId === school.id} onDelete={requestSchoolDeletion} onStatus={school => void changeSchoolStatus(school)} onOpen={school => void openSchool(school)} />)}</tbody>
               </table>
             </div>}
 
         <p className="platform-storage-note">
           <Database size={15} />
-          أحجام التخزين تقديرية للبيانات المحفوظة بحسب المدرسة، وتشمل ملفات الإنجاز. حذف المدرسة يزيل بياناتها المنطقية ويتيح لـ PostgreSQL إعادة استخدام المساحة، لكنه لا يقلّص بالضرورة حجم ملف قاعدة البيانات أو النسخ الاحتياطية على القرص فورًا.
+          إيقاف الحساب يسجل خروج مستخدمي المدرسة ويحفظ بياناتها. الحذف النهائي يتطلب كتابة اسم المدرسة ولا يمكن التراجع عنه.
         </p>
         <p className="platform-usage-note">
           تصنّف المدرسة غير نشطة إذا لم تُسجّل أي استخدام فعلي خلال آخر 90 يومًا، سواء استخدمت النظام سابقًا أو لم تستخدمه مطلقًا. يشمل الاستخدام الحضور والغياب والرسائل والحصص والسلوك والإحالات وملفات الإنجاز. أعداد الدخول اليومية تبدأ بعد نشر الميزة.
