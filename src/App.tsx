@@ -377,6 +377,8 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
     ...settings,
     preferences: { attendanceMode, cutoffTime, gradeAliases },
   })
+  // بطاقة المستخدم تخص صاحب الحساب الحالي. تبقى بيانات المدير ضمن إعدادات المدرسة والتقارير فقط.
+  const currentAccountName = account.displayName.trim() || schoolSettings.principalName
   const applySchoolProfile = (profile: SchoolProfile) => {
     cacheReportSchoolBrand(account.schoolId, profile)
     const settings = {
@@ -2109,9 +2111,9 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
           <div className="top-actions">
             <span className="date-label">{formatHijriDateWithWeekday(new Date())}</span>
             <button className="profile-button">
-              <span className="profile-avatar">{schoolSettings.principalName.trim().charAt(0) || 'م'}</span>
+              <span className="profile-avatar">{currentAccountName.charAt(0) || 'م'}</span>
               <span>
-                <strong>{schoolSettings.principalName}</strong>
+                <strong>{currentAccountName}</strong>
                 <small>{schoolSettings.semester} · {schoolSettings.academicYear}</small>
               </span>
             </button>

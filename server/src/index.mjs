@@ -172,7 +172,7 @@ function isEmailIdentifier(value) {
 async function unifiedLoginCandidates(identifier) {
   if (isEmailIdentifier(identifier)) {
     const result = await authPool.query(`SELECT u.id AS user_id,u.email,u.display_name,m.school_id,m.role,u.password_hash,
-        NULL::uuid AS teacher_id,NULL::uuid AS administrator_id,NULL::uuid AS student_id,NULL::uuid AS counselor_id,NULL::uuid AS activity_leader_id,
+        NULL::uuid AS teacher_id,NULL::uuid AS administrator_id,NULL::uuid AS student_id,NULL::uuid AS counselor_id,NULL::uuid AS vice_principal_id,NULL::uuid AS activity_leader_id,
         false AS lesson_flow_access,false AS circulars_access,false AS student_attendance_cooperation_access,false AS must_change_password
       FROM users u JOIN memberships m ON m.user_id=u.id
       WHERE u.email=lower($1) AND m.role IN ('admin','staff')`, [identifier])
@@ -182,37 +182,37 @@ async function unifiedLoginCandidates(identifier) {
   const identity = identifier.replace(/\D/g, '').slice(0, 32)
   if (!identity) return []
   const result = await authPool.query(`
-    SELECT account.user_id,account.school_id,account.teacher_id::text AS teacher_id,NULL::text AS administrator_id,NULL::text AS student_id,NULL::text AS counselor_id,NULL::text AS activity_leader_id,
+    SELECT account.user_id,account.school_id,account.teacher_id::text AS teacher_id,NULL::text AS administrator_id,NULL::text AS student_id,NULL::text AS counselor_id,NULL::text AS vice_principal_id,NULL::text AS activity_leader_id,
       account.must_change_password,false AS lesson_flow_access,false AS circulars_access,false AS student_attendance_cooperation_access,account.password_hash,u.email,u.display_name,m.role
     FROM teacher_login_accounts account JOIN users u ON u.id=account.user_id
       JOIN memberships m ON m.user_id=account.user_id AND m.school_id=account.school_id
     WHERE account.identity_number=$1 AND account.active=true AND m.role='teacher'
     UNION ALL
-    SELECT account.user_id,account.school_id,NULL::text,account.administrator_id::text,NULL::text,NULL::text,NULL::text,
+    SELECT account.user_id,account.school_id,NULL::text AS teacher_id,account.administrator_id::text AS administrator_id,NULL::text AS student_id,NULL::text AS counselor_id,NULL::text AS vice_principal_id,NULL::text AS activity_leader_id,
       account.must_change_password,account.lesson_flow_access,account.circulars_access,false,account.password_hash,u.email,u.display_name,m.role
     FROM administrative_login_accounts account JOIN users u ON u.id=account.user_id
       JOIN memberships m ON m.user_id=account.user_id AND m.school_id=account.school_id
     WHERE account.identity_number=$1 AND account.active=true AND m.role='administrator'
     UNION ALL
-    SELECT account.user_id,account.school_id,NULL::text,NULL::text,account.student_id,NULL::text,NULL::text,
+    SELECT account.user_id,account.school_id,NULL::text AS teacher_id,NULL::text AS administrator_id,account.student_id::text AS student_id,NULL::text AS counselor_id,NULL::text AS vice_principal_id,NULL::text AS activity_leader_id,
       account.must_change_password,false,false,account.attendance_cooperation_access,account.password_hash,u.email,u.display_name,m.role
     FROM student_login_accounts account JOIN users u ON u.id=account.user_id
       JOIN memberships m ON m.user_id=account.user_id AND m.school_id=account.school_id
     WHERE account.identity_number=$1 AND account.active=true AND m.role='student'
     UNION ALL
-    SELECT account.user_id,account.school_id,NULL::text,NULL::text,NULL::text,account.counselor_id::text,NULL::text,
+    SELECT account.user_id,account.school_id,NULL::text AS teacher_id,NULL::text AS administrator_id,NULL::text AS student_id,account.counselor_id::text AS counselor_id,NULL::text AS vice_principal_id,NULL::text AS activity_leader_id,
       account.must_change_password,false,false,false,account.password_hash,u.email,u.display_name,m.role
     FROM counselor_login_accounts account JOIN users u ON u.id=account.user_id
       JOIN memberships m ON m.user_id=account.user_id AND m.school_id=account.school_id
     WHERE account.identity_number=$1 AND account.active=true AND m.role='counselor'
     UNION ALL
-    SELECT account.user_id,account.school_id,NULL::text,NULL::text,NULL::text,NULL::text,NULL::text,
+    SELECT account.user_id,account.school_id,NULL::text AS teacher_id,NULL::text AS administrator_id,NULL::text AS student_id,NULL::text AS counselor_id,account.vice_principal_id::text AS vice_principal_id,NULL::text AS activity_leader_id,
       account.must_change_password,false,false,false,account.password_hash,u.email,u.display_name,m.role
     FROM vice_principal_login_accounts account JOIN users u ON u.id=account.user_id
       JOIN memberships m ON m.user_id=account.user_id AND m.school_id=account.school_id
     WHERE account.identity_number=$1 AND account.active=true AND m.role='vice_principal'
     UNION ALL
-    SELECT account.user_id,account.school_id,NULL::text,NULL::text,NULL::text,NULL::text,account.activity_leader_id::text,
+    SELECT account.user_id,account.school_id,NULL::text AS teacher_id,NULL::text AS administrator_id,NULL::text AS student_id,NULL::text AS counselor_id,NULL::text AS vice_principal_id,account.activity_leader_id::text AS activity_leader_id,
       account.must_change_password,false,false,false,account.password_hash,u.email,u.display_name,m.role
     FROM activity_leader_login_accounts account JOIN users u ON u.id=account.user_id
       JOIN memberships m ON m.user_id=account.user_id AND m.school_id=account.school_id
@@ -410,6 +410,29 @@ async function enforceTenantRowSecurity() {
   }
 }
 
+// كانت بعض الحسابات القديمة تعرض اسم مدير المدرسة لأن اسم مستخدمها لم يُزامن
+// مع السجل الوظيفي. نصلح الاسم عند بدء الخدمة مع إبقاء كل حساب داخل مدرسته.
+async function repairRoleAccountDisplayNames() {
+  await adminPool.query(`UPDATE users AS u
+    SET display_name=principal.full_name
+    FROM vice_principal_login_accounts AS account
+    JOIN school_vice_principals AS principal
+      ON principal.school_id=account.school_id AND principal.id=account.vice_principal_id
+    WHERE u.id=account.user_id AND u.display_name IS DISTINCT FROM principal.full_name`)
+  await adminPool.query(`UPDATE users AS u
+    SET display_name=counselor.full_name
+    FROM counselor_login_accounts AS account
+    JOIN student_counselors AS counselor
+      ON counselor.school_id=account.school_id AND counselor.id=account.counselor_id
+    WHERE u.id=account.user_id AND u.display_name IS DISTINCT FROM counselor.full_name`)
+  await adminPool.query(`UPDATE users AS u
+    SET display_name=administrator.full_name
+    FROM administrative_login_accounts AS account
+    JOIN administrative_staff AS administrator
+      ON administrator.school_id=account.school_id AND administrator.id=account.administrator_id
+    WHERE u.id=account.user_id AND u.display_name IS DISTINCT FROM administrator.full_name`)
+}
+
 async function migrateDatabase() {
   await adminPool.query("ALTER TABLE schools ADD COLUMN IF NOT EXISTS preferences jsonb NOT NULL DEFAULT '{}'::jsonb")
   await adminPool.query("ALTER TABLE schools ADD COLUMN IF NOT EXISTS general_education_administration text NOT NULL DEFAULT ''")
@@ -431,6 +454,7 @@ async function migrateDatabase() {
   await migrateCirculars(adminPool)
   await migrateTeacherCooperation(adminPool)
   await migrateBackupRestore(adminPool)
+  await repairRoleAccountDisplayNames()
   await enforceTenantRowSecurity()
   await configureDatabaseRoles()
 }
