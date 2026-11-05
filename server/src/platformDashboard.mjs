@@ -17,7 +17,65 @@ function platformPasswordMatches(value, saved) {
 }
 
 function canBootstrapPlatformAccount() {
-  return platformUsername.length <= 128 && platformUsername && platformPassword.length >= 16 && platformPassword.length <= 200
+  return platformUsername.length <= 128 && platformUsername && platformPassword.length >= 10 && platformPassword.length <= 200
+}
+
+function tokenHash(token) {
+  return crypto.createHash('sha256').update(token).digest('hex')
+}
+
+function deletionConfirmationUrl(token) {
+  const url = new URL(process.env.PUBLIC_APP_URL || 'https://7asr2030.com')
+  url.pathname = '/supervisor/delete-confirm'
+  url.search = new URLSearchParams([['token', token]]).toString()
+  url.hash = ''
+  return url.toString()
+}
+
+function escapeHtml(value) {
+  return String(value).replace(/[&<>"']/g, character => ({
+    '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;',
+  })[character])
+}
+
+function platformAlertEmail(credentials) {
+  const email = String(process.env.PLATFORM_ALERT_EMAIL || credentials?.username || platformUsername).trim().toLowerCase()
+  return /^\S+@\S+\.\S+$/.test(email) && email.length <= 254 ? email : ''
+}
+
+async function sendSchoolDeletionConfirmationEmail(email, schoolName, token) {
+  const apiKey = String(process.env.RESEND_API_KEY || '').trim()
+  if (!apiKey) throw new Error('email_verification_not_configured')
+
+  const url = deletionConfirmationUrl(token)
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 15_000)
+  const safeSchoolName = escapeHtml(schoolName)
+  const safeUrl = escapeHtml(url)
+
+  try {
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${apiKey}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
+        from: process.env.RESEND_FROM_EMAIL || 'نظام حصر الطلاب <no-reply@7asr2030.com>',
+        to: [email],
+        subject: `تأكيد حذف مدرسة من نظام الحصر: ${schoolName}`,
+        text: `طُلب حذف مدرسة «${schoolName}» وجميع بياناتها نهائيًا من نظام الحصر.\n\nلا يتم الحذف بمجرد هذا الطلب. افتح الرابط التالي ثم اضغط «تأكيد الحذف النهائي» لإتمام العملية:\n${url}\n\nصلاحية الرابط 30 دقيقة ويمكن استخدامه مرة واحدة. إذا لم تكن أنت من طلب الحذف، تجاهل هذه الرسالة.`,
+        html: `<div dir="rtl" lang="ar"><h2>تأكيد حذف مدرسة</h2><p>طُلب حذف مدرسة <strong>${safeSchoolName}</strong> وجميع بياناتها نهائيًا من نظام الحصر.</p><p>لن تُحذف أي بيانات بمجرد هذا الطلب. افتح الرابط التالي ثم اضغط <strong>«تأكيد الحذف النهائي»</strong> لإتمام العملية.</p><p><a href="${safeUrl}">مراجعة طلب الحذف</a></p><p>صلاحية الرابط 30 دقيقة ويمكن استخدامه مرة واحدة. إذا لم تكن أنت من طلب الحذف، تجاهل هذه الرسالة.</p></div>`,
+      }),
+      signal: controller.signal,
+    })
+    if (!response.ok) throw new Error('email_send_failed')
+  } catch (error) {
+    if (error instanceof Error && error.message === 'email_verification_not_configured') throw error
+    throw new Error('email_send_failed')
+  } finally {
+    clearTimeout(timeout)
+  }
 }
 
 export const SCHOOL_STORAGE_TABLES = [
@@ -64,6 +122,15 @@ export async function migratePlatformDashboard(adminPool) {
       created_at timestamptz NOT NULL DEFAULT now()
     );
     CREATE INDEX IF NOT EXISTS platform_audit_logs_school_created ON platform_audit_logs(school_id,created_at DESC);
+    CREATE TABLE IF NOT EXISTS platform_school_deletion_requests (
+      token_hash text PRIMARY KEY,
+      school_id uuid NOT NULL UNIQUE REFERENCES schools(id) ON DELETE CASCADE,
+      school_name text NOT NULL,
+      requested_by text NOT NULL,
+      expires_at timestamptz NOT NULL,
+      created_at timestamptz NOT NULL DEFAULT now()
+    );
+    CREATE INDEX IF NOT EXISTS platform_school_deletion_requests_expiry ON platform_school_deletion_requests(expires_at);
     ALTER TABLE school_login_activity ENABLE ROW LEVEL SECURITY;
     ALTER TABLE school_login_activity FORCE ROW LEVEL SECURITY;
     DO $$ BEGIN
@@ -245,10 +312,6 @@ export async function getPlatformSchools(adminPool) {
   })
 }
 
-function hashToken(token) {
-  return crypto.createHash('sha256').update(token).digest('hex')
-}
-
 function platformCookie(token, maxAge = PLATFORM_SESSION_SECONDS) {
   return `${PLATFORM_COOKIE}=${encodeURIComponent(token)}; Path=/api/platform; HttpOnly; SameSite=Strict; Max-Age=${maxAge}${process.env.NODE_ENV === 'production' ? '; Secure' : ''}`
 }
@@ -312,7 +375,7 @@ async function changePlatformPassword(req, adminPool, currentPassword, newPasswo
   const credentials = await platformCredentials(adminPool)
   if (!credentials) return { error: 'platform_login_not_configured' }
   if (!platformPasswordMatches(currentPassword, credentials.password_hash)) return { error: 'current_password_invalid' }
-  if (newPassword.length < 16 || newPassword.length > 200) return { error: 'invalid_new_password' }
+  if (newPassword.length < 10 || newPassword.length > 200) return { error: 'invalid_new_password' }
   await adminPool.query(`UPDATE platform_admin_credentials
     SET password_hash=$1,updated_at=now() WHERE singleton=true`, [platformPasswordHash(newPassword)])
   const currentToken = platformToken(req)
@@ -321,7 +384,12 @@ async function changePlatformPassword(req, adminPool, currentPassword, newPasswo
   return { ok: true }
 }
 
-async function deleteSchool(adminPool, schoolId, confirmName) {
+async function requestSchoolDeletion(adminPool, schoolId, confirmName) {
+  const credentials = await platformCredentials(adminPool)
+  const email = platformAlertEmail(credentials)
+  if (!email) return { error: 'platform_alert_email_not_configured' }
+  const token = crypto.randomBytes(32).toString('base64url')
+  const hashedToken = tokenHash(token)
   const client = await adminPool.connect()
   try {
     await client.query('BEGIN')
@@ -335,14 +403,65 @@ async function deleteSchool(adminPool, schoolId, confirmName) {
       await client.query('ROLLBACK')
       return { error: 'school_name_confirmation_mismatch' }
     }
+    await client.query('DELETE FROM platform_school_deletion_requests WHERE expires_at<=now()')
+    await client.query(`INSERT INTO platform_school_deletion_requests(token_hash,school_id,school_name,requested_by,expires_at)
+      VALUES($1,$2,$3,$4,now()+interval '30 minutes')
+      ON CONFLICT(school_id) DO UPDATE SET token_hash=EXCLUDED.token_hash,school_name=EXCLUDED.school_name,
+        requested_by=EXCLUDED.requested_by,expires_at=EXCLUDED.expires_at,created_at=now()`, [hashedToken, school.id, school.name, email])
+    await client.query('COMMIT')
+    try {
+      await sendSchoolDeletionConfirmationEmail(email, school.name, token)
+    } catch (error) {
+      await adminPool.query('DELETE FROM platform_school_deletion_requests WHERE token_hash=$1', [hashedToken])
+      return { error: error instanceof Error ? error.message : 'email_send_failed' }
+    }
+    await recordPlatformAudit(adminPool, 'request_delete_school', school, { confirmationEmail: email })
+    return { ok: true, confirmationEmail: email }
+  } catch (error) {
+    await client.query('ROLLBACK')
+    throw error
+  } finally {
+    client.release()
+  }
+}
+
+function deletionTokenIsValid(token) {
+  return /^[A-Za-z0-9_-]{40,50}$/.test(token)
+}
+
+async function schoolDeletionRequest(adminPool, token) {
+  if (!deletionTokenIsValid(token)) return null
+  const request = await adminPool.query(`SELECT school_name,expires_at
+    FROM platform_school_deletion_requests WHERE token_hash=$1 AND expires_at>now()`, [tokenHash(token)])
+  return request.rows[0] || null
+}
+
+async function confirmSchoolDeletion(adminPool, token) {
+  if (!deletionTokenIsValid(token)) return { error: 'invalid_or_expired_deletion_link' }
+  const client = await adminPool.connect()
+  try {
+    await client.query('BEGIN')
+    const selectedRequest = await client.query(`SELECT token_hash,school_id,school_name,requested_by
+      FROM platform_school_deletion_requests WHERE token_hash=$1 AND expires_at>now() FOR UPDATE`, [tokenHash(token)])
+    const request = selectedRequest.rows[0]
+    if (!request) {
+      await client.query('ROLLBACK')
+      return { error: 'invalid_or_expired_deletion_link' }
+    }
+    const selectedSchool = await client.query('SELECT id,name FROM schools WHERE id=$1 FOR UPDATE', [request.school_id])
+    const school = selectedSchool.rows[0]
+    if (!school || school.name !== request.school_name) {
+      await client.query('ROLLBACK')
+      return { error: 'invalid_or_expired_deletion_link' }
+    }
     await client.query(`INSERT INTO platform_audit_logs(actor_username,action,school_id,school_name,details)
-      VALUES($1,'delete_school',$2,$3,$4::jsonb)`, [platformUsername, school.id, school.name, JSON.stringify({ confirmed: true })])
-    await client.query('DELETE FROM school_backup_audit WHERE school_id=$1', [schoolId])
-    await client.query('DELETE FROM schools WHERE id=$1', [schoolId])
+      VALUES($1,'delete_school',$2,$3,$4::jsonb)`, [request.requested_by, school.id, school.name, JSON.stringify({ confirmedByEmail: true })])
+    await client.query('DELETE FROM school_backup_audit WHERE school_id=$1', [school.id])
+    await client.query('DELETE FROM schools WHERE id=$1', [school.id])
     await client.query(`DELETE FROM users AS account
       WHERE NOT EXISTS (SELECT 1 FROM memberships WHERE user_id=account.id)`)
     await client.query('COMMIT')
-    return { ok: true }
+    return { ok: true, schoolName: school.name }
   } catch (error) {
     await client.query('ROLLBACK')
     throw error
@@ -442,6 +561,27 @@ export async function handlePlatformRequest({
     return true
   }
 
+  if (req.method === 'GET' && url.pathname === '/api/platform/school-deletion-confirmation') {
+    const request = await schoolDeletionRequest(adminPool, String(url.searchParams.get('token') || ''))
+    if (!request) {
+      json(res, 400, { error: 'invalid_or_expired_deletion_link' })
+      return true
+    }
+    json(res, 200, { schoolName: request.school_name, expiresAt: request.expires_at })
+    return true
+  }
+
+  if (req.method === 'POST' && url.pathname === '/api/platform/school-deletion-confirmation') {
+    const input = await body(req, 10_000)
+    const result = await confirmSchoolDeletion(adminPool, String(input.token || ''))
+    if (result.error) {
+      json(res, 400, { error: result.error })
+      return true
+    }
+    json(res, 200, result)
+    return true
+  }
+
   if (!await requirePlatformSession(req, res, json, adminPool)) return true
 
   if (req.method === 'POST' && url.pathname === '/api/platform/change-password') {
@@ -476,17 +616,17 @@ export async function handlePlatformRequest({
     return true
   }
 
-  const deleteMatch = url.pathname.match(/^\/api\/platform\/schools\/([0-9a-f-]{36})\/delete$/i)
+  const deleteMatch = url.pathname.match(/^\/api\/platform\/schools\/([0-9a-f-]{36})\/delete-request$/i)
   if (req.method === 'POST' && deleteMatch) {
     const input = await body(req, 10_000)
     const confirmName = String(input.confirmName || '')
-    const result = await deleteSchool(adminPool, deleteMatch[1], confirmName)
+    const result = await requestSchoolDeletion(adminPool, deleteMatch[1], confirmName)
     if (result.error === 'school_not_found') {
       json(res, 404, { error: result.error })
       return true
     }
     if (result.error) {
-      json(res, 409, { error: result.error })
+      json(res, result.error === 'school_name_confirmation_mismatch' ? 409 : 503, { error: result.error })
       return true
     }
     json(res, 200, result)

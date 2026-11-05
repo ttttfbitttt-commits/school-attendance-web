@@ -102,7 +102,7 @@ function PlatformSchoolRow({ school, deleting, updating, opening, onDelete, onSt
             {updating ? 'جارٍ الحفظ...' : school.platformStatus === 'suspended' ? 'إعادة التفعيل' : 'إيقاف الحساب'}
           </button>
           <button className="platform-delete-button" type="button" disabled={deleting} onClick={() => onDelete(school)}>
-            {deleting ? 'جارٍ الحذف...' : 'حذف المدرسة نهائيًا'}
+            {deleting ? 'جارٍ إرسال الطلب...' : 'طلب حذف المدرسة'}
           </button>
         </div>
       </td>
@@ -120,6 +120,7 @@ export function PlatformDashboard() {
   const [openingSchoolId, setOpeningSchoolId] = useState('')
   const [schoolPendingDeletion, setSchoolPendingDeletion] = useState<PlatformSchoolUsage | null>(null)
   const [deleteConfirmation, setDeleteConfirmation] = useState('')
+  const [deletionNotice, setDeletionNotice] = useState('')
 
   const loadSchools = useCallback(async () => {
     setLoading(true)
@@ -164,6 +165,7 @@ export function PlatformDashboard() {
 
   const requestSchoolDeletion = (school: PlatformSchoolUsage) => {
     setError('')
+    setDeletionNotice('')
     setDeleteConfirmation('')
     setSchoolPendingDeletion(school)
   }
@@ -185,15 +187,17 @@ export function PlatformDashboard() {
     setDeletingSchoolId(school.id)
     setError('')
     try {
-      await api.deletePlatformSchool(school.id, deleteConfirmation)
+      const result = await api.requestPlatformSchoolDeletion(school.id, deleteConfirmation)
       setSchoolPendingDeletion(null)
       setDeleteConfirmation('')
-      await loadSchools()
+      setDeletionNotice(`أُرسل رابط تأكيد حذف «${school.name}» إلى بريد المشرف ${result.confirmationEmail}. لن تُحذف المدرسة إلا بعد فتح الرابط وتأكيد الحذف النهائي.`)
     } catch (reason) {
       const apiError = reason as Error & { code?: string }
       setError(apiError.code === 'school_name_confirmation_mismatch'
-          ? 'لم يطابق اسم التأكيد؛ لم يتم حذف أي بيانات.'
-          : 'تعذر حذف المدرسة. لم تكتمل العملية؛ أعد المحاولة أو راجع سجل الخادم.')
+          ? 'لم يطابق اسم التأكيد؛ لم يُرسل طلب الحذف.'
+          : apiError.code === 'email_verification_not_configured' || apiError.code === 'email_send_failed'
+            ? 'تعذر إرسال رسالة التأكيد إلى البريد؛ لم تُحذف أي بيانات.'
+            : 'تعذر إرسال طلب الحذف. لم تُحذف أي بيانات؛ أعد المحاولة أو راجع إعداد البريد.')
     } finally {
       setDeletingSchoolId('')
     }
@@ -302,6 +306,7 @@ export function PlatformDashboard() {
         </div>
 
         {error && <div className="platform-error" role="alert">{error}</div>}
+        {deletionNotice && <div className="platform-password-notice platform-password-success" role="status">{deletionNotice}</div>}
         {loading && schools.length === 0
           ? <p className="platform-empty">جارٍ تحميل بيانات المدارس...</p>
           : !error && filteredSchools.length === 0
@@ -326,7 +331,7 @@ export function PlatformDashboard() {
 
         <p className="platform-storage-note">
           <Database size={15} />
-          إيقاف الحساب يسجل خروج مستخدمي المدرسة ويحفظ بياناتها. الحذف النهائي يتطلب كتابة اسم المدرسة ولا يمكن التراجع عنه.
+          إيقاف الحساب يسجل خروج مستخدمي المدرسة ويحفظ بياناتها. طلب الحذف يتطلب كتابة اسم المدرسة ثم تأكيدًا ثانيًا يصل إلى بريد المشرف، ولا يمكن التراجع عنه بعد التأكيد.
         </p>
         <p className="platform-usage-note">
           تصنّف المدرسة غير نشطة إذا لم تُسجّل أي استخدام فعلي خلال آخر 90 يومًا، سواء استخدمت النظام سابقًا أو لم تستخدمه مطلقًا. يشمل الاستخدام الحضور والغياب والرسائل والحصص والسلوك والإحالات وملفات الإنجاز. أعداد الدخول اليومية تبدأ بعد نشر الميزة.
@@ -336,9 +341,9 @@ export function PlatformDashboard() {
         if (event.target === event.currentTarget) cancelSchoolDeletion()
       }}>
         <section className="platform-delete-dialog" role="dialog" aria-modal="true" aria-labelledby="platform-delete-title" aria-describedby="platform-delete-description">
-          <h3 id="platform-delete-title">تأكيد حذف المدرسة</h3>
+          <h3 id="platform-delete-title">طلب حذف المدرسة</h3>
           <p id="platform-delete-description">
-            سيُحذف نهائيًا حساب <strong>{schoolPendingDeletion.name}</strong> وجميع بياناته وسجلاته من الخادم. لا يمكن التراجع عن هذا الإجراء.
+            لن تُحذف بيانات <strong>{schoolPendingDeletion.name}</strong> الآن. بعد مطابقة الاسم سيُرسل رابط إلى بريد المشرف لتأكيد الحذف النهائي، ولا يمكن التراجع بعد ذلك.
           </p>
           <form onSubmit={event => void removeSchool(event)}>
             <label htmlFor="platform-delete-confirmation">اكتب اسم المدرسة للتأكيد</label>
@@ -354,7 +359,7 @@ export function PlatformDashboard() {
             <div className="platform-delete-dialog-actions">
               <button type="button" className="secondary-button" onClick={cancelSchoolDeletion} disabled={Boolean(deletingSchoolId)}>إلغاء</button>
               <button className="platform-delete-button" type="submit" disabled={Boolean(deletingSchoolId) || deleteConfirmation !== schoolPendingDeletion.name}>
-                {deletingSchoolId ? 'جارٍ الحذف...' : 'حذف نهائي'}
+                {deletingSchoolId ? 'جارٍ إرسال الطلب...' : 'إرسال رابط التأكيد'}
               </button>
             </div>
           </form>
@@ -362,6 +367,64 @@ export function PlatformDashboard() {
       </div>}
     </section>
   )
+}
+
+export function PlatformSchoolDeletionConfirmation() {
+  const [schoolName, setSchoolName] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [confirming, setConfirming] = useState(false)
+  const [completed, setCompleted] = useState(false)
+  const [error, setError] = useState('')
+  const token = useMemo(() => new URLSearchParams(window.location.search).get('token') || '', [])
+
+  useEffect(() => {
+    if (!token) {
+      setError('رابط تأكيد الحذف غير صالح أو انتهت صلاحيته.')
+      setLoading(false)
+      return
+    }
+    let mounted = true
+    api.platformSchoolDeletionConfirmation(token)
+      .then(result => {
+        if (mounted) setSchoolName(result.schoolName)
+      })
+      .catch(() => {
+        if (mounted) setError('رابط تأكيد الحذف غير صالح أو انتهت صلاحيته. اطلب رابطًا جديدًا من بوابة المشرف.')
+      })
+      .finally(() => {
+        if (mounted) setLoading(false)
+      })
+    return () => { mounted = false }
+  }, [token])
+
+  const confirmDeletion = async () => {
+    if (!token || confirming || completed) return
+    setConfirming(true)
+    setError('')
+    try {
+      const result = await api.confirmPlatformSchoolDeletion(token)
+      setSchoolName(result.schoolName)
+      setCompleted(true)
+    } catch {
+      setError('تعذر تأكيد الحذف؛ ربما انتهت صلاحية الرابط أو استُخدم سابقًا. لم تُحذف أي بيانات جديدة.')
+    } finally {
+      setConfirming(false)
+    }
+  }
+
+  return <main className="auth-page" dir="rtl">
+    <section className="auth-card">
+      <div className="auth-icon"><School size={30} /></div>
+      <span className="platform-dashboard-kicker">تأكيد عبر بريد المشرف</span>
+      {loading
+        ? <><h1>جارٍ التحقق من الطلب</h1><p>نراجع صلاحية رابط تأكيد الحذف.</p></>
+        : completed
+          ? <><h1>تم حذف المدرسة</h1><p>تم حذف مدرسة <strong>{schoolName}</strong> وجميع بياناتها نهائيًا من النظام.</p><a className="auth-submit" href="/supervisor">العودة إلى بوابة المشرف</a></>
+          : error
+            ? <><h1>تعذر تأكيد الحذف</h1><div className="auth-error" role="alert">{error}</div><a className="auth-back" href="/supervisor">العودة إلى بوابة المشرف</a></>
+            : <><h1>تأكيد الحذف النهائي</h1><p>أنت على وشك حذف مدرسة <strong>{schoolName}</strong> وجميع بياناتها وسجلاتها نهائيًا. لا يمكن التراجع عن هذا الإجراء.</p><button className="platform-delete-button" type="button" onClick={() => void confirmDeletion()} disabled={confirming}>{confirming ? 'جارٍ الحذف النهائي...' : 'تأكيد الحذف النهائي'}</button><a className="auth-back" href="/supervisor">إلغاء والعودة إلى بوابة المشرف</a></>}
+    </section>
+  </main>
 }
 
 export function PlatformPortal() {
@@ -418,7 +481,7 @@ export function PlatformPortal() {
   const changePassword = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
     setPasswordNotice('')
-    if (newPassword.length < 16) { setPasswordNotice('يجب أن تتكون كلمة المرور الجديدة من 16 حرفًا على الأقل.'); return }
+    if (newPassword.length < 10) { setPasswordNotice('يجب أن تتكون كلمة المرور الجديدة من 10 رموز على الأقل.'); return }
     if (newPassword !== passwordConfirmation) { setPasswordNotice('تأكيد كلمة المرور غير مطابق.'); return }
     setPasswordSaving(true)
     try {
@@ -466,11 +529,11 @@ export function PlatformPortal() {
       </div>
     </header>
     {passwordPanelOpen && <section className="platform-password-panel" aria-label="تغيير كلمة مرور المشرف">
-      <header><KeyRound size={22} /><div><h2>تغيير كلمة المرور</h2><p>استخدم كلمة مرور من 16 حرفًا على الأقل، ولا تشاركها مع أي مستخدم.</p></div></header>
+      <header><KeyRound size={22} /><div><h2>تغيير كلمة المرور</h2><p>استخدم كلمة مرور من 10 رموز على الأقل، ولا تشاركها مع أي مستخدم.</p></div></header>
       <form onSubmit={event => void changePassword(event)}>
         <label>كلمة المرور الحالية<input type="password" value={currentPassword} onChange={event => setCurrentPassword(event.target.value)} autoComplete="current-password" required /></label>
-        <label>كلمة المرور الجديدة<input type="password" value={newPassword} onChange={event => setNewPassword(event.target.value)} autoComplete="new-password" minLength={16} required /></label>
-        <label>تأكيد كلمة المرور الجديدة<input type="password" value={passwordConfirmation} onChange={event => setPasswordConfirmation(event.target.value)} autoComplete="new-password" minLength={16} required /></label>
+        <label>كلمة المرور الجديدة<input type="password" value={newPassword} onChange={event => setNewPassword(event.target.value)} autoComplete="new-password" minLength={10} required /></label>
+        <label>تأكيد كلمة المرور الجديدة<input type="password" value={passwordConfirmation} onChange={event => setPasswordConfirmation(event.target.value)} autoComplete="new-password" minLength={10} required /></label>
         {passwordNotice && <p className="platform-password-notice" role="status">{passwordNotice}</p>}
         <div><button type="button" className="secondary-button" onClick={() => setPasswordPanelOpen(false)} disabled={passwordSaving}>إلغاء</button><button className="primary-button" type="submit" disabled={passwordSaving}>{passwordSaving ? 'جارٍ الحفظ...' : 'حفظ كلمة المرور'}</button></div>
       </form>
