@@ -20,7 +20,7 @@ function canBootstrapPlatformAccount() {
   return platformUsername.length <= 128 && platformUsername && platformPassword.length >= 10 && platformPassword.length <= 200
 }
 
-function tokenHash(token) {
+function hashToken(token) {
   return crypto.createHash('sha256').update(token).digest('hex')
 }
 
@@ -389,7 +389,7 @@ async function requestSchoolDeletion(adminPool, schoolId, confirmName) {
   const email = platformAlertEmail(credentials)
   if (!email) return { error: 'platform_alert_email_not_configured' }
   const token = crypto.randomBytes(32).toString('base64url')
-  const hashedToken = tokenHash(token)
+  const hashedToken = hashToken(token)
   const client = await adminPool.connect()
   try {
     await client.query('BEGIN')
@@ -432,7 +432,7 @@ function deletionTokenIsValid(token) {
 async function schoolDeletionRequest(adminPool, token) {
   if (!deletionTokenIsValid(token)) return null
   const request = await adminPool.query(`SELECT school_name,expires_at
-    FROM platform_school_deletion_requests WHERE token_hash=$1 AND expires_at>now()`, [tokenHash(token)])
+    FROM platform_school_deletion_requests WHERE token_hash=$1 AND expires_at>now()`, [hashToken(token)])
   return request.rows[0] || null
 }
 
@@ -442,7 +442,7 @@ async function confirmSchoolDeletion(adminPool, token) {
   try {
     await client.query('BEGIN')
     const selectedRequest = await client.query(`SELECT token_hash,school_id,school_name,requested_by
-      FROM platform_school_deletion_requests WHERE token_hash=$1 AND expires_at>now() FOR UPDATE`, [tokenHash(token)])
+      FROM platform_school_deletion_requests WHERE token_hash=$1 AND expires_at>now() FOR UPDATE`, [hashToken(token)])
     const request = selectedRequest.rows[0]
     if (!request) {
       await client.query('ROLLBACK')
