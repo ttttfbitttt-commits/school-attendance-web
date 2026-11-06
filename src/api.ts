@@ -24,6 +24,9 @@ export type SchoolPreferences = { attendanceMode: 'auto' | 'present' | 'late'; c
 export type ReportSchoolBrand = { schoolName: string; generalEducationAdministration: string; educationOffice: string }
 export type SchoolProfile = { schoolName: string; principalName: string; generalEducationAdministration: string; educationOffice: string; academicYear: string; semester: string; preferences: SchoolPreferences }
 export type SchoolStorageUsage = { totalBytes: number; recordsBytes: number; portfolioBytes: number; portfolioFiles: number; records: number }
+export type AcademicTermSummary = { students: number; attendance: number; classrooms: number; schedules: number; absences: number; lessonRecords: number; circulars: number; referrals: number; teacherRecords: number; teachers: number; portfolioFilesDeleted: number; portfolioBytesDeleted: number }
+export type AcademicTerm = { id: string; academicYear: string; semester: string; status: 'active' | 'archived'; createdAt: string; activatedAt: string | null; archivedAt: string | null; summary: AcademicTermSummary | null; hasArchive: boolean }
+export type AcademicTermArchive = { term: AcademicTerm; archive: { students: Array<{ id: string; name: string; grade: string; classroom: string; active: boolean }>; subjects: string[]; summary: AcademicTermSummary } }
 export type PlatformSchoolUsage = {
   id: string
   name: string
@@ -407,6 +410,10 @@ export const api = {
   school: () => request<{ school: SchoolProfile }>('/school'),
   saveSchool: (school: SchoolProfile) => request<{ school: SchoolProfile }>('/school', { method: 'PUT', body: JSON.stringify(school) }),
   schoolStorageUsage: () => request<{ usage: SchoolStorageUsage }>('/school/storage-usage'),
+  academicTerms: () => request<{ terms: AcademicTerm[]; canManage: boolean }>('/academic-terms'),
+  academicTermArchive: (termId: string) => request<AcademicTermArchive>(`/academic-terms/${encodeURIComponent(termId)}/archive`),
+  prepareAcademicTerm: (academicYear: string, semester: string) => request<{ ok: true; term: AcademicTerm; school: SchoolProfile; archivedSummary: AcademicTermSummary }>('/academic-terms/prepare', { method: 'POST', body: JSON.stringify({ academicYear, semester, confirmation: 'فتح فصل دراسي جديد' }) }),
+  activateAcademicTerm: (termId: string) => request<{ ok: true; term: AcademicTerm; school: SchoolProfile }>(`/academic-terms/${encodeURIComponent(termId)}/activate`, { method: 'POST', body: JSON.stringify({ confirmation: 'استعادة الفصل الدراسي' }) }),
   platformSchools: () => request<{ schools: PlatformSchoolUsage[] }>('/platform/schools'),
   platformMe: () => request<{ authenticated: true }>('/platform/me'),
   platformLogin: (username: string, password: string) => request<{ authenticated: true }>('/platform/login', { method: 'POST', body: JSON.stringify({ username, password }) }),

@@ -69,6 +69,7 @@ import { AbsenceProcedureGuide, SchoolAbsenceProcedureOverview, ViceApprovedAbse
 import { StudentExcuseCenter } from './StudentExcuses'
 import { CircularsCenter } from './Circulars'
 import { RecipientCirculars } from './TeacherCirculars'
+import { AcademicTerms } from './AcademicTerms'
 
 type Student = {
   id: string
@@ -354,7 +355,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
   const [attendanceSearch, setAttendanceSearch] = useState('')
   const [attendanceStudentSearch, setAttendanceStudentSearch] = useState('')
   const [scanInput, setScanInput] = useState('')
-  const [activeNav, setActiveNav] = useState<'dashboard' | 'students' | 'studentPortal' | 'attendance' | 'absenceProcedures' | 'studentExcuses' | 'circulars' | 'cooperation' | 'behavior' | 'lessons' | 'teachers' | 'administrators' | 'counselors' | 'vicePrincipals' | 'activityLeaders' | 'referrals' | 'reports' | 'messages' | 'backup'>('attendance')
+  const [activeNav, setActiveNav] = useState<'dashboard' | 'students' | 'studentPortal' | 'attendance' | 'absenceProcedures' | 'studentExcuses' | 'circulars' | 'cooperation' | 'behavior' | 'lessons' | 'teachers' | 'administrators' | 'counselors' | 'vicePrincipals' | 'activityLeaders' | 'referrals' | 'reports' | 'messages' | 'backup' | 'terms'>('attendance')
   const [openNavGroup, setOpenNavGroup] = useState(() => navGroupFor('attendance'))
   const [manualAttendanceSelection, setManualAttendanceSelection] = useState<Student[]>([])
   const [manualAttendanceSubmitting, setManualAttendanceSubmitting] = useState(false)
@@ -1816,7 +1817,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
     if (group) setOpenNavGroup(group)
     setIsMobileMenuOpen(false)
   }
-  const pageLabel = activeNav === 'dashboard' ? (account.role === 'vice_principal' ? 'الرئيسية' : 'إعدادات المدرسة') : activeNav === 'attendance' ? 'سجل الحضور' : activeNav === 'absenceProcedures' ? 'إجراءات التعامل مع الغياب' : activeNav === 'studentExcuses' ? 'استئذان الطلاب' : activeNav === 'circulars' ? 'التعاميم' : activeNav === 'cooperation' ? 'المعلم المتعاون' : activeNav === 'behavior' ? 'سجل السلوك' : activeNav === 'lessons' ? 'سير الحصص' : activeNav === 'teachers' ? 'المعلمون' : activeNav === 'administrators' ? 'الإداريون' : activeNav === 'counselors' ? 'الموجّه الطلابي' : activeNav === 'vicePrincipals' ? 'وكلاء المدرسة' : activeNav === 'activityLeaders' ? 'رائد النشاط' : activeNav === 'studentPortal' ? 'بوابة الطلاب' : activeNav === 'referrals' ? 'إحالات الطلاب' : activeNav === 'reports' ? 'التقارير' : activeNav === 'messages' ? 'الرسائل' : activeNav === 'backup' ? 'النسخ الاحتياطي والاستعادة' : 'إدارة الطلاب'
+  const pageLabel = activeNav === 'dashboard' ? (account.role === 'vice_principal' ? 'الرئيسية' : 'إعدادات المدرسة') : activeNav === 'attendance' ? 'سجل الحضور' : activeNav === 'absenceProcedures' ? 'إجراءات التعامل مع الغياب' : activeNav === 'studentExcuses' ? 'استئذان الطلاب' : activeNav === 'circulars' ? 'التعاميم' : activeNav === 'cooperation' ? 'المعلم المتعاون' : activeNav === 'behavior' ? 'سجل السلوك' : activeNav === 'lessons' ? 'سير الحصص' : activeNav === 'teachers' ? 'المعلمون' : activeNav === 'administrators' ? 'الإداريون' : activeNav === 'counselors' ? 'الموجّه الطلابي' : activeNav === 'vicePrincipals' ? 'وكلاء المدرسة' : activeNav === 'activityLeaders' ? 'رائد النشاط' : activeNav === 'studentPortal' ? 'بوابة الطلاب' : activeNav === 'referrals' ? 'إحالات الطلاب' : activeNav === 'reports' ? 'التقارير' : activeNav === 'messages' ? 'الرسائل' : activeNav === 'backup' ? 'النسخ الاحتياطي والاستعادة' : activeNav === 'terms' ? 'الفصول والأرشيف' : 'إدارة الطلاب'
   return (
     <div className="app-shell" dir="rtl">
       {passwordChangeRequired && <div className="counselor-dialog-backdrop" role="dialog" aria-modal="true" aria-labelledby="vice-principal-password-title">
@@ -1907,8 +1908,9 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
             <button className={activeNav === 'reports' ? 'nav-item active' : 'nav-item'} onClick={() => selectNavigation('reports')}><FileText size={18} /><span>التقارير</span></button>
           </SidebarGroup>
 
-          {account.role === 'admin' && <SidebarGroup title="إدارة النظام" open={openNavGroup === 'system'} onToggle={() => setOpenNavGroup(current => current === 'system' ? '' : 'system')}>
-            <button className={activeNav === 'backup' ? 'nav-item active' : 'nav-item'} onClick={() => selectNavigation('backup')}><Save size={18} /><span>النسخ الاحتياطي</span></button>
+          {isSchoolManager && <SidebarGroup title="إدارة النظام" open={openNavGroup === 'system'} onToggle={() => setOpenNavGroup(current => current === 'system' ? '' : 'system')}>
+            <button className={activeNav === 'terms' ? 'nav-item active' : 'nav-item'} onClick={() => selectNavigation('terms')}><Layers size={18} /><span>الفصول والأرشيف</span></button>
+            {account.role === 'admin' && <button className={activeNav === 'backup' ? 'nav-item active' : 'nav-item'} onClick={() => selectNavigation('backup')}><Save size={18} /><span>النسخ الاحتياطي</span></button>}
           </SidebarGroup>}
         </nav>
 
@@ -2026,27 +2028,9 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
                     placeholder="اكتب اسم الإدارة العامة للتعليم"
                   />
                 </label>
-                <label className="school-settings-field">
-                  <span>العام الدراسي</span>
-                  <input
-                    type="text"
-                    value={schoolSettingsDraft.academicYear}
-                    onChange={(event) => setSchoolSettingsDraft((current) => ({ ...current, academicYear: event.target.value }))}
-                    placeholder="مثال: 1448 / 1449"
-                  />
-                </label>
-                <label className="school-settings-field">
-                  <span>الفصل الدراسي</span>
-                  <select
-                    value={schoolSettingsDraft.semester}
-                    onChange={(event) => setSchoolSettingsDraft((current) => ({ ...current, semester: event.target.value }))}
-                  >
-                    <option>الفصل الأول</option>
-                    <option>الفصل الثاني</option>
-                    <option>الفصل الثالث</option>
-                  </select>
-                </label>
               </div>
+
+              <p className="school-term-readonly">الفصل النشط: <strong>{schoolSettings.semester} · {schoolSettings.academicYear}</strong> — يُفتح أو يُستعاد من «الفصول والأرشيف» حتى تُحفظ بيانات كل فصل بصورة مستقلة.</p>
 
               {schoolSettingsNotice && <div className="notice-box settings-notice" role="status">{schoolSettingsNotice}</div>}
             </section>
@@ -2601,6 +2585,8 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
         {activeNav === 'messages' && <MessageCenter students={students} attendance={scanLog} schoolName={schoolSettings.schoolName} />}
 
         {activeNav === 'backup' && account.role === 'admin' && <BackupRestoreCenter schoolName={schoolSettings.schoolName} />}
+
+        {activeNav === 'terms' && isSchoolManager && <AcademicTerms isAdmin={account.role === 'admin'} onSchoolChanged={applySchoolProfile} />}
 
         {activeNav === 'attendance' && (
           <section className="attendance-panel">

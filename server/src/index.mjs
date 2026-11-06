@@ -11,6 +11,7 @@ import { handleStudentReferralRequest, migrateStudentReferrals } from './student
 import { handleTeacherCooperationRequest, migrateTeacherCooperation } from './teacherCooperation.mjs'
 import { handleAdministratorPortalRequest, migrateAdministratorPortal } from './administratorPortal.mjs'
 import { handleBackupRestoreRequest, migrateBackupRestore } from './backupRestore.mjs'
+import { handleAcademicTermRequest, migrateAcademicTerms } from './academicTerms.mjs'
 import { handleStudentPortalRequest, migrateStudentPortal } from './studentPortal.mjs'
 import { handleCounselorPortalRequest, migrateCounselorPortal } from './counselorPortal.mjs'
 import { handleVicePrincipalPortalRequest, migrateVicePrincipalPortal } from './vicePrincipalPortal.mjs'
@@ -28,6 +29,9 @@ const adminPool = new Pool({ connectionString: process.env.DATABASE_URL })
 // This pool is intentionally reserved for the encrypted backup endpoint. That endpoint
 // verifies the current school password and never accepts a caller-provided table or query.
 const backupPool = new Pool({ connectionString: process.env.DATABASE_URL, max: 1 })
+// فصل دراسي واحد يُفعّل على مستوى المدرسة؛ هذا الاتصال الإداري يبقى مخصصاً
+// للأرشفة والاستعادة الذرية ولا يُستعمل في طلبات التطبيق اليومية.
+const termPool = new Pool({ connectionString: process.env.DATABASE_URL, max: 1 })
 const pool = new Pool({ connectionString: process.env.RUNTIME_DATABASE_URL })
 const authPool = new Pool({ connectionString: process.env.AUTH_DATABASE_URL })
 const platformPool = new Pool({ connectionString: process.env.DATABASE_URL, max: 2 })
@@ -466,6 +470,7 @@ async function migrateDatabase() {
   await migrateCirculars(adminPool)
   await migrateTeacherCooperation(adminPool)
   await migrateBackupRestore(adminPool)
+  await migrateAcademicTerms(adminPool)
   await repairRoleAccountDisplayNames()
   await enforceTenantRowSecurity()
   await configureDatabaseRoles()
@@ -647,6 +652,7 @@ const server = http.createServer(async (req, res) => {
       return json(res, 200, { ok: true })
     }
     if (await handleBackupRestoreRequest({ req, res, url, user, body, json, backupPool, authPool, passwordMatches })) return
+    if (await handleAcademicTermRequest({ req, res, url, user, body, json, termPool })) return
     if (await handleTeacherCooperationRequest({ req, res, url, user, body, json, scoped })) return
     if (await handleStudentReferralRequest({ req, res, url, user, body, json, scoped, todayRiyadh })) return
     if (await handleStudentExcuseRequest({ req, res, url, user, body, json, scoped, todayRiyadh })) return
@@ -669,7 +675,9 @@ const server = http.createServer(async (req, res) => {
       if (!['admin', 'vice_principal'].includes(user.role)) return json(res, 403, { error: 'forbidden' })
       const profile = normalizedSchoolProfile(await body(req))
       if (!profile) return json(res, 400, { error: 'invalid_school_profile' })
-      const result = await scoped(user.school_id, async c => c.query('UPDATE schools SET name=$1,principal_name=$2,general_education_administration=$3,education_office=$4,academic_year=$5,semester=$6,preferences=$7::jsonb WHERE id=$8 RETURNING name,principal_name,general_education_administration,education_office,academic_year,semester,preferences', [profile.schoolName, profile.principalName, profile.generalEducationAdministration, profile.educationOffice, profile.academicYear, profile.semester, JSON.stringify(profile.preferences), user.school_id]))
+      // لا يسمح هذا المسار العام بتبديل الفصل؛ فذلك يمر عبر مركز الفصول لكي
+      // تُؤرشف البيانات وتُحضّر مساحة فصل جديدة بصورة آمنة.
+      const result = await scoped(user.school_id, async c => c.query('UPDATE schools SET name=$1,principal_name=$2,general_education_administration=$3,education_office=$4,preferences=$5::jsonb WHERE id=$6 RETURNING name,principal_name,general_education_administration,education_office,academic_year,semester,preferences', [profile.schoolName, profile.principalName, profile.generalEducationAdministration, profile.educationOffice, JSON.stringify(profile.preferences), user.school_id]))
       return json(res, 200, { school: schoolProfile(result.rows[0]) })
     }
     if (req.method === 'GET' && url.pathname === '/api/school/storage-usage') {
