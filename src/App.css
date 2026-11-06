@@ -73,7 +73,9 @@
 .auth-shell { position:relative; z-index:1; width:min(1200px, 100%); display:grid; grid-template-columns:minmax(300px, 1.1fr) minmax(320px, 430px); align-items:center; justify-content:center; gap:34px; }
 .auth-card { position:relative; z-index:1; width:min(100%, 430px); background:rgba(255,255,255,.93); border:1px solid rgba(255,255,255,.78); border-radius:28px; padding:34px; box-shadow:0 24px 58px rgba(10,44,76,.22),0 4px 12px rgba(10,44,76,.08); backdrop-filter:blur(15px); -webkit-backdrop-filter:blur(15px); text-align:right; }
 .auth-visual { display:grid; gap:18px; justify-self:stretch; padding:10px 8px; }
-.auth-visual-topbar { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:4px 0; }
+.auth-brand-lockup { display:grid; justify-items:flex-start; gap:8px; margin-top:-12px; }
+.auth-ministry-mark { width:min(100%, 420px); height:auto; display:block; }
+.auth-visual-topbar { display:flex; align-items:center; justify-content:flex-end; gap:12px; padding:4px 0; }
 .auth-visual-brand { color:#0a2d4c; font-weight:800; font-size:16px; letter-spacing:0.02em; }
 .auth-visual-badge { display:inline-flex; align-items:center; padding:6px 10px; border-radius:999px; border:1px solid rgba(20,118,201,.25); background:rgba(232,246,255,.9); color:#0f5d9a; font-size:12px; font-weight:700; }
 .auth-metrics-grid { display:grid; grid-template-columns:repeat(3, minmax(0, 1fr)); gap:12px; }
