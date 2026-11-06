@@ -21,6 +21,10 @@ function errorText(error: unknown) {
   if (code === 'term_already_exists') return 'هذا الفصل موجود في الأرشيف بالفعل. اختره من القائمة لاستعادته.'
   if (code === 'term_archive_not_ready') return 'لا توجد لقطة مكتملة لهذا الفصل بعد.'
   if (code === 'term_management_admin_only') return 'تبديل الفصل من صلاحيات حساب المدرسة فقط.'
+  if (code === 'school_confirmation_email_missing') return 'لا يوجد بريد حساب المدرسة مسجل، لذلك لا يمكن إرسال رابط التحقق لإتمام الأرشفة.'
+  if (code === 'email_send_failed') return 'فشل إرسال رابط التأكيد عبر البريد. أعد المحاولة بعد التأكد من إعداد البريد.'
+  if (code === 'no_pending_term_confirmation') return 'لا توجد طلبات تأكيد معلّقة حاليًا. يمكنك إرسال رابط جديد مرة أخرى من البداية.'
+  if (code === 'no_pending_term_confirmation_to_cancel') return 'لا يوجد طلب تأكيد معلّق لإلغائه.'
   return 'تعذر تنفيذ العملية. لم تُغيّر أي بيانات؛ أعد المحاولة.'
 }
 
@@ -29,6 +33,7 @@ export function AcademicTerms({ isAdmin, onSchoolChanged }: Props) {
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState('')
   const [notice, setNotice] = useState('')
+  const [verificationState, setVerificationState] = useState<{ recipientEmail: string; expiresAt: string } | null>(null)
   const [academicYear, setAcademicYear] = useState('1448 / 1449')
   const [semester, setSemester] = useState('الفصل الثاني')
   const [archive, setArchive] = useState<AcademicTermArchive | null>(null)
@@ -61,16 +66,46 @@ export function AcademicTerms({ isAdmin, onSchoolChanged }: Props) {
     const year = academicYear.trim()
     const selectedSemester = semester.trim()
     if (!year || !selectedSemester) { setNotice('أدخل العام الدراسي واختر الفصل قبل المتابعة.'); return }
-    const accepted = window.confirm(`سيُؤرشف ${active ? `${active.semester} ${active.academicYear}` : 'الفصل الحالي'} ثم يُفتح ${selectedSemester} ${year}.\n\nستبقى بيانات المعلمين والحسابات، بينما ستبدأ المواد والفصول والاسنادات والطلاب من جديد.\nوسيُحذف محتوى ملفات إنجاز الطلاب نهائياً من مساحة الفصل الحالي.\n\nهل تريد المتابعة؟`)
+    const accepted = window.confirm(`سيُرسل رابط تأكيد إلى بريد حساب المدرسة، ولا يتم أرشفة ${active ? `${active.semester} ${active.academicYear}` : 'الفصل الحالي'} أو فتح ${selectedSemester} ${year} إلا بعد الضغط على الرابط.\n\nستبقى بيانات المعلمين والحسابات، بينما ستبدأ المواد والفصول والاسنادات والطلاب من جديد بعد التحقق.\nوسيُحذف محتوى ملفات إنجاز الطلاب نهائياً من مساحة الفصل الحالي فقط بعد التأكيد.\n\nهل تريد إرسال رابط التأكيد؟`)
     if (!accepted) return
     setBusy('prepare')
     setNotice('')
     try {
       const result = await api.prepareAcademicTerm(year, selectedSemester)
+      if (result.verificationRequired) {
+        setVerificationState(result.recipientEmail ? { recipientEmail: result.recipientEmail, expiresAt: result.expiresAt || '' } : null)
+        setNotice(`تم إرسال رابط تأكيد الأرشفة إلى البريد الإلكتروني (${result.recipientEmail || 'حساب المدرسة'}). لا يتم فتح الفصل إلا بعد الضغط على الرابط المرسل.`)
+        return
+      }
       onSchoolChanged(result.school)
+      setVerificationState(null)
       setArchive(null)
       setNotice(`تم فتح ${result.term.semester} بنجاح. أُرشف الفصل السابق، وحُذِف ${result.archivedSummary.portfolioFilesDeleted.toLocaleString('ar-SA')} ملف إنجاز من مساحة العمل الجديدة.`)
       await load()
+    } catch (error) { setNotice(errorText(error)) } finally { setBusy('') }
+  }
+
+  const resendConfirmation = async () => {
+    if (busy) return
+    setBusy('resend')
+    setNotice('')
+    try {
+      const result = await api.resendAcademicTermConfirmation()
+      setVerificationState(result.recipientEmail ? { recipientEmail: result.recipientEmail, expiresAt: result.expiresAt || '' } : null)
+      setNotice(`تم إرسال رابط تأكيد جديد إلى البريد الإلكتروني (${result.recipientEmail || 'حساب المدرسة'}). لا يتم فتح الفصل إلا بعد الضغط على الرابط الجديد.`)
+    } catch (error) { setNotice(errorText(error)) } finally { setBusy('') }
+  }
+
+  const cancelConfirmation = async () => {
+    if (busy) return
+    const accepted = window.confirm('سيُلغى رابط التأكيد الحالي، ولن يتم فتح الفصل الدراسي حتى ترسل طلب تأكيد جديد. هل تريد المتابعة؟')
+    if (!accepted) return
+    setBusy('cancel')
+    setNotice('')
+    try {
+      await api.cancelAcademicTermConfirmation()
+      setVerificationState(null)
+      setNotice('تم إلغاء رابط التأكيد الحالي. يمكنك إرسال طلب جديد متى رغبت.')
     } catch (error) { setNotice(errorText(error)) } finally { setBusy('') }
   }
 
@@ -95,12 +130,13 @@ export function AcademicTerms({ isAdmin, onSchoolChanged }: Props) {
     </div>
 
     {notice && <p className="academic-term-notice" role="status">{notice}</p>}
+    {verificationState && <div className="academic-term-confirmation-actions"><button type="button" className="secondary-button" onClick={() => void resendConfirmation()} disabled={Boolean(busy)}>{busy === 'resend' ? 'جارٍ إعادة إرسال الرابط…' : 'إعادة إرسال رابط التأكيد'}</button><button type="button" className="outline-button" onClick={() => void cancelConfirmation()} disabled={Boolean(busy)}>{busy === 'cancel' ? 'جارٍ إلغاء الرابط…' : 'إلغاء الطلب'}</button>{verificationState.expiresAt && <small>تاريخ انتهاء الرابط: {arabicStamp(verificationState.expiresAt)}</small>}</div>}
 
     {active && <article className="academic-term-current"><div><span>الفصل النشط الآن</span><h3>{active.semester}</h3><strong>{active.academicYear}</strong><small>فُعّل: {arabicStamp(active.activatedAt)}</small></div><p>هذا هو المصدر الحالي لبيانات الطلاب والمواد والفصول والاسنادات والحضور في جميع الحسابات.</p></article>}
 
     {isAdmin && <section className="academic-term-create">
       <div><span className="panel-kicker">نهاية الفصل والبدء بالفصل التالي</span><h3>فتح فصل دراسي جديد</h3><p>لا يُنقل الطلاب تلقائياً: بعد الفتح استورد ملف Excel الجديد من «إدارة الطلاب». تبقى أسماء المعلمين وحساباتهم، وتُجهز المواد والفصول والاسنادات والجدول من جديد.</p></div>
-      <div className="academic-term-fields"><label>العام الدراسي<input value={academicYear} maxLength={80} onChange={event => setAcademicYear(event.target.value)} placeholder="مثال: 1448 / 1449" disabled={Boolean(busy)} /></label><label>الفصل الدراسي<select value={semester} onChange={event => setSemester(event.target.value)} disabled={Boolean(busy)}>{semsters.map(item => <option key={item}>{item}</option>)}</select></label><button type="button" className="primary-button academic-term-open" onClick={() => void prepare()} disabled={Boolean(busy)}>{busy === 'prepare' ? 'جارٍ الأرشفة وفتح الفصل…' : 'أرشفة الحالي وفتح الفصل'}</button></div>
+      <div className="academic-term-fields"><label>العام الدراسي<input value={academicYear} maxLength={80} onChange={event => setAcademicYear(event.target.value)} placeholder="مثال: 1448 / 1449" disabled={Boolean(busy)} /></label><label>الفصل الدراسي<select value={semester} onChange={event => setSemester(event.target.value)} disabled={Boolean(busy)}>{semsters.map(item => <option key={item}>{item}</option>)}</select></label><button type="button" className="primary-button academic-term-open" onClick={() => void prepare()} disabled={Boolean(busy)}>{busy === 'prepare' ? 'جارٍ إرسال رابط التأكيد…' : 'إرسال رابط التأكيد'}</button></div>
       <p className="academic-term-warning">تنبيه: تُحذف ملفات إنجاز الطلاب وملحقاتها من الفصل المنتهي لتوفير المساحة، ولا تُنقل إلى الفصل الجديد أو تُستعاد عند الرجوع للأرشيف.</p>
     </section>}
 

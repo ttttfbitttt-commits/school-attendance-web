@@ -1,3 +1,5 @@
+import crypto from 'node:crypto'
+
 // الفصل الدراسي في النظام لا يغيّر هوية المدرسة أو حساباتها.  بدلاً من ذلك
 // نحفظ لقطة قابلة للاستعادة من بيانات الفصل، ثم نفتح مساحة عمل نظيفة للفصل التالي.
 // هذا يجعل جميع الواجهات الحالية ترى الفصل النشط تلقائياً، لأن مصدرها يبقى الجداول
@@ -9,6 +11,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-
 // مستمرة عند بدء فصل جديد؛ أما بقية السجلات التي تحمل school_id فتؤرشف للفصل.
 const PERSISTENT_TABLES = new Set([
   'academic_terms', 'academic_term_audit', 'school_backup_audit', 'school_login_activity',
+  'academic_term_transition_requests',
   'memberships', 'almadar_accounts',
   'lesson_teachers', 'teacher_login_accounts', 'teacher_portfolio_correction_settings',
   'administrative_staff', 'administrative_login_accounts',
@@ -38,6 +41,10 @@ function validTerm(input) {
 }
 
 function validId(value) { return UUID.test(String(value || '')) }
+function tokenHash(value) { return crypto.createHash('sha256').update(String(value)).digest('hex') }
+function publicBaseUrl() { return String(process.env.PUBLIC_APP_URL || 'https://7asr2030.com').replace(/\/$/, '') }
+function confirmationUrl(token) { return `${publicBaseUrl()}/term-confirmation.html?token=${encodeURIComponent(token)}` }
+function escapeHtml(value) { return String(value).replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]) }
 
 function termSummary(snapshot) {
   const rows = snapshot?.tables && typeof snapshot.tables === 'object' ? snapshot.tables : {}
@@ -180,6 +187,84 @@ async function audit(client, schoolId, userId, action, termId, detail = {}) {
     VALUES($1,$2,$3,$4,$5::jsonb)`, [schoolId, userId, termId, action, JSON.stringify(detail)])
 }
 
+async function sendTransitionConfirmationEmail(email, schoolName, activeTerm, target, token) {
+  const apiKey = String(process.env.RESEND_API_KEY || '').trim()
+  if (!apiKey) throw new Error('email_verification_not_configured')
+  const url = confirmationUrl(token)
+  const safeSchool = escapeHtml(schoolName)
+  const safeActive = escapeHtml(`${activeTerm.semester} ${activeTerm.academic_year}`)
+  const safeTarget = escapeHtml(`${target.semester} ${target.academicYear}`)
+  const safeUrl = escapeHtml(url)
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), 15_000)
+  try {
+    const response = await fetch('https://api.resend.com/emails', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${apiKey}`, 'content-type': 'application/json' },
+      body: JSON.stringify({
+        from: process.env.RESEND_FROM_EMAIL || 'نظام حصر الطلاب <no-reply@7asr2030.com>',
+        to: [email],
+        subject: `تأكيد أرشفة الفصل وفتح فصل جديد: ${schoolName}`,
+        text: `طُلب أرشفة ${activeTerm.semester} ${activeTerm.academic_year} وفتح ${target.semester} ${target.academicYear} لمدرسة «${schoolName}».\n\nلن تبدأ الأرشفة ولن تُحذف ملفات إنجاز الطلاب بمجرد الطلب. افتح الرابط التالي ثم اضغط «تأكيد الأرشفة وفتح الفصل» لإتمام العملية:\n${url}\n\nصلاحية الرابط 30 دقيقة ويُستخدم مرة واحدة فقط. إذا لم تطلب أنت ذلك، تجاهل الرسالة.`,
+        html: `<div dir="rtl" lang="ar"><h2>تأكيد فتح فصل دراسي جديد</h2><p>طُلب أرشفة <strong>${safeActive}</strong> وفتح <strong>${safeTarget}</strong> لمدرسة <strong>${safeSchool}</strong>.</p><p><strong>لن تُؤرشف أي بيانات ولن تُحذف ملفات إنجاز الطلاب بمجرد الطلب.</strong> افتح الرابط ثم اضغط «تأكيد الأرشفة وفتح الفصل» لإتمام العملية.</p><p><a href="${safeUrl}">مراجعة وتأكيد الطلب</a></p><p>صلاحية الرابط 30 دقيقة ويُستخدم مرة واحدة فقط. إذا لم تطلب أنت ذلك، تجاهل هذه الرسالة.</p></div>`,
+      }),
+      signal: controller.signal,
+    })
+    if (!response.ok) throw new Error('email_send_failed')
+  } catch (error) {
+    if (error instanceof Error && error.message === 'email_verification_not_configured') throw error
+    throw new Error('email_send_failed')
+  } finally { clearTimeout(timeout) }
+}
+
+async function createTransitionRequest(termPool, schoolId, userId, target) {
+  return withSchool(termPool, schoolId, async client => {
+    const active = await ensureActiveTerm(client, schoolId)
+    if (active.academic_year === target.academicYear && active.semester === target.semester) throw new Error('term_already_active')
+    const existingTerm = await client.query('SELECT 1 FROM academic_terms WHERE school_id=$1 AND academic_year=$2 AND semester=$3', [schoolId, target.academicYear, target.semester])
+    if (existingTerm.rowCount) throw new Error('term_already_exists')
+    const recipient = await client.query(`SELECT u.email,school.name AS "schoolName"
+      FROM memberships member JOIN users u ON u.id=member.user_id
+      JOIN schools school ON school.id=member.school_id
+      WHERE member.school_id=$1 AND member.role='admin'
+      ORDER BY u.created_at ASC LIMIT 1`, [schoolId])
+    if (!recipient.rowCount || !/^\S+@\S+\.\S+$/.test(String(recipient.rows[0].email || ''))) throw new Error('school_confirmation_email_missing')
+    const token = crypto.randomBytes(32).toString('base64url')
+    // طلب واحد فقط معلّق لكل مدرسة: لا يحدث أي تعديل للبيانات عند استبدال طلب تأكيد قديم.
+    await client.query("UPDATE academic_term_transition_requests SET status='cancelled' WHERE school_id=$1 AND status='pending'", [schoolId])
+    const request = await client.query(`INSERT INTO academic_term_transition_requests(
+      school_id,requested_by,recipient_email,target_academic_year,target_semester,token_hash,expires_at,status)
+      VALUES($1,$2,$3,$4,$5,$6,now()+interval '30 minutes','pending') RETURNING id`,
+    [schoolId, userId, recipient.rows[0].email, target.academicYear, target.semester, tokenHash(token)])
+    try {
+      await sendTransitionConfirmationEmail(recipient.rows[0].email, recipient.rows[0].schoolName, active, target, token)
+    } catch (error) {
+      await client.query('DELETE FROM academic_term_transition_requests WHERE id=$1', [request.rows[0].id])
+      throw error
+    }
+    await audit(client, schoolId, userId, 'confirmation_requested', active.id, { target, recipientEmail: recipient.rows[0].email })
+    return { recipientEmail: recipient.rows[0].email, expiresAt: new Date(Date.now() + 30 * 60_000).toISOString() }
+  })
+}
+
+async function prepareTerm(client, schoolId, userId, target) {
+  const active = await ensureActiveTerm(client, schoolId)
+  if (active.academic_year === target.academicYear && active.semester === target.semester) throw new Error('term_already_active')
+  const existing = await client.query('SELECT id FROM academic_terms WHERE school_id=$1 AND academic_year=$2 AND semester=$3', [schoolId, target.academicYear, target.semester])
+  if (existing.rowCount) throw new Error('term_already_exists')
+  const snapshot = await captureSnapshot(client, schoolId)
+  const summary = termSummary(snapshot)
+  await client.query(`UPDATE academic_terms SET snapshot=$2::jsonb,summary=$3::jsonb,status='archived',archived_at=now()
+    WHERE school_id=$1 AND id=$4`, [schoolId, JSON.stringify(snapshot), JSON.stringify(summary), active.id])
+  await clearTermData(client, schoolId)
+  const created = await client.query(`INSERT INTO academic_terms(school_id,academic_year,semester,status,summary,created_by,activated_at)
+    VALUES($1,$2,$3,'active','{}'::jsonb,$4,now()) RETURNING *`, [schoolId, target.academicYear, target.semester, userId])
+  await client.query('UPDATE schools SET academic_year=$1,semester=$2 WHERE id=$3', [target.academicYear, target.semester, schoolId])
+  await audit(client, schoolId, userId, 'prepared', created.rows[0].id, { archivedTermId: active.id, archivedSummary: summary })
+  const school = await schoolProfile(client, schoolId)
+  return { term: responseTerm(created.rows[0]), school, archivedSummary: summary }
+}
+
 async function withSchool(termPool, schoolId, work) {
   const client = await termPool.connect()
   try {
@@ -219,17 +304,78 @@ export async function migrateAcademicTerms(adminPool) {
       school_id uuid NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
       actor_id uuid REFERENCES users(id) ON DELETE SET NULL,
       term_id uuid REFERENCES academic_terms(id) ON DELETE SET NULL,
-      action text NOT NULL CHECK (action IN ('initialized','prepared','activated')),
+      action text NOT NULL CHECK (action IN ('initialized','confirmation_requested','prepared','activated')),
       details jsonb NOT NULL DEFAULT '{}'::jsonb,
       created_at timestamptz NOT NULL DEFAULT now()
     );
     CREATE INDEX IF NOT EXISTS academic_term_audit_school_created
       ON academic_term_audit(school_id,created_at DESC);
+    ALTER TABLE academic_term_audit DROP CONSTRAINT IF EXISTS academic_term_audit_action_check;
+    ALTER TABLE academic_term_audit ADD CONSTRAINT academic_term_audit_action_check
+      CHECK (action IN ('initialized','confirmation_requested','prepared','activated'));
+    CREATE TABLE IF NOT EXISTS academic_term_transition_requests (
+      id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+      school_id uuid NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
+      requested_by uuid REFERENCES users(id) ON DELETE SET NULL,
+      recipient_email citext NOT NULL,
+      target_academic_year text NOT NULL,
+      target_semester text NOT NULL,
+      token_hash text NOT NULL UNIQUE,
+      status text NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','confirmed','cancelled')),
+      expires_at timestamptz NOT NULL,
+      created_at timestamptz NOT NULL DEFAULT now(),
+      confirmed_at timestamptz
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS academic_term_transition_one_pending
+      ON academic_term_transition_requests(school_id) WHERE status='pending';
+    CREATE INDEX IF NOT EXISTS academic_term_transition_token
+      ON academic_term_transition_requests(token_hash,expires_at) WHERE status='pending';
     INSERT INTO academic_terms(school_id,academic_year,semester,status,activated_at)
       SELECT id,academic_year,semester,'active',now() FROM schools school
       WHERE NOT EXISTS (SELECT 1 FROM academic_terms term WHERE term.school_id=school.id AND term.status='active')
       ON CONFLICT (school_id,academic_year,semester) DO NOTHING;
   `)
+}
+
+export async function handleAcademicTermPublicRequest({ req, res, url, body, json, termPool }) {
+  const token = String(url.searchParams.get('token') || '')
+  const validToken = /^[A-Za-z0-9_-]{40,50}$/.test(token)
+  if (req.method === 'GET' && url.pathname === '/api/academic-terms/confirmation') {
+    if (!validToken) return json(res, 400, { error: 'invalid_or_expired_term_confirmation' }) || true
+    const request = await termPool.query(`SELECT request.target_academic_year AS "academicYear",request.target_semester AS semester,
+        request.expires_at AS "expiresAt",school.name AS "schoolName",school.academic_year AS "currentAcademicYear",school.semester AS "currentSemester"
+      FROM academic_term_transition_requests request JOIN schools school ON school.id=request.school_id
+      WHERE request.token_hash=$1 AND request.status='pending' AND request.expires_at>now()`, [tokenHash(token)])
+    if (!request.rowCount) return json(res, 400, { error: 'invalid_or_expired_term_confirmation' }) || true
+    return json(res, 200, { request: request.rows[0] }) || true
+  }
+  if (req.method === 'POST' && url.pathname === '/api/academic-terms/confirmation') {
+    const input = await body(req)
+    const submittedToken = String(input.token || '')
+    if (!/^[A-Za-z0-9_-]{40,50}$/.test(submittedToken)) return json(res, 400, { error: 'invalid_or_expired_term_confirmation' }) || true
+    const initial = await termPool.query(`SELECT school_id FROM academic_term_transition_requests
+      WHERE token_hash=$1 AND status='pending' AND expires_at>now()`, [tokenHash(submittedToken)])
+    if (!initial.rowCount) return json(res, 400, { error: 'invalid_or_expired_term_confirmation' }) || true
+    try {
+      const result = await withSchool(termPool, initial.rows[0].school_id, async client => {
+        const pending = await client.query(`SELECT * FROM academic_term_transition_requests
+          WHERE token_hash=$1 AND status='pending' AND expires_at>now() FOR UPDATE`, [tokenHash(submittedToken)])
+        if (!pending.rowCount) throw new Error('invalid_or_expired_term_confirmation')
+        const request = pending.rows[0]
+        const target = validTerm({ academicYear: request.target_academic_year, semester: request.target_semester })
+        if (!target) throw new Error('invalid_or_expired_term_confirmation')
+        const prepared = await prepareTerm(client, request.school_id, request.requested_by, target)
+        await client.query("UPDATE academic_term_transition_requests SET status='confirmed',confirmed_at=now() WHERE id=$1", [request.id])
+        return prepared
+      })
+      return json(res, 200, { ok: true, term: result.term }) || true
+    } catch (error) {
+      const code = error instanceof Error ? error.message : ''
+      const known = new Set(['invalid_or_expired_term_confirmation', 'term_already_active', 'term_already_exists'])
+      return json(res, known.has(code) ? 400 : 500, { error: known.has(code) ? code : 'term_confirmation_failed' }) || true
+    }
+  }
+  return false
 }
 
 export async function handleAcademicTermRequest({ req, res, url, user, body, json, termPool }) {
@@ -274,24 +420,39 @@ export async function handleAcademicTermRequest({ req, res, url, user, body, jso
       const target = validTerm(input)
       if (!target) return json(res, 400, { error: 'invalid_term' }) || true
       if (String(input.confirmation || '').trim() !== 'فتح فصل دراسي جديد') return json(res, 400, { error: 'term_confirmation_required' }) || true
-      const payload = await withSchool(termPool, user.school_id, async client => {
-          const active = await ensureActiveTerm(client, user.school_id)
-          if (active.academic_year === target.academicYear && active.semester === target.semester) throw new Error('term_already_active')
-          const existing = await client.query('SELECT id FROM academic_terms WHERE school_id=$1 AND academic_year=$2 AND semester=$3', [user.school_id, target.academicYear, target.semester])
-          if (existing.rowCount) throw new Error('term_already_exists')
-          const snapshot = await captureSnapshot(client, user.school_id)
-          const summary = termSummary(snapshot)
-          await client.query(`UPDATE academic_terms SET snapshot=$2::jsonb,summary=$3::jsonb,status='archived',archived_at=now()
-            WHERE school_id=$1 AND id=$4`, [user.school_id, JSON.stringify(snapshot), JSON.stringify(summary), active.id])
-          await clearTermData(client, user.school_id)
-          const created = await client.query(`INSERT INTO academic_terms(school_id,academic_year,semester,status,summary,created_by,activated_at)
-            VALUES($1,$2,$3,'active','{}'::jsonb,$4,now()) RETURNING *`, [user.school_id, target.academicYear, target.semester, user.user_id])
-          await client.query('UPDATE schools SET academic_year=$1,semester=$2 WHERE id=$3', [target.academicYear, target.semester, user.school_id])
-          await audit(client, user.school_id, user.user_id, 'prepared', created.rows[0].id, { archivedTermId: active.id, archivedSummary: summary })
-          const school = await schoolProfile(client, user.school_id)
-          return { term: responseTerm(created.rows[0]), school, archivedSummary: summary }
-      })
-      return json(res, 200, { ok: true, ...payload }) || true
+      const request = await createTransitionRequest(termPool, user.school_id, user.user_id, target)
+      return json(res, 200, {
+        ok: true,
+        verificationRequired: true,
+        recipientEmail: request.recipientEmail,
+        expiresAt: request.expiresAt,
+      }) || true
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/academic-terms/resend-confirmation') {
+      const pending = await termPool.query(`SELECT target_academic_year AS "academicYear",target_semester AS semester
+        FROM academic_term_transition_requests
+        WHERE school_id=$1 AND status='pending' AND expires_at>now()
+        ORDER BY created_at DESC LIMIT 1`, [user.school_id])
+      if (!pending.rowCount) return json(res, 409, { error: 'no_pending_term_confirmation' }) || true
+      const target = validTerm(pending.rows[0])
+      if (!target) return json(res, 400, { error: 'invalid_term' }) || true
+      const request = await createTransitionRequest(termPool, user.school_id, user.user_id, target)
+      return json(res, 200, {
+        ok: true,
+        recipientEmail: request.recipientEmail,
+        expiresAt: request.expiresAt,
+      }) || true
+    }
+
+    if (req.method === 'POST' && url.pathname === '/api/academic-terms/cancel-confirmation') {
+      const pending = await termPool.query(`SELECT id FROM academic_term_transition_requests
+        WHERE school_id=$1 AND status='pending' AND expires_at>now()
+        ORDER BY created_at DESC LIMIT 1`, [user.school_id])
+      if (!pending.rowCount) return json(res, 409, { error: 'no_pending_term_confirmation_to_cancel' }) || true
+      await termPool.query(`UPDATE academic_term_transition_requests SET status='cancelled',confirmed_at=NULL
+        WHERE id=$1 AND status='pending'`, [pending.rows[0].id])
+      return json(res, 200, { ok: true }) || true
     }
 
     const activateRoute = /^\/api\/academic-terms\/([0-9a-f-]{36})\/activate$/i.exec(url.pathname)

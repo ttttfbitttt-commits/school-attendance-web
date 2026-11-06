@@ -599,7 +599,7 @@ export async function handleFeatureRequest(context) {
       const absenceDays = Number(totals?.days || 0)
       if (absenceDays < 3) return { error: 'student_below_three_absences' }
       const school = (await client.query('SELECT name FROM schools WHERE id=$1', [user.school_id])).rows[0]
-      const messageBody = `بلغ غياب ابنكم الطالب ${student.name} ${absenceDays} أيام نأمل التواصل مع وكيل المدرسة ${user.display_name || 'وكيل المدرسة'} ${school?.name || ''}`.replace(/\s+/g, ' ').trim()
+      const messageBody = `بلغ غياب ابنكم الطالب ${student.name} ${absenceDays} أيام. نأمل التواصل عبر البريد الإلكتروني turki.alaziz83@gmail.com ${school?.name || ''}`.replace(/\s+/g, ' ').trim()
       const recipient = normalizePhone(student.phone)
       const outcome = !account ? { ok: false, error: 'almadar_not_configured' } : !recipient ? { ok: false, error: 'invalid_recipient_phone' } : await sendMessage(decrypt(account.api_key_encrypted), { number: recipient, senderName: account.sender_name, sendAtOption: 'Now', messageBody, allow_duplicate: true })
       await client.query(`INSERT INTO absence_message_logs(school_id,student_id,student_name,absence_days,recipient,sender_name,message_body,status,error_detail,sent_by)
