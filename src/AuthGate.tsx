@@ -15,36 +15,6 @@ const roleLabel: Record<LoginChoice['role'], string> = {
   activity_leader: 'بوابة رائد النشاط',
 }
 
-function MinistryLogoMark() {
-  return <svg className="auth-ministry-mark" viewBox="0 0 260 120" aria-label="شعار وزارة التعليم" role="img">
-    <g fill="none" stroke="none">
-      <g transform="translate(20 28)">
-        <circle cx="0" cy="18" r="9" fill="#0e8c96" opacity="0.98" />
-        <circle cx="0" cy="42" r="9" fill="#9fb7b9" opacity="0.9" />
-        <circle cx="18" cy="12" r="9" fill="#0f9ba4" opacity="0.95" />
-        <circle cx="18" cy="36" r="9" fill="#0e8c96" opacity="0.98" />
-        <circle cx="36" cy="18" r="9" fill="#0f9ba4" opacity="0.96" />
-        <circle cx="36" cy="42" r="9" fill="#9fb7b9" opacity="0.86" />
-        <circle cx="54" cy="12" r="9" fill="#0e8c96" opacity="0.98" />
-        <circle cx="54" cy="36" r="9" fill="#0f9ba4" opacity="0.95" />
-        <circle cx="72" cy="18" r="9" fill="#9fb7b9" opacity="0.91" />
-        <circle cx="72" cy="42" r="9" fill="#0f9ba4" opacity="0.96" />
-        <circle cx="90" cy="12" r="9" fill="#0e8c96" opacity="0.98" />
-        <circle cx="90" cy="36" r="9" fill="#9fb7b9" opacity="0.9" />
-        <circle cx="108" cy="18" r="9" fill="#0e8c96" opacity="0.98" />
-        <circle cx="108" cy="42" r="9" fill="#0f9ba4" opacity="0.96" />
-        <circle cx="126" cy="12" r="9" fill="#9fb7b9" opacity="0.88" />
-        <circle cx="126" cy="36" r="9" fill="#0f9ba4" opacity="0.96" />
-        <circle cx="144" cy="18" r="9" fill="#0e8c96" opacity="0.98" />
-        <circle cx="144" cy="42" r="9" fill="#9fb7b9" opacity="0.9" />
-      </g>
-      <g transform="translate(24 0)">
-        <text x="0" y="74" fill="#0d7f87" fontSize="28" fontWeight="700" fontFamily="Tahoma, Arial, sans-serif">وزارة التعليم</text>
-      </g>
-    </g>
-  </svg>
-}
-
 export function AuthGate({ children }: { children: (account: Account, logout: () => void) => ReactNode }) {
   const [account, setAccount] = useState<Account | null>(null)
   const [loading, setLoading] = useState(true)
@@ -207,11 +177,8 @@ export function AuthGate({ children }: { children: (account: Account, logout: ()
   return <main className="auth-page" dir="rtl">
     <div className="auth-shell">
       <aside className="auth-visual" aria-label="خدمات النظام">
-        <div className="auth-brand-lockup" aria-label="شعار التعليم">
-          <MinistryLogoMark />
-          <span className="auth-visual-brand">نظام الحصر</span>
-        </div>
         <div className="auth-visual-topbar">
+          <span className="auth-visual-brand">نظام الحصر</span>
           <span className="auth-visual-badge">+15 خدمة</span>
         </div>
         <div className="auth-metrics-grid" aria-label="مؤشرات النظام">
@@ -240,8 +207,10 @@ export function AuthGate({ children }: { children: (account: Account, logout: ()
       </aside>
 
       <section className="auth-card">
-        <div className="auth-icon"><School size={30} /></div>
-        <h1>{registering ? 'تسجيل مدرسة جديدة' : 'نظام الحصر'}</h1>
+        <div className="auth-brand-row">
+          <div className="auth-icon"><School size={30} /></div>
+          <h1>{registering ? 'تسجيل مدرسة جديدة' : 'نظام الحصر'}</h1>
+        </div>
         <p>{registering ? 'أدخل بيانات المدرسة والمسؤول لإرسال رابط التأكيد.' : 'أدخل رقم الهوية أو بريد المدرسة وكلمة المرور للوصول إلى حسابك.'}</p>
 
         {loginChoices.length > 0 && !registering ? <section className="auth-login-choices" aria-live="polite">
