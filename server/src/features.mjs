@@ -461,6 +461,52 @@ export async function handleFeatureRequest(context) {
     json(res, 200, { rows }); return true
   }
 
+  // التصحيح الإداري من شاشة إجراءات الغياب: يحول الغياب إلى حضور ويحتفظ
+  // بسجل التدقيق. لا نعتمد على عناصر الواجهة كقائمة أيام، حتى يستطيع المدير
+  // تصحيح يوم واحد أو جميع أيام طالب أو كل الحالات الحالية بأمان.
+  if (req.method === 'POST' && url.pathname === '/api/absence-procedures/school/correct-present') {
+    if (user.role !== 'admin') { json(res, 403, { error: 'forbidden' }); return true }
+    const input = await body(req)
+    const scope = ['day', 'student', 'all'].includes(String(input.scope || '')) ? String(input.scope) : ''
+    const studentId = String(input.studentId || '').trim()
+    const date = validDate(input.date)
+    if (!scope || (scope !== 'all' && !studentId) || (scope === 'day' && (!date || date > todayRiyadh()))) {
+      json(res, 400, { error: 'invalid_absence_procedure_correction' }); return true
+    }
+    const result = await scoped(user.school_id, async client => {
+      const corrected = await client.query(`WITH removed AS (
+          DELETE FROM absence_records absence
+          USING students student
+          WHERE absence.school_id=$1 AND student.school_id=absence.school_id AND student.id=absence.student_id
+            AND student.active=true AND absence.absence_date<=$2::date
+            AND absence.status IN ('unexcused','excused','special')
+            AND ($3::text IS NULL OR absence.student_id=$3)
+            AND ($4::date IS NULL OR absence.absence_date=$4::date)
+          RETURNING absence.school_id,absence.student_id,absence.absence_date,absence.status,absence.note
+        ), attendance AS (
+          INSERT INTO attendance_logs(school_id,student_id,attendance_date,recorded_at,recorded_by,status)
+          SELECT school_id,student_id,absence_date,((absence_date + '07:00'::time) AT TIME ZONE $5),$6,'present'
+          FROM removed
+          ON CONFLICT(school_id,student_id,attendance_date) DO UPDATE
+            SET recorded_at=EXCLUDED.recorded_at,recorded_by=EXCLUDED.recorded_by,status=EXCLUDED.status
+        ), audit AS (
+          INSERT INTO absence_corrections(school_id,student_id,absence_date,prior_status,prior_note,attendance_status,attendance_time,correction_scope,corrected_by)
+          SELECT school_id,student_id,absence_date,status,note,'present','07:00'::time,$7,$6 FROM removed
+        ), cleared_followups AS (
+          DELETE FROM absence_follow_up_cases follow_up
+          USING removed
+          WHERE follow_up.school_id=removed.school_id AND follow_up.student_id=removed.student_id
+            AND follow_up.absence_date=removed.absence_date
+        )
+        SELECT COUNT(*)::int AS "correctedDays",COUNT(DISTINCT student_id)::int AS "affectedStudents" FROM removed`,
+      [user.school_id, todayRiyadh(), scope === 'all' ? null : studentId, scope === 'day' ? date : null, RIYADH_TIME_ZONE, user.user_id, scope === 'day' ? 'single' : 'bulk'])
+      return corrected.rows[0]
+    })
+    if (!result.correctedDays) { json(res, 404, { error: 'absence_records_not_found' }); return true }
+    json(res, 200, { ok: true, scope, ...result })
+    return true
+  }
+
   // المرحلة الأولى من إجراءات الغياب: قراءة الغياب المعتمد فقط. لا تنشئ هذه
   // الواجهة حالة متابعة ولا ترسل أي رسالة، ونطاق الوكيل مفروض في الاستعلام.
   if (req.method === 'GET' && url.pathname === '/api/absence-procedures/vice/approved') {
@@ -1132,6 +1178,11 @@ export async function handleFeatureRequest(context) {
         ), audit AS (
           INSERT INTO absence_corrections(school_id,student_id,absence_date,prior_status,prior_note,attendance_status,attendance_time,correction_scope,corrected_by)
           SELECT school_id,student_id,absence_date,status,note,$9,$6::time,$10,$8 FROM removed
+        ), cleared_followups AS (
+          DELETE FROM absence_follow_up_cases follow_up
+          USING removed
+          WHERE follow_up.school_id=removed.school_id AND follow_up.student_id=removed.student_id
+            AND follow_up.absence_date=removed.absence_date
         )
         SELECT COUNT(*)::int AS "correctedDays",COUNT(DISTINCT student_id)::int AS "affectedStudents" FROM removed`,
       [user.school_id, range.from, range.to, allowedIds, dateSelection.dates, time, RIYADH_TIME_ZONE, user.user_id, status, correctionScope])

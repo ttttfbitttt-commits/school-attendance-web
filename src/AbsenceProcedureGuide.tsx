@@ -244,16 +244,53 @@ export function ViceApprovedAbsenceProcedureQueue({ schoolName = '' }: { schoolN
 export function SchoolAbsenceProcedureOverview() {
   const [rows, setRows] = useState<Awaited<ReturnType<typeof api.schoolAbsenceProcedureOverview>>['rows']>([])
   const [loading, setLoading] = useState(true)
-  useEffect(() => { void api.schoolAbsenceProcedureOverview().then(result => setRows(result.rows)).finally(() => setLoading(false)) }, [])
+  const [correcting, setCorrecting] = useState('')
+  const [notice, setNotice] = useState('')
+  const [error, setError] = useState('')
+  const load = async () => {
+    setLoading(true)
+    try {
+      const result = await api.schoolAbsenceProcedureOverview()
+      setRows(result.rows)
+      setError('')
+    } catch {
+      setError('تعذر تحميل حالات الغياب. حدّث القائمة أو حاول مرة أخرى.')
+    } finally { setLoading(false) }
+  }
+  useEffect(() => { void load() }, [])
   const label = (state: string) => state === 'closed' ? 'مغلقة' : state === 'needs_followup' ? 'متابعة إضافية' : state === 'actioned' ? 'تم إجراء الموجّه' : state === 'referred' ? 'محالة للموجّه' : 'بانتظار الإجراء'
+  const correct = async (scope: 'day' | 'student' | 'all', row?: typeof rows[number]) => {
+    const target = scope === 'all'
+      ? 'سيتم تحويل جميع سجلات الغياب الحالية للطلاب النشطين إلى حضور، وإزالتها من مسار إجراءات الغياب. هل تريد المتابعة؟'
+      : scope === 'student'
+        ? `سيتم تحويل جميع أيام غياب الطالب ${row?.name || ''} إلى حضور. هل تريد المتابعة؟`
+        : `سيتم تحويل غياب الطالب ${row?.name || ''} في يوم ${row?.absenceDate || ''} إلى حضور. هل تريد المتابعة؟`
+    if (!window.confirm(target)) return
+    const key = scope === 'all' ? 'all' : `${scope}:${row?.studentId || ''}:${row?.absenceDate || ''}`
+    setCorrecting(key)
+    setError('')
+    setNotice('')
+    try {
+      const result = await api.correctSchoolAbsenceProcedure({
+        scope,
+        ...(scope !== 'all' && row ? { studentId: row.studentId } : {}),
+        ...(scope === 'day' && row ? { date: row.absenceDate } : {}),
+      })
+      setNotice(`تم تحويل ${result.correctedDays} ${result.correctedDays === 1 ? 'يوم غياب' : 'أيام غياب'} إلى حاضر لـ ${result.affectedStudents} ${result.affectedStudents === 1 ? 'طالب' : 'طلاب'}، مع حفظ التصحيح الإداري.`)
+      await load()
+    } catch {
+      setError('تعذر تصحيح سجل الغياب. لم يتم تغيير أي سجل؛ حدّث الصفحة وحاول مرة أخرى.')
+    } finally { setCorrecting('') }
+  }
   const stages = Array.from(rows.reduce((grouped, row) => {
     const grade = row.grade || 'مرحلة غير محددة'
     grouped.set(grade, [...(grouped.get(grade) || []), row])
     return grouped
   }, new Map<string, typeof rows>()).entries())
-  return <section className="counselor-absence-referrals school-absence-overview"><header><div><span>إدارة المدرسة</span><h3>متابعة إجراءات التعامل مع الغياب</h3><p>إجمالي الحالات الحالية: <strong className="absence-case-total">{rows.length}</strong> حالة. اختر المرحلة لعرض طلابها ومسار كل حالة.</p></div><button type="button" className="outline-button" onClick={() => void api.schoolAbsenceProcedureOverview().then(result => setRows(result.rows))}><RefreshCw size={16} />تحديث</button></header>{loading ? <p className="teacher-empty">جارٍ تحميل الحالات…</p> : <div className="school-absence-stage-grid">{stages.map(([grade, stageRows]) => {
+  const students = new Set(rows.map(row => row.studentId)).size
+  return <section className="counselor-absence-referrals school-absence-overview"><header><div><span>إدارة المدرسة</span><h3>متابعة إجراءات التعامل مع الغياب</h3><p>إجمالي الحالات الحالية: <strong className="absence-case-total">{rows.length}</strong> حالة تخص {students} {students === 1 ? 'طالب' : 'طلاب'}. اختر المرحلة لعرض طلابها ومسار كل حالة.</p></div><button type="button" className="outline-button" onClick={() => void load()} disabled={loading || Boolean(correcting)}><RefreshCw size={16} />تحديث</button></header><section className="school-absence-correction-toolbar" aria-label="تصحيح الغياب إلى حضور"><div><strong>تصحيح سجل الحضور</strong><p>صحّح الغياب المسجل بالخطأ دون حذف أثره: يسجل النظام حضور الطالب ويحتفظ بتصحيح إداري موثق.</p></div><button type="button" className="absence-correction-all-button" onClick={() => void correct('all')} disabled={!rows.length || Boolean(correcting)}>{correcting === 'all' ? 'جارٍ التحضير…' : 'تحضير جميع الحالات'}</button></section>{notice && <p className="teacher-notice success">{notice}</p>}{error && <p className="teacher-notice error">{error}</p>}{loading ? <p className="teacher-empty">جارٍ تحميل الحالات…</p> : <div className="school-absence-stage-grid">{stages.map(([grade, stageRows]) => {
     const pending = stageRows.filter(row => !['closed', 'actioned'].includes(row.caseState)).length
-    return <details className="school-absence-stage-card" key={grade}><summary><div><span>المرحلة</span><strong>{grade}</strong><small>{stageRows.length} {stageRows.length === 1 ? 'حالة' : 'حالات'} مسجلة</small></div><div className="school-absence-stage-stats"><b>{pending}</b><span>تحتاج متابعة</span><i aria-hidden="true">⌄</i></div></summary><div className="counselor-absence-referral-list school-absence-stage-students">{stageRows.map(row => <article key={`${row.studentId}:${row.absenceDate}`}><header><div><strong>{row.name}</strong><b className="absence-days-badge">{row.absenceDays} أيام غياب</b><small>الفصل {row.classroom || '—'} · {row.absenceDate}</small></div><span className="vice-absence-status unexcused">{label(row.caseState)}</span></header><dl><div><dt>التواصل</dt><dd>{row.contactOutcome === 'contacted' ? 'تم التواصل' : row.contactOutcome === 'no_answer' ? 'لم يتم الرد' : 'غير موثق'}</dd></div><div><dt>الموجّه</dt><dd>{row.referredCounselorName || '—'}{row.counselorName && ` · ${row.counselorName}`}</dd></div><div><dt>قرار الوكيل</dt><dd>{row.viceDecidedByName ? `${row.viceDecidedByName}${row.viceDecisionNote ? ` · ${row.viceDecisionNote}` : ''}` : 'لم يصدر بعد'}</dd></div></dl></article>)}</div></details>
+    return <details className="school-absence-stage-card" key={grade}><summary><div><span>المرحلة</span><strong>{grade}</strong><small>{stageRows.length} {stageRows.length === 1 ? 'حالة' : 'حالات'} مسجلة</small></div><div className="school-absence-stage-stats"><b>{pending}</b><span>تحتاج متابعة</span><i aria-hidden="true">⌄</i></div></summary><div className="counselor-absence-referral-list school-absence-stage-students">{stageRows.map(row => { const dayKey = `day:${row.studentId}:${row.absenceDate}`; const studentKey = `student:${row.studentId}:${row.absenceDate}`; return <article key={`${row.studentId}:${row.absenceDate}`}><header><div><strong>{row.name}</strong><b className="absence-days-badge">{row.absenceDays} أيام غياب</b><small>الفصل {row.classroom || '—'} · {row.absenceDate}</small></div><span className="vice-absence-status unexcused">{label(row.caseState)}</span></header><dl><div><dt>التواصل</dt><dd>{row.contactOutcome === 'contacted' ? 'تم التواصل' : row.contactOutcome === 'no_answer' ? 'لم يتم الرد' : 'غير موثق'}</dd></div><div><dt>الموجّه</dt><dd>{row.referredCounselorName || '—'}{row.counselorName && ` · ${row.counselorName}`}</dd></div><div><dt>قرار الوكيل</dt><dd>{row.viceDecidedByName ? `${row.viceDecidedByName}${row.viceDecisionNote ? ` · ${row.viceDecisionNote}` : ''}` : 'لم يصدر بعد'}</dd></div></dl><div className="school-absence-correction-actions"><button type="button" className="outline-button" onClick={() => void correct('day', row)} disabled={Boolean(correcting)}>{correcting === dayKey ? 'جارٍ التحضير…' : 'تحضير هذا اليوم'}</button><button type="button" className="primary-button" onClick={() => void correct('student', row)} disabled={Boolean(correcting)}>{correcting === studentKey ? 'جارٍ التحضير…' : 'تحضير جميع أيام الطالب'}</button></div></article> })}</div></details>
   })}{!rows.length && <p className="teacher-empty">لا توجد حالات متابعة حالياً.</p>}</div>}</section>
 }
 
