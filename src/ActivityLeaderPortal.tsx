@@ -4,7 +4,7 @@ import { api, type Account } from './api'
 import { StudentPortfolioBoard } from './StudentPortfolio'
 import { TeacherEvidenceAdmin } from './TeacherEvidenceAdmin'
 import { ActivityLeaderActivities } from './ActivityLeaderActivities'
-import { CircularsCenter } from './Circulars'
+import { RecipientCirculars } from './TeacherCirculars'
 
 export function ActivityLeaderPortal({ account, onLogout }: { account: Account; onLogout: () => void }) {
   const [password, setPassword] = useState('')
@@ -57,7 +57,7 @@ export function ActivityLeaderPortal({ account, onLogout }: { account: Account; 
       {tab === 'evidence' && <TeacherEvidenceAdmin schoolName={schoolName} loadTeachers={api.activityLeaderEvidence} loadRecords={api.activityLeaderEvidenceRecords} />}
       {tab === 'activities' && <ActivityLeaderActivities schoolName={schoolName} mode="send" />}
       {tab === 'activityReport' && <ActivityLeaderActivities schoolName={schoolName} mode="report" />}
-      {tab === 'circulars' && <CircularsCenter schoolName={schoolName} />}
+      {tab === 'circulars' && <RecipientCirculars schoolName={schoolName} />}
       {tab === 'password' && passwordForm}
       <button type="button" className="outline-button" onClick={onLogout}><LogOut size={16} />تسجيل الخروج</button>
     </>}

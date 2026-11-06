@@ -6,7 +6,7 @@ import { downloadWorkbook, openPrintDocument } from './SchoolFeatures'
 import { formatHijriDate } from './dateUtils'
 import { LessonFlowCenter } from './LessonFlow'
 import { readQrScanRegion } from './qrScan'
-import { CircularsCenter } from './Circulars'
+import { RecipientCirculars } from './TeacherCirculars'
 
 const jsQR = ((jsQRNs as unknown as { default?: unknown }).default || jsQRNs) as (data: Uint8ClampedArray, width: number, height: number, options?: { inversionAttempts?: 'attemptBoth' }) => { data: string } | null
 const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Riyadh' }).format(new Date())
@@ -298,7 +298,7 @@ export function AdministratorPortal({ account, onLogout }: { account: Account; o
       principalName={principalName}
       generalEducationAdministration={generalEducationAdministration}
     />}
-    {view === 'circulars' && circularsAccess && <CircularsCenter schoolName={schoolName} />}
+    {view === 'circulars' && circularsAccess && <RecipientCirculars schoolName={schoolName} />}
     {view === 'reports' && <section className="administrator-report"><header><div><span>التقارير</span><h2>سجل الحضور اليومي</h2></div><FileDown size={29} /></header><div className="administrator-report-actions"><label>التاريخ<input type="date" value={reportDate} onChange={event => setReportDate(event.target.value)} /></label><button className="primary-button" onClick={() => void loadReport()} disabled={busy}>عرض التقرير</button></div><div className="teacher-report-actions"><button className="primary-button" onClick={exportReport} disabled={!reportRecords.length}><FileDown size={16} /> Excel</button><button className="outline-button" onClick={() => openPrintDocument('سجل حضور الطلاب', reportHtml(reportRecords, reportDate, account.displayName), schoolName)}><Printer size={16} /> PDF / طباعة</button></div><div className="administrator-report-table"><table><thead><tr><th>الطالب</th><th>الصف والفصل</th><th>الحالة</th><th>الوقت</th><th>المسجل</th></tr></thead><tbody>{reportRecords.map(row => <tr key={row.studentId}><td>{row.name}</td><td>{row.grade} · {row.classroom}</td><td>{row.status === 'late' ? 'متأخر' : 'حاضر'}</td><td dir="ltr">{row.time}</td><td>{row.recordedBy || '—'}</td></tr>)}</tbody></table>{!reportRecords.length && <p>لا توجد سجلات في التاريخ المحدد.</p>}</div></section>}
     {view === 'password' && <section className="administrator-password"><header><KeyRound size={28} /><div><span>الحساب الإداري</span><h2>تغيير كلمة المرور</h2><p>استخدم كلمة مرور جديدة لا تقل عن 8 أحرف.</p></div></header><div><label>كلمة المرور الحالية<input type="password" value={currentPassword} onChange={event => setCurrentPassword(event.target.value)} /></label><label>كلمة المرور الجديدة<input type="password" value={newPassword} onChange={event => setNewPassword(event.target.value)} minLength={8} /></label><label>تأكيد كلمة المرور<input type="password" value={confirmPassword} onChange={event => setConfirmPassword(event.target.value)} minLength={8} /></label><button className="primary-button" onClick={() => void changePassword()} disabled={busy}><KeyRound size={17} /> حفظ كلمة المرور</button></div></section>}
   </main>

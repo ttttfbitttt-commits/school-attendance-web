@@ -1,3 +1,14 @@
+.circular-recipient-options { margin: 18px 0 0; padding: 16px; border: 1px solid #cfe1df; border-radius: 14px; background: #f5fbfa; }
+.circular-recipient-options legend { padding: 0 8px; color: #075a62; font-weight: 800; }
+.circular-recipient-options > p { margin: 0 0 13px; color: #557276; font-size: 13px; }
+.circular-recipient-options > div { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
+.circular-recipient-options label { display: flex; align-items: flex-start; flex-wrap: wrap; gap: 7px; min-height: 58px; padding: 10px; border: 1px solid #cfe1df; border-radius: 10px; background: #fff; color: #164a52; font-weight: 700; cursor: pointer; }
+.circular-recipient-options label.selected { border-color: #86cfc3; background: #e8f8f2; cursor: default; }
+.circular-recipient-options input { width: 17px; height: 17px; accent-color: #078573; }
+.circular-recipient-options small { display: block; width: 100%; padding-inline-start: 24px; color: #6c8585; font-size: 10px; font-weight: 500; }
+@media (max-width: 940px) { .circular-recipient-options > div { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@media (max-width: 640px) { .circular-recipient-options > div { grid-template-columns: 1fr; } }
+
 .teacher-report-menu { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:14px; }.teacher-report-menu button { min-height:145px; display:grid; place-items:center; align-content:center; gap:8px; padding:18px; border:1px solid #d9e5ee; border-radius:15px; background:#fff; color:var(--blue-dark); font:inherit; cursor:pointer; }.teacher-report-menu button:hover { border-color:var(--blue); background:#eef7ff; }.teacher-report-menu svg { color:var(--blue); }.teacher-report-menu strong { font-size:15px; }.teacher-report-menu small { color:var(--muted); font-size:11px; text-align:center; }
 :root {
   --blue: #1476c9;

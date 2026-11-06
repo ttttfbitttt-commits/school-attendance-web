@@ -7,7 +7,7 @@ function circularStatus(item: TeacherCircular) {
   return item.status === 'signed' ? 'تم التوقيع بالعلم' : 'بانتظار توقيعك'
 }
 
-export function TeacherCirculars({ schoolName }: { schoolName: string }) {
+export function RecipientCirculars({ schoolName }: { schoolName: string }) {
   const [circulars, setCirculars] = useState<TeacherCircular[]>([])
   const [selectedId, setSelectedId] = useState('')
   const [loading, setLoading] = useState(true)
@@ -116,9 +116,12 @@ export function TeacherCirculars({ schoolName }: { schoolName: string }) {
         {!selected ? <p className="teacher-empty">اختر تعميمًا لقراءته والتوقيع بالعلم.</p> : <>
           <header><div><span>تعميم رسمي</span><h3>{selected.title}</h3><p>{schoolName} · {formatHijriDate(selected.circularDate)}</p></div><button type="button" className="outline-button teacher-circular-close" onClick={() => { setSelectedId(''); setNotice(''); setError('') }}><X size={15} />إغلاق العرض</button></header>
           <section className="teacher-circular-file"><div><strong>مرفق التعميم</strong><small>{selected.fileName}</small></div>{selected.fileType === 'application/pdf' ? <object data={selected.fileData} type="application/pdf">يتعذر عرض ملف PDF هنا؛ نزّله ثم اقرأه.</object> : <img src={selected.fileData} alt={`تعميم: ${selected.title}`} />}</section>
-          {selected.status === 'signed' ? <section className="teacher-circular-signed"><CheckCircle2 size={25} /><div><strong>تم التوقيع بالعلم</strong><span>{selected.signedAt ? `وقت التوقيع: ${selected.signedAt}` : 'تم حفظ التوقيع في سجل المدرسة.'}</span></div>{selected.signatureData && <img src={selected.signatureData} alt="توقيع المعلم" />}</section> : <section className="teacher-circular-signature"><header><div><PenLine size={20} /><div><strong>التوقيع بالعلم والاطلاع</strong><small>ارسم توقيعك بالماوس أو باللمس ثم اضغط زر الاعتماد.</small></div></div><button type="button" className="outline-button" onClick={clearSignature} disabled={busy}><Eraser size={15} /> مسح التوقيع</button></header><canvas ref={canvasRef} className="teacher-circular-signature-pad" onPointerDown={beginDrawing} onPointerMove={draw} onPointerUp={stopDrawing} onPointerCancel={stopDrawing} /><button type="button" className="primary-button" onClick={() => void sign()} disabled={busy}>{busy ? 'جارٍ حفظ التوقيع…' : 'التوقيع بالعلم'}</button></section>}
+          {selected.status === 'signed' ? <section className="teacher-circular-signed"><CheckCircle2 size={25} /><div><strong>تم التوقيع بالعلم</strong><span>{selected.signedAt ? `وقت التوقيع: ${selected.signedAt}` : 'تم حفظ التوقيع في سجل المدرسة.'}</span></div>{selected.signatureData && <img src={selected.signatureData} alt="توقيع المستلم" />}</section> : <section className="teacher-circular-signature"><header><div><PenLine size={20} /><div><strong>التوقيع بالعلم والاطلاع</strong><small>ارسم توقيعك بالماوس أو باللمس ثم اضغط زر الاعتماد.</small></div></div><button type="button" className="outline-button" onClick={clearSignature} disabled={busy}><Eraser size={15} /> مسح التوقيع</button></header><canvas ref={canvasRef} className="teacher-circular-signature-pad" onPointerDown={beginDrawing} onPointerMove={draw} onPointerUp={stopDrawing} onPointerCancel={stopDrawing} /><button type="button" className="primary-button" onClick={() => void sign()} disabled={busy}>{busy ? 'جارٍ حفظ التوقيع…' : 'التوقيع بالعلم'}</button></section>}
         </>}
       </section>
     </div>
   </section>
 }
+
+// الاسم القديم يبقى للمعلمين، وتستخدمه بقية حسابات المدرسة بصفته مستلِمًا للتعميم.
+export const TeacherCirculars = RecipientCirculars

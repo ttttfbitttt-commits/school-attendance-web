@@ -68,6 +68,7 @@ import { ActivityLeaderPortal } from './ActivityLeaderPortal'
 import { AbsenceProcedureGuide, SchoolAbsenceProcedureOverview, ViceApprovedAbsenceProcedureQueue } from './AbsenceProcedureGuide'
 import { StudentExcuseCenter } from './StudentExcuses'
 import { CircularsCenter } from './Circulars'
+import { RecipientCirculars } from './TeacherCirculars'
 
 type Student = {
   id: string
@@ -2741,7 +2742,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
 
         {activeNav === 'studentExcuses' && isSchoolManager && <StudentExcuseCenter schoolName={schoolSettings.schoolName} />}
 
-        {activeNav === 'circulars' && isSchoolManager && <CircularsCenter schoolName={schoolSettings.schoolName} />}
+        {activeNav === 'circulars' && isSchoolManager && (account.role === 'admin' ? <CircularsCenter schoolName={schoolSettings.schoolName} /> : <RecipientCirculars schoolName={schoolSettings.schoolName} />)}
 
         {activeNav === 'cooperation' && <TeacherCooperationAdmin schoolName={schoolSettings.schoolName} principalName={schoolSettings.principalName} />}
 

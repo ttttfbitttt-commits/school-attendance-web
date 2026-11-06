@@ -6,7 +6,7 @@ import { CounselorReferralCenter } from './StudentReferrals'
 import { MessageCenter, ReportsCenter } from './SchoolFeatures'
 import { AbsenceProcedureGuide, CounselorAbsenceReferralQueue } from './AbsenceProcedureGuide'
 import { StudentExcuseCenter } from './StudentExcuses'
-import { CircularsCenter } from './Circulars'
+import { RecipientCirculars } from './TeacherCirculars'
 
 type CounselorView = 'home' | 'behavior' | 'referrals' | 'absenceProcedures' | 'studentExcuses' | 'circulars' | 'reports' | 'teachers' | 'students' | 'messages' | 'password'
 
@@ -93,7 +93,7 @@ export function CounselorPortal({ account, onLogout }: { account: Account; onLog
       {view === 'referrals' && <CounselorReferralCenter schoolName={dashboard.schoolName} />}
       {view === 'absenceProcedures' && <><AbsenceProcedureGuide role="counselor" /><CounselorAbsenceReferralQueue /></>}
       {view === 'studentExcuses' && <StudentExcuseCenter schoolName={dashboard.schoolName} />}
-      {view === 'circulars' && <CircularsCenter schoolName={dashboard.schoolName} />}
+      {view === 'circulars' && <RecipientCirculars schoolName={dashboard.schoolName} />}
       {view === 'reports' && <ReportsCenter students={dashboard.students} schoolName={dashboard.schoolName} viewer="counselor" />}
       {view === 'messages' && <MessageCenter students={dashboard.students} attendance={attendance as never[]} schoolName={dashboard.schoolName} />}
       {view === 'teachers' && <section className="counselor-directory"><header><div><span>بيانات المدرسة</span><h2>المعلمون</h2><p>عرض قائمة المعلمين ووسائل التواصل.</p></div><Users size={30} /></header><input value={search} onChange={event => setSearch(event.target.value)} placeholder="ابحث باسم المعلم أو رقم الهوية أو الجوال" /> <div className="counselor-directory-grid">{teachers.map(teacher => <article key={teacher.teacherId}><strong>{teacher.name}</strong><span>رقم الهوية <b dir="ltr">{teacher.identityNumber || '—'}</b></span><small dir="ltr">{teacher.phone || 'لا يوجد رقم جوال'}</small></article>)}</div>{!teachers.length && <p className="teacher-empty">لا يوجد معلمون مطابقون للبحث.</p>}</section>}

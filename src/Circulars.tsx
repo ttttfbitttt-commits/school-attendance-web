@@ -2,12 +2,21 @@ import { useEffect, useState } from 'react'
 import { ChevronDown, ChevronUp, ExternalLink, FileText, Image, Plus, Printer, RefreshCw, Send, Upload, Users } from 'lucide-react'
 import * as pdfjs from 'pdfjs-dist'
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.mjs?url'
-import { api, type CircularRecipient, type SchoolCircular, type SchoolCircularDetail } from './api'
+import { api, type CircularRecipient, type CircularRecipientType, type SchoolCircular, type SchoolCircularDetail } from './api'
 import { formatHijriDate } from './dateUtils'
 import { brandReportHtmlDocument, installReportPdfDownload, reportBrandHeader } from './SchoolFeatures'
 
 const today = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Riyadh' }).format(new Date())
 const esc = (value: unknown) => String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char] || char))
+const optionalRecipientGroups: Array<{ type: Exclude<CircularRecipientType, 'teacher'>; label: string; description: string }> = [
+  { type: 'vice_principal', label: 'وكلاء المدرسة', description: 'إضافة جميع الوكلاء النشطين' },
+  { type: 'counselor', label: 'الموجّهون الطلابيون', description: 'إضافة جميع الموجّهين النشطين' },
+  { type: 'administrator', label: 'الإداريون', description: 'إضافة جميع الإداريين النشطين' },
+  { type: 'activity_leader', label: 'رائد النشاط', description: 'إضافة رائد/رواد النشاط النشطين' },
+]
+const recipientTypeLabel: Record<CircularRecipientType, string> = {
+  teacher: 'معلم', vice_principal: 'وكيل مدرسة', counselor: 'موجّه طلابي', administrator: 'إداري', activity_leader: 'رائد نشاط',
+}
 
 function validWhatsApp(value: string) {
   let phone = value.replace(/\D/g, '')
@@ -76,9 +85,9 @@ function acknowledgementPages(circular: SchoolCircularDetail['circular'], recipi
     const rows = group.map(item => {
       const state = status(item)
       const timing = item.signedAt ? `وقت التوقيع: ${item.signedAt}` : item.sentAt ? `وقت الإرسال: ${item.sentAt}` : 'لم يُرسل الرابط بعد'
-      return `<tr><td class="teacher-cell"><strong>${esc(item.teacherName)}</strong></td><td class="ack-status"><strong>${esc(state.label)}</strong><small>${esc(timing)}</small></td><td class="signature-cell">${item.signatureData ? `<img class="signature" src="${item.signatureData}" alt="توقيع المعلم" />` : '—'}</td></tr>`
+      return `<tr><td class="teacher-cell"><strong>${esc(item.teacherName)}</strong><small>${esc(recipientTypeLabel[item.recipientType])}</small></td><td class="ack-status"><strong>${esc(state.label)}</strong><small>${esc(timing)}</small></td><td class="signature-cell">${item.signatureData ? `<img class="signature" src="${item.signatureData}" alt="توقيع المستلم" />` : '—'}</td></tr>`
     }).join('')
-    return `<section class="page acknowledgement-page">${reportBrandHeader('سجل التوقيع بالعلم على تعميم', schoolName)}<div class="details"><strong>عنوان التعميم:</strong> ${esc(circular.title)}<br><strong>تاريخ التعميم:</strong> ${esc(formatHijriDate(circular.circularDate))}<br><strong>المرفق:</strong> ${esc(circular.fileName)}</div><table><thead><tr><th>المعلم</th><th>حالة التوقيع والإرسال</th><th>التوقيع</th></tr></thead><tbody>${rows || '<tr><td colspan="3">لم تُنشأ روابط المعلمين بعد.</td></tr>'}</tbody></table></section>`
+    return `<section class="page acknowledgement-page">${reportBrandHeader('سجل التوقيع بالعلم على تعميم', schoolName)}<div class="details"><strong>عنوان التعميم:</strong> ${esc(circular.title)}<br><strong>تاريخ التعميم:</strong> ${esc(formatHijriDate(circular.circularDate))}<br><strong>المرفق:</strong> ${esc(circular.fileName)}</div><table><thead><tr><th>المستلم</th><th>حالة التوقيع والإرسال</th><th>التوقيع</th></tr></thead><tbody>${rows || '<tr><td colspan="3">لم تُنشأ روابط المستلمين بعد.</td></tr>'}</tbody></table></section>`
   }).join('')
 }
 
@@ -110,6 +119,7 @@ export function CircularsCenter({ schoolName }: { schoolName: string }) {
   const [title, setTitle] = useState('')
   const [circularDate, setCircularDate] = useState(today)
   const [attachment, setAttachment] = useState<File | null>(null)
+  const [recipientTypes, setRecipientTypes] = useState<CircularRecipientType[]>(['teacher'])
   const [busy, setBusy] = useState('')
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
@@ -134,11 +144,16 @@ export function CircularsCenter({ schoolName }: { schoolName: string }) {
     setBusy('create'); setError(''); setNotice('')
     try {
       const fileData = await readAttachment(attachment)
-      const created = await api.createCircular({ title: title.trim(), circularDate, fileName: attachment.name, fileData })
+      const created = await api.createCircular({ title: title.trim(), circularDate, fileName: attachment.name, fileData, recipientTypes })
       setCirculars(currentRows => [created.circular, ...currentRows])
-      setTitle(''); setAttachment(null); setAdding(false); setNotice(`تم حفظ التعميم وإنشاء سجلات توقيعه لـ ${created.total} من المعلمين. يظهر تلقائيًا في حساب كل معلم لديه حساب دخول، وواتساب خيار إضافي فقط.`)
+      const selectedGroups = optionalRecipientGroups.filter(group => recipientTypes.includes(group.type)).map(group => group.label)
+      setTitle(''); setAttachment(null); setRecipientTypes(['teacher']); setAdding(false); setNotice(`تم حفظ التعميم وإنشاء سجلات توقيعه لـ ${created.total} مستلمًا: المعلمون${selectedGroups.length ? `، ${selectedGroups.join('، ')}` : ''}. يظهر التعميم في الحسابات المرتبطة، وواتساب خيار إضافي فقط.`)
       void openCircular(created.circular.id)
     } catch { setError('تعذر حفظ التعميم. تحقق من الملف ثم أعد المحاولة.') } finally { setBusy('') }
+  }
+
+  const toggleRecipientGroup = (type: Exclude<CircularRecipientType, 'teacher'>) => {
+    setRecipientTypes(current => current.includes(type) ? current.filter(item => item !== type) : [...current, type])
   }
 
   const generateRecipients = async () => {
@@ -148,17 +163,17 @@ export function CircularsCenter({ schoolName }: { schoolName: string }) {
       const result = await api.generateCircularRecipients(detail.circular.id)
       setDetail(currentDetail => currentDetail ? { ...currentDetail, recipients: result.recipients } : currentDetail)
       setCirculars(rows => rows.map(row => row.id === detail.circular.id ? { ...row, recipients: result.recipients.length, pending: result.recipients.filter(item => item.status === 'pending').length, signed: result.recipients.filter(item => item.status === 'signed').length } : row))
-      setNotice(result.generated ? `تم إنشاء روابط ${result.generated} معلمًا من أصل ${result.total}.` : 'روابط المعلمين منشأة مسبقًا؛ يمكنك إرسال أي رابط من القائمة.')
-    } catch { setError('تعذر إنشاء روابط المعلمين. تحقق من وجود معلمين مستوردين في النظام.') } finally { setBusy('') }
+      setNotice(result.generated ? `تم إنشاء روابط ${result.generated} مستلمًا من أصل ${result.total}.` : 'روابط المستلمين منشأة مسبقًا؛ يمكنك إرسال أي رابط من القائمة.')
+    } catch { setError('تعذر إنشاء روابط المستلمين. تحقق من بيانات الفئات المحددة في النظام.') } finally { setBusy('') }
   }
 
   const sendRecipient = async (recipient: CircularRecipient) => {
     if (!detail) return
     const phone = validWhatsApp(recipient.teacherPhone)
-    if (!phone) { setError(`لا يوجد رقم جوال صالح للمعلم ${recipient.teacherName}.`); return }
+    if (!phone) { setError(`لا يوجد رقم جوال صالح لـ ${recipient.teacherName}.`); return }
     setBusy(`send-${recipient.id}`); setError(''); setFallbackLink(null)
     const whatsappTab = window.open('about:blank', '_blank')
-    if (whatsappTab) whatsappTab.document.body.innerHTML = '<main dir="rtl" style="font-family:Tahoma,Arial;padding:32px;text-align:center;color:#075a62">جارٍ تجهيز رسالة واتساب للمعلم…</main>'
+    if (whatsappTab) whatsappTab.document.body.innerHTML = '<main dir="rtl" style="font-family:Tahoma,Arial;padding:32px;text-align:center;color:#075a62">جارٍ تجهيز رسالة واتساب للمستلم…</main>'
     try {
       const sent = await api.sendCircularRecipient(detail.circular.id, recipient.id)
       const message = `الزميل/ـة ${recipient.teacherName}\nيرجى الاطلاع على التعميم التالي ثم التوقيع بالعلم:\n${detail.circular.title}\n${sent.link}`
@@ -176,15 +191,15 @@ export function CircularsCenter({ schoolName }: { schoolName: string }) {
   }
 
   return <section className="circulars-center" dir="rtl">
-    <header className="circulars-hero"><div><span>توثيق إلكتروني للمعلمين</span><h2>التعاميم</h2><p>ارفع التعميم، أنشئ روابط المعلمين، ثم تابع توقيعات العلم والاطلاع من سجل واحد.</p></div><FileText size={38} /></header>
+    <header className="circulars-hero"><div><span>توثيق إلكتروني للمدرسة</span><h2>التعاميم</h2><p>المعلمون هم المستلمون الافتراضيون، ويمكن إضافة فئات المدرسة الأخرى عند الحاجة ثم متابعة التوقيعات من سجل واحد.</p></div><FileText size={38} /></header>
     <div className="circulars-toolbar"><button type="button" className="primary-button" onClick={() => { setAdding(value => !value); setError(''); setNotice('') }}><Plus size={18} /> إضافة تعميم</button><button type="button" className="outline-button" onClick={() => void printAll()} disabled={!circulars.length || busy === 'print-all'}><Printer size={17} /> طباعة جميع التعاميم</button><button type="button" className="outline-button" onClick={() => void load()}><RefreshCw size={17} /> تحديث السجل</button></div>
-    {adding && <section className="circular-create"><header><Upload size={23} /><div><h3>إضافة تعميم رسمي</h3><p>أدخل العنوان وأرفق صورة أو ملف PDF، ثم أنشئ روابط توقيع المعلمين بعد الحفظ.</p></div></header><div className="circular-create-fields"><label>عنوان التعميم<input value={title} onChange={event => setTitle(event.target.value)} placeholder="مثال: تعميم بشأن الانضباط المدرسي" /></label><label>تاريخ التعميم<input type="date" value={circularDate} onChange={event => setCircularDate(event.target.value)} /></label><label className="circular-upload">إرفاق التعميم<input type="file" accept="image/png,image/jpeg,image/webp,application/pdf" onChange={event => setAttachment(event.target.files?.[0] || null)} /><span>{attachment ? attachment.name : 'اختر صورة أو PDF (حتى 8 ميجابايت)'}</span></label><button type="button" className="primary-button" onClick={() => void create()} disabled={busy === 'create'}>{busy === 'create' ? 'جارٍ الحفظ…' : 'حفظ التعميم'}</button></div></section>}
+    {adding && <section className="circular-create"><header><Upload size={23} /><div><h3>إضافة تعميم رسمي</h3><p>المعلمون هم المستلمون الافتراضيون. أضف أي فئة أخرى فقط عند الحاجة لهذا التعميم.</p></div></header><div className="circular-create-fields"><label>عنوان التعميم<input value={title} onChange={event => setTitle(event.target.value)} placeholder="مثال: تعميم بشأن الانضباط المدرسي" /></label><label>تاريخ التعميم<input type="date" value={circularDate} onChange={event => setCircularDate(event.target.value)} /></label><label className="circular-upload">إرفاق التعميم<input type="file" accept="image/png,image/jpeg,image/webp,application/pdf" onChange={event => setAttachment(event.target.files?.[0] || null)} /><span>{attachment ? attachment.name : 'اختر صورة أو PDF (حتى 8 ميجابايت)'}</span></label><button type="button" className="primary-button" onClick={() => void create()} disabled={busy === 'create'}>{busy === 'create' ? 'جارٍ الحفظ…' : 'حفظ التعميم'}</button></div><fieldset className="circular-recipient-options"><legend>المستلمون والتوقيع بالعلم</legend><p>المعلمون مُدرجون دائمًا. حدّد الفئات الإضافية التي تريد أن يصلها هذا التعميم فقط.</p><div><label className="selected"><input type="checkbox" checked disabled />المعلمون <small>افتراضي</small></label>{optionalRecipientGroups.map(group => <label key={group.type}><input type="checkbox" checked={recipientTypes.includes(group.type)} onChange={() => toggleRecipientGroup(group.type)} />{group.label}<small>{group.description}</small></label>)}</div></fieldset></section>}
     {notice && <p className="teacher-notice success">{notice}</p>}{error && <p className="teacher-notice error">{error}</p>}{fallbackLink && <a className="circular-whatsapp-fallback" href={fallbackLink.url} target="_blank" rel="noreferrer"><ExternalLink size={16} />لم يفتح واتساب؟ افتح رسالة {fallbackLink.name} الآن</a>}
-    <section className="circulars-log"><header><div><span>سجل متتابع</span><h3>سجل التعاميم والتوقيعات</h3><p>اضغط على أي صف لعرض تفاصيله. عند فتح تعميم آخر تُغلق التفاصيل السابقة تلقائيًا.</p></div></header>{!circulars.length ? <p className="teacher-empty">لا توجد تعاميم حتى الآن.</p> : <div className="circulars-list">{circulars.map(row => <article key={row.id} className={openId === row.id ? 'open' : ''}><button type="button" className="circular-summary" onClick={() => void openCircular(row.id)}><span className="circular-summary-icon">{row.fileType === 'application/pdf' ? <FileText size={20} /> : <Image size={20} />}</span><div><strong>{row.title}</strong><small>{formatHijriDate(row.circularDate)} · {row.fileName}</small></div><div className="circular-counts"><span>المعلمون {row.recipients}</span><b>{row.signed} وقّعوا</b><em>{row.pending} بانتظار التوقيع</em></div>{openId === row.id ? <ChevronUp size={20} /> : <ChevronDown size={20} />}</button>{openId === row.id && <div className="circular-detail">{busy === `open-${row.id}` || !detail ? <p className="teacher-empty">جارٍ تحميل تفاصيل التعميم…</p> : <CircularDetail detail={detail} generating={busy === 'generate'} onGenerate={() => void generateRecipients()} onSend={recipient => void sendRecipient(recipient)} busy={busy} onPrint={() => { void circularReport([detail], schoolName).catch(() => window.alert('تعذر تجهيز التعميم كاملاً للطباعة. تحقق من الملف ثم أعد المحاولة.')) }} />}</div>}</article>)}</div>}</section>
+    <section className="circulars-log"><header><div><span>سجل متتابع</span><h3>سجل التعاميم والتوقيعات</h3><p>اضغط على أي صف لعرض تفاصيله. عند فتح تعميم آخر تُغلق التفاصيل السابقة تلقائيًا.</p></div></header>{!circulars.length ? <p className="teacher-empty">لا توجد تعاميم حتى الآن.</p> : <div className="circulars-list">{circulars.map(row => <article key={row.id} className={openId === row.id ? 'open' : ''}><button type="button" className="circular-summary" onClick={() => void openCircular(row.id)}><span className="circular-summary-icon">{row.fileType === 'application/pdf' ? <FileText size={20} /> : <Image size={20} />}</span><div><strong>{row.title}</strong><small>{formatHijriDate(row.circularDate)} · {row.fileName}</small></div><div className="circular-counts"><span>المستلمون {row.recipients}</span><b>{row.signed} وقّعوا</b><em>{row.pending} بانتظار التوقيع</em></div>{openId === row.id ? <ChevronUp size={20} /> : <ChevronDown size={20} />}</button>{openId === row.id && <div className="circular-detail">{busy === `open-${row.id}` || !detail ? <p className="teacher-empty">جارٍ تحميل تفاصيل التعميم…</p> : <CircularDetail detail={detail} generating={busy === 'generate'} onGenerate={() => void generateRecipients()} onSend={recipient => void sendRecipient(recipient)} busy={busy} onPrint={() => { void circularReport([detail], schoolName).catch(() => window.alert('تعذر تجهيز التعميم كاملاً للطباعة. تحقق من الملف ثم أعد المحاولة.')) }} />}</div>}</article>)}</div>}</section>
   </section>
 }
 
 function CircularDetail({ detail, generating, onGenerate, onSend, busy, onPrint }: { detail: SchoolCircularDetail; generating: boolean; onGenerate: () => void; onSend: (recipient: CircularRecipient) => void; busy: string; onPrint: () => void }) {
   const { circular, recipients } = detail
-  return <><div className="circular-detail-actions"><button type="button" className="primary-button" onClick={onGenerate} disabled={generating}><Users size={17} />{generating ? 'جارٍ إنشاء الروابط…' : recipients.length ? 'مراجعة روابط المعلمين' : 'إنشاء روابط المعلمين'}</button><button type="button" className="outline-button" onClick={onPrint}><Printer size={16} /> طباعة هذا التعميم</button></div><section className="circular-attachment-preview"><header><strong>مرفق التعميم</strong><small>{circular.fileName}</small></header>{circular.fileType === 'application/pdf' ? <object data={circular.fileData} type="application/pdf">يتعذر عرض PDF في هذا المتصفح.</object> : <img src={circular.fileData} alt={`تعميم: ${circular.title}`} />}</section>{recipients.length > 0 && <div className="circular-recipients"><header><strong>المعلمون ({recipients.length})</strong><span>وقّع {recipients.filter(item => item.status === 'signed').length} · بانتظار {recipients.filter(item => item.status === 'pending').length}</span></header>{recipients.map(recipient => { const state = status(recipient); return <article key={recipient.id}><div><strong>{recipient.teacherName}</strong><small dir="ltr">{recipient.teacherPhone || 'لا يوجد رقم جوال'}</small></div><span className={`circular-recipient-status ${state.tone}`}>{state.label}</span><time>{recipient.signedAt ? `وقّع: ${recipient.signedAt}` : recipient.sentAt ? `أرسل: ${recipient.sentAt}` : 'لم يُرسل بعد'}</time>{recipient.status === 'signed' && recipient.signatureData ? <img src={recipient.signatureData} alt="توقيع المعلم" /> : <button type="button" className="outline-button" onClick={() => onSend(recipient)} disabled={!validWhatsApp(recipient.teacherPhone) || busy === `send-${recipient.id}`}><Send size={15} />{busy === `send-${recipient.id}` ? 'جارٍ التجهيز…' : 'إرسال واتساب'}</button>}</article> })}</div>}</>
+  return <><div className="circular-detail-actions"><button type="button" className="primary-button" onClick={onGenerate} disabled={generating}><Users size={17} />{generating ? 'جارٍ إنشاء الروابط…' : recipients.length ? 'مراجعة روابط المستلمين' : 'إنشاء روابط المستلمين'}</button><button type="button" className="outline-button" onClick={onPrint}><Printer size={16} /> طباعة هذا التعميم</button></div><section className="circular-attachment-preview"><header><strong>مرفق التعميم</strong><small>{circular.fileName}</small></header>{circular.fileType === 'application/pdf' ? <object data={circular.fileData} type="application/pdf">يتعذر عرض PDF في هذا المتصفح.</object> : <img src={circular.fileData} alt={`تعميم: ${circular.title}`} />}</section>{recipients.length > 0 && <div className="circular-recipients"><header><strong>المستلمون ({recipients.length})</strong><span>وقّع {recipients.filter(item => item.status === 'signed').length} · بانتظار {recipients.filter(item => item.status === 'pending').length}</span></header>{recipients.map(recipient => { const state = status(recipient); return <article key={recipient.id}><div><strong>{recipient.teacherName}</strong><small>{recipientTypeLabel[recipient.recipientType]} · <b dir="ltr">{recipient.teacherPhone || 'لا يوجد رقم جوال'}</b></small></div><span className={`circular-recipient-status ${state.tone}`}>{state.label}</span><time>{recipient.signedAt ? `وقّع: ${recipient.signedAt}` : recipient.sentAt ? `أرسل: ${recipient.sentAt}` : 'لم يُرسل بعد'}</time>{recipient.status === 'signed' && recipient.signatureData ? <img src={recipient.signatureData} alt="توقيع المستلم" /> : <button type="button" className="outline-button" onClick={() => onSend(recipient)} disabled={!validWhatsApp(recipient.teacherPhone) || busy === `send-${recipient.id}`}><Send size={15} />{busy === `send-${recipient.id}` ? 'جارٍ التجهيز…' : 'إرسال واتساب'}</button>}</article> })}</div>}</>
 }
