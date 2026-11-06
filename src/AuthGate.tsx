@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
-import { BarChart3, CalendarCheck2, GraduationCap, LockKeyhole, MessageSquareText, School, UserRound, Users } from 'lucide-react'
+import { BarChart3, BellRing, CalendarCheck2, CalendarRange, ClipboardCheck, FileText, GraduationCap, LockKeyhole, School, UserRound } from 'lucide-react'
 import { api, type Account, type LoginChoice } from './api'
 import { cacheReportSchoolBrand, clearReportSchoolBrand } from './SchoolFeatures'
 
@@ -34,10 +34,12 @@ export function AuthGate({ children }: { children: (account: Account, logout: ()
   const [schoolEmail, setSchoolEmail] = useState('')
   const [schoolPassword, setSchoolPassword] = useState('')
   const featureHighlights = useMemo(() => [
-    { title: 'حضور ذكي', description: 'تسجيل سريع للطلاب والحضور', blurb: 'متابعة حضور الطلاب في ثوانٍ مع تفعيل الحضور والغياب تلقائيًا.', icon: <CalendarCheck2 size={18} /> },
-    { title: 'تقارير دقيقة', description: 'مؤشرات فهم ومتابعة', blurb: 'تقارير دورية للمعلمين والإدارة لتتبع الأداء الأكاديمي والمهام.', icon: <BarChart3 size={18} /> },
-    { title: 'تواصل فوري', description: 'رسائل للطلاب وأولياء الأمور', blurb: 'بث رسائلك مباشرة مع تنبيهات الحضور والغياب والاعتمادات.', icon: <MessageSquareText size={18} /> },
-    { title: 'إدارة مدرسية', description: 'طلاب ومعلمون وسجلات', blurb: 'إدارة الفصول، المعلمين، الصفوف، والملفات في منصّة موحّدة.', icon: <Users size={18} /> },
+    { title: 'حضور ذكي', description: 'تسجيل سريع للطلاب', blurb: 'متابعة حضور الطالب في ثوانٍ مع تسجيل الأنشطة والغياب بشكل فوري ودقيق.', icon: <CalendarCheck2 size={18} /> },
+    { title: 'تقارير دقيقة', description: 'مؤشرات الأداء', blurb: 'تقارير شاملة للمعلمين والإدارة لمتابعة الطلاب والدرجات والسلوك والغياب.', icon: <BarChart3 size={18} /> },
+    { title: 'تواصل فوري', description: 'رسائل وتعليمات', blurb: 'إرسال التعاميم والرسائل إلى أولياء الأمور والطلاب من نفس المنصة.', icon: <BellRing size={18} /> },
+    { title: 'استئذان الطلاب', description: 'إدارة الطلبات', blurb: 'متابعة استئذان الطلاب وتسجيل الحالات بسرعة مع توثيقها ومنع الخلط.', icon: <ClipboardCheck size={18} /> },
+    { title: 'جدولة الحصص', description: 'جداول مرنة', blurb: 'إنشاء الجداول، توزيع الحصص، وتحديث المواعيد بسهولة عبر واجهة مدرسية مرنة.', icon: <CalendarRange size={18} /> },
+    { title: 'التعاميم', description: 'إتصال مؤسسي', blurb: 'إرسال التعاميم الرسمية داخل المدرسة مع متابعة المسار والتأكيد والتنظيم.', icon: <FileText size={18} /> },
   ], [])
   const [featureIndex, setFeatureIndex] = useState(0)
 

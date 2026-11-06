@@ -33,6 +33,18 @@
   .auth-card { order: 1; }
 }
 
+@media (max-width: 640px) {
+  .auth-page { padding: 16px; }
+  .auth-shell { gap: 14px; }
+  .auth-visual { padding: 0; }
+  .auth-metrics-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .auth-feature-card { padding: 10px 12px; }
+  .auth-card { padding: 24px 18px; border-radius: 22px; }
+  .auth-card h1 { font-size: 22px; }
+  .auth-feature-glance { grid-template-columns: 36px 1fr; }
+  .auth-glance-icon, .auth-feature-icon { width: 36px; height: 36px; }
+}
+
 @media (max-width: 720px) {
   .teacher-portal { display:block; }
   .teacher-sidebar { position:fixed; z-index:80; top:0; right:0; bottom:0; width:min(280px,88vw); min-height:0; border-radius:0 0 0 18px; transform:translateX(105%); transition:transform .2s ease; }
@@ -58,9 +70,9 @@
 .auth-page { position:relative; isolation:isolate; overflow-x:hidden; background:#eaf4fb; }
 .auth-page::before { content:""; position:absolute; z-index:-2; inset:-10px; background:url('/login-school-background.png') center 44% / cover no-repeat; filter:blur(2px) saturate(.86); transform:scale(1.025); }
 .auth-page::after { content:""; position:absolute; z-index:-1; inset:0; background:linear-gradient(118deg,rgba(244,250,253,.84) 0%,rgba(239,248,252,.77) 44%,rgba(231,243,250,.70) 100%); }
-.auth-shell { position:relative; z-index:1; width:min(1180px, 100%); display:grid; grid-template-columns:minmax(260px, 1.1fr) minmax(320px, 430px); align-items:center; justify-content:center; gap:32px; }
+.auth-shell { position:relative; z-index:1; width:min(1200px, 100%); display:grid; grid-template-columns:minmax(300px, 1.1fr) minmax(320px, 430px); align-items:center; justify-content:center; gap:34px; }
 .auth-card { position:relative; z-index:1; width:min(100%, 430px); background:rgba(255,255,255,.93); border:1px solid rgba(255,255,255,.78); border-radius:28px; padding:34px; box-shadow:0 24px 58px rgba(10,44,76,.22),0 4px 12px rgba(10,44,76,.08); backdrop-filter:blur(15px); -webkit-backdrop-filter:blur(15px); text-align:right; }
-.auth-visual { display:grid; gap:18px; justify-self:stretch; padding:12px 8px; }
+.auth-visual { display:grid; gap:18px; justify-self:stretch; padding:10px 8px; }
 .auth-visual-topbar { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:4px 0; }
 .auth-visual-brand { color:#0a2d4c; font-weight:800; font-size:16px; letter-spacing:0.02em; }
 .auth-visual-badge { display:inline-flex; align-items:center; padding:6px 10px; border-radius:999px; border:1px solid rgba(20,118,201,.25); background:rgba(232,246,255,.9); color:#0f5d9a; font-size:12px; font-weight:700; }
