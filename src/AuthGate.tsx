@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
-import { LockKeyhole, School, UserRound } from 'lucide-react'
+import { BarChart3, CalendarCheck2, GraduationCap, LockKeyhole, MessageSquareText, School, UserRound, Users } from 'lucide-react'
 import { api, type Account, type LoginChoice } from './api'
 import { cacheReportSchoolBrand, clearReportSchoolBrand } from './SchoolFeatures'
 
@@ -33,6 +33,18 @@ export function AuthGate({ children }: { children: (account: Account, logout: ()
   const [administratorName, setAdministratorName] = useState('')
   const [schoolEmail, setSchoolEmail] = useState('')
   const [schoolPassword, setSchoolPassword] = useState('')
+  const featureHighlights = useMemo(() => [
+    { title: 'حضور ذكي', description: 'تسجيل سريع للطلاب والحضور', blurb: 'متابعة حضور الطلاب في ثوانٍ مع تفعيل الحضور والغياب تلقائيًا.', icon: <CalendarCheck2 size={18} /> },
+    { title: 'تقارير دقيقة', description: 'مؤشرات فهم ومتابعة', blurb: 'تقارير دورية للمعلمين والإدارة لتتبع الأداء الأكاديمي والمهام.', icon: <BarChart3 size={18} /> },
+    { title: 'تواصل فوري', description: 'رسائل للطلاب وأولياء الأمور', blurb: 'بث رسائلك مباشرة مع تنبيهات الحضور والغياب والاعتمادات.', icon: <MessageSquareText size={18} /> },
+    { title: 'إدارة مدرسية', description: 'طلاب ومعلمون وسجلات', blurb: 'إدارة الفصول، المعلمين، الصفوف، والملفات في منصّة موحّدة.', icon: <Users size={18} /> },
+  ], [])
+  const [featureIndex, setFeatureIndex] = useState(0)
+
+  useEffect(() => {
+    const timer = window.setInterval(() => setFeatureIndex(index => (index + 1) % featureHighlights.length), 3000)
+    return () => window.clearInterval(timer)
+  }, [featureHighlights.length])
 
   useEffect(() => {
     api.me().then(({ user }) => setAccount(user)).catch(() => {}).finally(() => setLoading(false))
@@ -160,40 +172,74 @@ export function AuthGate({ children }: { children: (account: Account, logout: ()
   </section></main>
   if (account) return <>{children(account, logout)}</>
 
-  return <main className="auth-page" dir="rtl"><section className="auth-card">
-    <div className="auth-icon"><School size={30} /></div>
-    <h1>{registering ? 'تسجيل مدرسة جديدة' : 'نظام الحصر'}</h1>
-    <p>{registering ? 'أدخل بيانات المدرسة والمسؤول لإرسال رابط التأكيد.' : 'أدخل رقم الهوية أو بريد المدرسة وكلمة المرور للوصول إلى حسابك.'}</p>
+  return <main className="auth-page" dir="rtl">
+    <div className="auth-shell">
+      <aside className="auth-visual" aria-label="خدمات النظام">
+        <div className="auth-visual-topbar">
+          <span className="auth-visual-brand">نظام الحصر</span>
+          <span className="auth-visual-badge">+15 خدمة</span>
+        </div>
+        <div className="auth-metrics-grid" aria-label="مؤشرات النظام">
+          <div className="auth-metric"><strong>24/7</strong><span>متابعة مستمرة</span></div>
+          <div className="auth-metric"><strong>99%</strong><span>دقة الحضور</span></div>
+          <div className="auth-metric"><strong>3x</strong><span>تسريع العمل</span></div>
+        </div>
+        <div className="auth-feature-list">
+          {featureHighlights.map((feature, index) => (
+            <div key={feature.title} className={`auth-feature-card ${featureIndex === index ? 'active' : ''}`}>
+              <div className="auth-feature-icon">{feature.icon}</div>
+              <div className="auth-feature-copy">
+                <strong>{feature.title}</strong>
+                <small>{feature.description}</small>
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="auth-feature-glance">
+          <div className="auth-glance-icon"><GraduationCap size={18} /></div>
+          <div>
+            <strong>{featureHighlights[featureIndex].title}</strong>
+            <p>{featureHighlights[featureIndex].blurb}</p>
+          </div>
+        </div>
+      </aside>
 
-    {loginChoices.length > 0 && !registering ? <section className="auth-login-choices" aria-live="polite">
-      <h2>اختر الحساب المطلوب</h2>
-      <p>توجد أكثر من بوابة مرتبطة بهذه البيانات.</p>
-      {loginChoices.map(choice => <button type="button" key={`${choice.userId}-${choice.schoolId}-${choice.role}`} disabled={submitting} onClick={() => void submitLogin(choice)}>
-        <span>{roleLabel[choice.role]}</span>
-        <small>{choice.schoolName}</small>
-      </button>)}
-      <button type="button" className="auth-back" onClick={resetLoginState}>العودة وتعديل البيانات</button>
-    </section> : <form onSubmit={submit} autoComplete="on">
-      {registering ? <>
-        <label><UserRound size={16} /> اسم المسؤول<input name="name" value={administratorName} onChange={event => setAdministratorName(event.target.value)} required /></label>
-        <label><School size={16} /> اسم المدرسة<input name="school" value={schoolName} onChange={event => setSchoolName(event.target.value)} required /></label>
-        <label>الإدارة العامة للتعليم في المنطقة<input name="generalEducationAdministration" value={generalEducationAdministration} onChange={event => setGeneralEducationAdministration(event.target.value)} placeholder="مثال: الإدارة العامة للتعليم بمنطقة الرياض" /></label>
-        <label>البريد الإلكتروني<input name="email" type="email" autoComplete="section-school email" value={schoolEmail} onChange={event => setSchoolEmail(event.target.value)} required /></label>
-        <label><LockKeyhole size={16} /> كلمة المرور<input name="schoolPassword" type="password" autoComplete="section-school new-password" value={schoolPassword} onChange={event => setSchoolPassword(event.target.value)} minLength={12} required /></label>
-        <small>استخدم 12 حرفًا على الأقل.</small>
-      </> : <>
-        <label><UserRound size={16} /> رقم الهوية أو بريد المدرسة<input name="identifier" type="text" autoComplete="username" autoCapitalize="none" enterKeyHint="next" value={identifier} onChange={event => { setIdentifier(event.target.value); resetLoginState() }} required /></label>
-        <label><LockKeyhole size={16} /> كلمة المرور<input name="password" type="password" autoComplete="current-password" enterKeyHint="go" value={password} onChange={event => { setPassword(event.target.value); resetLoginState() }} minLength={8} required /></label>
-      </>}
-      {registrationSent && <div className="auth-success" role="status">إذا كان البريد صالحًا وغير مسجل، أرسلنا رابط تأكيد. افتحه واضغط زر التأكيد لإكمال التسجيل.</div>}
-      {error && <div className="auth-error">{error}</div>}
-      <button className="auth-submit" type="submit" disabled={submitting}>{submitting ? 'جارٍ التنفيذ…' : registering ? registrationSent ? 'إعادة إرسال رابط التأكيد' : 'إرسال رابط التأكيد' : 'دخول'}</button>
-    </form>}
+      <section className="auth-card">
+        <div className="auth-icon"><School size={30} /></div>
+        <h1>{registering ? 'تسجيل مدرسة جديدة' : 'نظام الحصر'}</h1>
+        <p>{registering ? 'أدخل بيانات المدرسة والمسؤول لإرسال رابط التأكيد.' : 'أدخل رقم الهوية أو بريد المدرسة وكلمة المرور للوصول إلى حسابك.'}</p>
 
-    <div className="auth-footer-action">
-      {registering
-        ? <button className="auth-back" type="button" onClick={openLogin}>لديك حساب؟ تسجيل الدخول</button>
-        : <button className="auth-register-link" type="button" onClick={openRegistration}>تسجيل مدرسة جديدة</button>}
+        {loginChoices.length > 0 && !registering ? <section className="auth-login-choices" aria-live="polite">
+          <h2>اختر الحساب المطلوب</h2>
+          <p>توجد أكثر من بوابة مرتبطة بهذه البيانات.</p>
+          {loginChoices.map(choice => <button type="button" key={`${choice.userId}-${choice.schoolId}-${choice.role}`} disabled={submitting} onClick={() => void submitLogin(choice)}>
+            <span>{roleLabel[choice.role]}</span>
+            <small>{choice.schoolName}</small>
+          </button>)}
+          <button type="button" className="auth-back" onClick={resetLoginState}>العودة وتعديل البيانات</button>
+        </section> : <form onSubmit={submit} autoComplete="on">
+          {registering ? <>
+            <label><UserRound size={16} /> اسم المسؤول<input name="name" value={administratorName} onChange={event => setAdministratorName(event.target.value)} required /></label>
+            <label><School size={16} /> اسم المدرسة<input name="school" value={schoolName} onChange={event => setSchoolName(event.target.value)} required /></label>
+            <label>الإدارة العامة للتعليم في المنطقة<input name="generalEducationAdministration" value={generalEducationAdministration} onChange={event => setGeneralEducationAdministration(event.target.value)} placeholder="مثال: الإدارة العامة للتعليم بمنطقة الرياض" /></label>
+            <label>البريد الإلكتروني<input name="email" type="email" autoComplete="section-school email" value={schoolEmail} onChange={event => setSchoolEmail(event.target.value)} required /></label>
+            <label><LockKeyhole size={16} /> كلمة المرور<input name="schoolPassword" type="password" autoComplete="section-school new-password" value={schoolPassword} onChange={event => setSchoolPassword(event.target.value)} minLength={12} required /></label>
+            <small>استخدم 12 حرفًا على الأقل.</small>
+          </> : <>
+            <label><UserRound size={16} /> رقم الهوية أو بريد المدرسة<input name="identifier" type="text" autoComplete="username" autoCapitalize="none" enterKeyHint="next" value={identifier} onChange={event => { setIdentifier(event.target.value); resetLoginState() }} required /></label>
+            <label><LockKeyhole size={16} /> كلمة المرور<input name="password" type="password" autoComplete="current-password" enterKeyHint="go" value={password} onChange={event => { setPassword(event.target.value); resetLoginState() }} minLength={8} required /></label>
+          </>}
+          {registrationSent && <div className="auth-success" role="status">إذا كان البريد صالحًا وغير مسجل، أرسلنا رابط تأكيد. افتحه واضغط زر التأكيد لإكمال التسجيل.</div>}
+          {error && <div className="auth-error">{error}</div>}
+          <button className="auth-submit" type="submit" disabled={submitting}>{submitting ? 'جارٍ التنفيذ…' : registering ? registrationSent ? 'إعادة إرسال رابط التأكيد' : 'إرسال رابط التأكيد' : 'دخول'}</button>
+        </form>}
+
+        <div className="auth-footer-action">
+          {registering
+            ? <button className="auth-back" type="button" onClick={openLogin}>لديك حساب؟ تسجيل الدخول</button>
+            : <button className="auth-register-link" type="button" onClick={openRegistration}>تسجيل مدرسة جديدة</button>}
+        </div>
+      </section>
     </div>
-  </section></main>
+  </main>
 }
