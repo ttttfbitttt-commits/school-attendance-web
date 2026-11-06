@@ -6,6 +6,7 @@
 .circular-recipient-options label.selected { border-color: #86cfc3; background: #e8f8f2; cursor: default; }
 .circular-recipient-options input { width: 17px; height: 17px; accent-color: #078573; }
 .circular-recipient-options small { display: block; width: 100%; padding-inline-start: 24px; color: #6c8585; font-size: 10px; font-weight: 500; }
+.administrator-circulars-switcher { margin-bottom: 16px; }
 @media (max-width: 940px) { .circular-recipient-options > div { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
 @media (max-width: 640px) { .circular-recipient-options > div { grid-template-columns: 1fr; } }
 

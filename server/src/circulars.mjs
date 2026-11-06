@@ -91,7 +91,8 @@ function recipientIdentity(user) {
   if (user?.role === 'vice_principal' && validUuid(user.vice_principal_id)) return { type: 'vice_principal', id: user.vice_principal_id }
   if (user?.role === 'counselor' && validUuid(user.counselor_id)) return { type: 'counselor', id: user.counselor_id }
   if (user?.role === 'activity_leader' && validUuid(user.activity_leader_id)) return { type: 'activity_leader', id: user.activity_leader_id }
-  if (user?.role === 'administrator' && user.circulars_access === true && validUuid(user.administrator_id)) return { type: 'administrator', id: user.administrator_id }
+  // كل إداري نشط يستطيع الاطلاع والتوقيع إذا وُجّه إليه التعميم؛ صلاحية circulars_access تخص الإدارة والإرسال فقط.
+  if (user?.role === 'administrator' && validUuid(user.administrator_id)) return { type: 'administrator', id: user.administrator_id }
   return null
 }
 function validSignature(value) { return /^data:image\/png;base64,[A-Za-z0-9+/=]+$/.test(String(value || '')) && String(value).length <= 1_600_000 }
