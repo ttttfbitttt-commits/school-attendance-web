@@ -1816,7 +1816,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
     if (group) setOpenNavGroup(group)
     setIsMobileMenuOpen(false)
   }
-  const pageLabel = activeNav === 'dashboard' ? 'إعدادات المدرسة' : activeNav === 'attendance' ? 'سجل الحضور' : activeNav === 'absenceProcedures' ? 'إجراءات التعامل مع الغياب' : activeNav === 'studentExcuses' ? 'استئذان الطلاب' : activeNav === 'circulars' ? 'التعاميم' : activeNav === 'cooperation' ? 'المعلم المتعاون' : activeNav === 'behavior' ? 'سجل السلوك' : activeNav === 'lessons' ? 'سير الحصص' : activeNav === 'teachers' ? 'المعلمون' : activeNav === 'administrators' ? 'الإداريون' : activeNav === 'counselors' ? 'الموجّه الطلابي' : activeNav === 'vicePrincipals' ? 'وكلاء المدرسة' : activeNav === 'activityLeaders' ? 'رائد النشاط' : activeNav === 'studentPortal' ? 'بوابة الطلاب' : activeNav === 'referrals' ? 'إحالات الطلاب' : activeNav === 'reports' ? 'التقارير' : activeNav === 'messages' ? 'الرسائل' : activeNav === 'backup' ? 'النسخ الاحتياطي والاستعادة' : 'إدارة الطلاب'
+  const pageLabel = activeNav === 'dashboard' ? (account.role === 'vice_principal' ? 'الرئيسية' : 'إعدادات المدرسة') : activeNav === 'attendance' ? 'سجل الحضور' : activeNav === 'absenceProcedures' ? 'إجراءات التعامل مع الغياب' : activeNav === 'studentExcuses' ? 'استئذان الطلاب' : activeNav === 'circulars' ? 'التعاميم' : activeNav === 'cooperation' ? 'المعلم المتعاون' : activeNav === 'behavior' ? 'سجل السلوك' : activeNav === 'lessons' ? 'سير الحصص' : activeNav === 'teachers' ? 'المعلمون' : activeNav === 'administrators' ? 'الإداريون' : activeNav === 'counselors' ? 'الموجّه الطلابي' : activeNav === 'vicePrincipals' ? 'وكلاء المدرسة' : activeNav === 'activityLeaders' ? 'رائد النشاط' : activeNav === 'studentPortal' ? 'بوابة الطلاب' : activeNav === 'referrals' ? 'إحالات الطلاب' : activeNav === 'reports' ? 'التقارير' : activeNav === 'messages' ? 'الرسائل' : activeNav === 'backup' ? 'النسخ الاحتياطي والاستعادة' : 'إدارة الطلاب'
   return (
     <div className="app-shell" dir="rtl">
       {passwordChangeRequired && <div className="counselor-dialog-backdrop" role="dialog" aria-modal="true" aria-labelledby="vice-principal-password-title">
@@ -1874,7 +1874,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
 
         <nav className="sidebar-nav" aria-label="التنقل الرئيسي">
           <button className={activeNav === 'dashboard' ? 'nav-item active' : 'nav-item'} onClick={() => selectNavigation('dashboard')}>
-            <LayoutDashboard size={18} /><span>لوحة التحكم والإعدادات</span>
+            <LayoutDashboard size={18} /><span>{account.role === 'vice_principal' ? 'الرئيسية' : 'لوحة التحكم والإعدادات'}</span>
           </button>
 
           <SidebarGroup title="الطلاب" open={openNavGroup === 'students'} onToggle={() => setOpenNavGroup(current => current === 'students' ? '' : 'students')}>

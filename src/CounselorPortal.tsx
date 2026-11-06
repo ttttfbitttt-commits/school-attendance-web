@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ClipboardList, FileText, GraduationCap, Home, KeyRound, LockKeyhole, LogOut, Menu, MessageSquare, RefreshCw, Send, ShieldAlert, UserRound, Users, X } from 'lucide-react'
+import { ChevronDown, ClipboardList, FileText, GraduationCap, Home, KeyRound, LockKeyhole, LogOut, Menu, MessageSquare, RefreshCw, Send, ShieldAlert, UserRound, Users, X } from 'lucide-react'
 import { api, type Account, type CounselorPortalDashboard } from './api'
 import { BehaviorCenter } from './BehaviorCenter'
 import { CounselorReferralCenter } from './StudentReferrals'
@@ -24,10 +24,29 @@ const nav: Array<{ id: CounselorView; label: string; icon: typeof Home }> = [
   { id: 'password', label: 'كلمة المرور', icon: KeyRound },
 ]
 
+type CounselorNavGroup = 'students' | 'staff' | 'operations' | 'communication' | 'account'
+
+function counselorNavGroupFor(view: CounselorView): CounselorNavGroup | '' {
+  if (['students', 'behavior', 'referrals', 'studentExcuses'].includes(view)) return 'students'
+  if (view === 'teachers') return 'staff'
+  if (['absenceProcedures', 'circulars'].includes(view)) return 'operations'
+  if (['messages', 'reports'].includes(view)) return 'communication'
+  if (view === 'password') return 'account'
+  return ''
+}
+
+function CounselorSidebarGroup({ title, open, onToggle, children }: { title: string; open: boolean; onToggle: () => void; children: React.ReactNode }) {
+  return <section className={open ? 'counselor-nav-group open' : 'counselor-nav-group'}>
+    <button type="button" className="counselor-nav-group-toggle" onClick={onToggle} aria-expanded={open}><span>{title}</span><ChevronDown size={16} /></button>
+    {open && <div className="counselor-nav-group-items">{children}</div>}
+  </section>
+}
+
 export function CounselorPortal({ account, onLogout }: { account: Account; onLogout: () => void }) {
   const [dashboard, setDashboard] = useState<CounselorPortalDashboard | null>(null)
   const [view, setView] = useState<CounselorView>('home')
   const [menuOpen, setMenuOpen] = useState(false)
+  const [openNavGroup, setOpenNavGroup] = useState<CounselorNavGroup | ''>('')
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [newPassword, setNewPassword] = useState('')
@@ -70,7 +89,13 @@ export function CounselorPortal({ account, onLogout }: { account: Account; onLog
     const value = search.trim()
     return value ? (dashboard?.teachers || []).filter(row => `${row.name} ${row.identityNumber} ${row.phone}`.includes(value)) : dashboard?.teachers || []
   }, [dashboard, search])
-  const go = (next: CounselorView) => { setView(next); setMenuOpen(false); setSearch('') }
+  const go = (next: CounselorView) => {
+    setView(next)
+    const group = counselorNavGroupFor(next)
+    if (group) setOpenNavGroup(group)
+    setMenuOpen(false)
+    setSearch('')
+  }
 
   if (loading) return <main className="counselor-loading" dir="rtl">جارٍ تجهيز بوابة الموجّه الطلابي…</main>
   if (error || !dashboard) return <main className="counselor-load-error" dir="rtl"><ShieldAlert size={34} /><h1>بوابة الموجّه الطلابي</h1><p>{error || 'تعذر تحميل البيانات.'}</p><button className="primary-button" onClick={() => void load()}><RefreshCw size={16} /> تحديث البيانات</button><button className="outline-button" onClick={onLogout}>تسجيل الخروج</button></main>
@@ -81,7 +106,29 @@ export function CounselorPortal({ account, onLogout }: { account: Account; onLog
     <button type="button" className="student-mobile-menu" onClick={() => setMenuOpen(true)} aria-label="فتح القائمة"><Menu size={21} /></button>
     <aside className={`student-sidebar${menuOpen ? ' open' : ''}`}>
       <div className="student-brand"><UserRound size={24} /><div><strong>بوابة الموجّه الطلابي</strong><small>{dashboard.counselor.name}</small></div><button type="button" onClick={() => setMenuOpen(false)} aria-label="إغلاق القائمة"><X size={18} /></button></div>
-      <nav>{nav.map(item => { const Icon = item.icon; return <button key={item.id} type="button" className={view === item.id ? 'active' : ''} onClick={() => go(item.id)}><Icon size={18} />{item.label}{(item.id === 'absenceProcedures' || item.id === 'circulars') && <b className="absence-procedure-new-badge">جديد</b>}</button> })}</nav>
+      <nav className="counselor-sidebar-nav" aria-label="التنقل الرئيسي للموجّه">
+        <button type="button" className={view === 'home' ? 'active' : ''} onClick={() => go('home')}><Home size={18} />الرئيسية</button>
+        <CounselorSidebarGroup title="الطلاب" open={openNavGroup === 'students'} onToggle={() => setOpenNavGroup(current => current === 'students' ? '' : 'students')}>
+          <button type="button" className={view === 'students' ? 'active' : ''} onClick={() => go('students')}><GraduationCap size={18} />الطلاب</button>
+          <button type="button" className={view === 'studentExcuses' ? 'active' : ''} onClick={() => go('studentExcuses')}><ClipboardList size={18} />استئذان الطلاب</button>
+          <button type="button" className={view === 'behavior' ? 'active' : ''} onClick={() => go('behavior')}><ShieldAlert size={18} />سجل السلوك</button>
+          <button type="button" className={view === 'referrals' ? 'active' : ''} onClick={() => go('referrals')}><Send size={18} />إحالات الطلاب</button>
+        </CounselorSidebarGroup>
+        <CounselorSidebarGroup title="الكادر المدرسي" open={openNavGroup === 'staff'} onToggle={() => setOpenNavGroup(current => current === 'staff' ? '' : 'staff')}>
+          <button type="button" className={view === 'teachers' ? 'active' : ''} onClick={() => go('teachers')}><Users size={18} />المعلمون</button>
+        </CounselorSidebarGroup>
+        <CounselorSidebarGroup title="التشغيل اليومي" open={openNavGroup === 'operations'} onToggle={() => setOpenNavGroup(current => current === 'operations' ? '' : 'operations')}>
+          <button type="button" className={view === 'absenceProcedures' ? 'active' : ''} onClick={() => go('absenceProcedures')}><ClipboardList size={18} />إجراءات التعامل مع الغياب <b className="absence-procedure-new-badge">جديد</b></button>
+          <button type="button" className={view === 'circulars' ? 'active' : ''} onClick={() => go('circulars')}><FileText size={18} />التعاميم <b className="absence-procedure-new-badge">جديد</b></button>
+        </CounselorSidebarGroup>
+        <CounselorSidebarGroup title="التواصل والتقارير" open={openNavGroup === 'communication'} onToggle={() => setOpenNavGroup(current => current === 'communication' ? '' : 'communication')}>
+          <button type="button" className={view === 'messages' ? 'active' : ''} onClick={() => go('messages')}><MessageSquare size={18} />الرسائل</button>
+          <button type="button" className={view === 'reports' ? 'active' : ''} onClick={() => go('reports')}><FileText size={18} />التقارير</button>
+        </CounselorSidebarGroup>
+        <CounselorSidebarGroup title="الحساب" open={openNavGroup === 'account'} onToggle={() => setOpenNavGroup(current => current === 'account' ? '' : 'account')}>
+          <button type="button" className={view === 'password' ? 'active' : ''} onClick={() => go('password')}><KeyRound size={18} />كلمة المرور</button>
+        </CounselorSidebarGroup>
+      </nav>
       <button type="button" className="student-logout" onClick={onLogout}><LogOut size={18} /> تسجيل الخروج</button>
     </aside>
     <section className="student-workspace counselor-workspace">
