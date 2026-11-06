@@ -77,6 +77,10 @@ export function AcademicTerms({ isAdmin, onSchoolChanged }: Props) {
         setNotice(`تم إرسال رابط تأكيد الأرشفة إلى البريد الإلكتروني (${result.recipientEmail || 'حساب المدرسة'}). لا يتم فتح الفصل إلا بعد الضغط على الرابط المرسل.`)
         return
       }
+      if (!result.school || !result.term || !result.archivedSummary) {
+        setNotice('تعذر استكمال فتح الفصل بسبب استجابة الخادم غير المكتملة. أعد المحاولة.')
+        return
+      }
       onSchoolChanged(result.school)
       setVerificationState(null)
       setArchive(null)
@@ -116,6 +120,10 @@ export function AcademicTerms({ isAdmin, onSchoolChanged }: Props) {
     setNotice('')
     try {
       const result = await api.activateAcademicTerm(term.id)
+      if (!result.school || !result.term) {
+        setNotice('تعذر استكمال تفعيل الفصل بسبب استجابة الخادم غير المكتملة. أعد المحاولة.')
+        return
+      }
       onSchoolChanged(result.school)
       setArchive(null)
       setNotice(`تم تفعيل ${result.term.semester} ${result.term.academicYear}. تظهر الآن بياناته في حسابات المدرسة والمستخدمين.`)
