@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type { ChangeEvent } from 'react'
+import type { ChangeEvent, ReactNode } from 'react'
 import * as XLSX from 'xlsx'
 import * as QRCode from 'qrcode'
 import * as jsQRNs from 'jsqr'
@@ -287,6 +287,24 @@ const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (char) => ({
   "'": '&#39;',
 }[char] ?? char))
 
+function navGroupFor(tab: string) {
+  if (['students', 'studentPortal', 'attendance', 'studentExcuses', 'behavior', 'referrals'].includes(tab)) return 'students'
+  if (['teachers', 'administrators', 'counselors', 'vicePrincipals', 'activityLeaders'].includes(tab)) return 'staff'
+  if (['lessons', 'absenceProcedures', 'cooperation', 'circulars'].includes(tab)) return 'operations'
+  if (['reports', 'messages'].includes(tab)) return 'communication'
+  if (tab === 'backup') return 'system'
+  return ''
+}
+
+function SidebarGroup({ title, open, onToggle, children }: { title: string; open: boolean; onToggle: () => void; children: ReactNode }) {
+  return <section className={open ? 'sidebar-nav-group open' : 'sidebar-nav-group'}>
+    <button type="button" className="sidebar-nav-group-toggle" onClick={onToggle} aria-expanded={open}>
+      <span>{title}</span><ChevronDown size={16} />
+    </button>
+    {open && <div className="sidebar-nav-group-items">{children}</div>}
+  </section>
+}
+
 
 const findColumnIndex = (headers: unknown[], names: readonly string[]) => {
   return headers.findIndex((header) =>
@@ -337,6 +355,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
   const [attendanceStudentSearch, setAttendanceStudentSearch] = useState('')
   const [scanInput, setScanInput] = useState('')
   const [activeNav, setActiveNav] = useState<'dashboard' | 'students' | 'studentPortal' | 'attendance' | 'absenceProcedures' | 'studentExcuses' | 'circulars' | 'cooperation' | 'behavior' | 'lessons' | 'teachers' | 'administrators' | 'counselors' | 'vicePrincipals' | 'activityLeaders' | 'referrals' | 'reports' | 'messages' | 'backup'>('attendance')
+  const [openNavGroup, setOpenNavGroup] = useState(() => navGroupFor('attendance'))
   const [manualAttendanceSelection, setManualAttendanceSelection] = useState<Student[]>([])
   const [manualAttendanceSubmitting, setManualAttendanceSubmitting] = useState(false)
   const [attendanceStatusUpdating, setAttendanceStatusUpdating] = useState<Set<string>>(new Set())
@@ -1791,6 +1810,12 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
   }
 
   const isSchoolManager = account.role === 'admin' || account.role === 'vice_principal'
+  const selectNavigation = (target: typeof activeNav) => {
+    setActiveNav(target)
+    const group = navGroupFor(target)
+    if (group) setOpenNavGroup(group)
+    setIsMobileMenuOpen(false)
+  }
   const pageLabel = activeNav === 'dashboard' ? 'إعدادات المدرسة' : activeNav === 'attendance' ? 'سجل الحضور' : activeNav === 'absenceProcedures' ? 'إجراءات التعامل مع الغياب' : activeNav === 'studentExcuses' ? 'استئذان الطلاب' : activeNav === 'circulars' ? 'التعاميم' : activeNav === 'cooperation' ? 'المعلم المتعاون' : activeNav === 'behavior' ? 'سجل السلوك' : activeNav === 'lessons' ? 'سير الحصص' : activeNav === 'teachers' ? 'المعلمون' : activeNav === 'administrators' ? 'الإداريون' : activeNav === 'counselors' ? 'الموجّه الطلابي' : activeNav === 'vicePrincipals' ? 'وكلاء المدرسة' : activeNav === 'activityLeaders' ? 'رائد النشاط' : activeNav === 'studentPortal' ? 'بوابة الطلاب' : activeNav === 'referrals' ? 'إحالات الطلاب' : activeNav === 'reports' ? 'التقارير' : activeNav === 'messages' ? 'الرسائل' : activeNav === 'backup' ? 'النسخ الاحتياطي والاستعادة' : 'إدارة الطلاب'
   return (
     <div className="app-shell" dir="rtl">
@@ -1847,242 +1872,47 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
           <span className="online-dot" />
         </div>
 
-        <nav className="sidebar-nav">
-          <button
-            className={activeNav === 'dashboard' ? 'nav-item active' : 'nav-item'}
-            onClick={() => {
-              setActiveNav('dashboard')
-              setIsMobileMenuOpen(false)
-            }}
-          >
-            <LayoutDashboard size={18} />
-            <span>لوحة التحكم</span>
+        <nav className="sidebar-nav" aria-label="التنقل الرئيسي">
+          <button className={activeNav === 'dashboard' ? 'nav-item active' : 'nav-item'} onClick={() => selectNavigation('dashboard')}>
+            <LayoutDashboard size={18} /><span>لوحة التحكم والإعدادات</span>
           </button>
 
-          <button
-            className={activeNav === 'students' ? 'nav-item active' : 'nav-item'}
-            onClick={() => {
-              setActiveNav('students')
-              setIsMobileMenuOpen(false)
-            }}
-          >
-            <Users size={18} />
-            <span>إدارة الطلاب</span>
-            <span className="nav-count">{students.length}</span>
-          </button>
+          <SidebarGroup title="الطلاب" open={openNavGroup === 'students'} onToggle={() => setOpenNavGroup(current => current === 'students' ? '' : 'students')}>
+            <button className={activeNav === 'students' ? 'nav-item active' : 'nav-item'} onClick={() => selectNavigation('students')}><Users size={18} /><span>إدارة الطلاب</span><span className="nav-count">{students.length}</span></button>
+            {isSchoolManager && <button className={activeNav === 'studentPortal' ? 'nav-item active' : 'nav-item'} onClick={() => selectNavigation('studentPortal')}><FolderOpen size={18} /><span>بوابة الطلاب</span></button>}
+            <button className={activeNav === 'attendance' ? 'nav-item active' : 'nav-item'} onClick={() => selectNavigation('attendance')}><BarChart3 size={18} /><span>سجل الحضور</span></button>
+            {isSchoolManager && <button className={activeNav === 'studentExcuses' ? 'nav-item active' : 'nav-item'} onClick={() => selectNavigation('studentExcuses')}><ClipboardList size={18} /><span>استئذان الطلاب</span><b className="absence-procedure-new-badge">جديد</b></button>}
+            <button className={activeNav === 'behavior' ? 'nav-item active' : 'nav-item'} onClick={() => selectNavigation('behavior')}><ShieldAlert size={18} /><span>سجل السلوك</span></button>
+            <button className={activeNav === 'referrals' ? 'nav-item active' : 'nav-item'} onClick={() => selectNavigation('referrals')}><Send size={18} /><span>إحالات الطلاب</span></button>
+          </SidebarGroup>
 
-          {isSchoolManager && <button
-            className={activeNav === 'studentPortal' ? 'nav-item active' : 'nav-item'}
-            onClick={() => {
-              setActiveNav('studentPortal')
-              setIsMobileMenuOpen(false)
-            }}
-          >
-            <FolderOpen size={18} />
-            <span>بوابة الطلاب</span>
-          </button>}
+          <SidebarGroup title="الكادر المدرسي" open={openNavGroup === 'staff'} onToggle={() => setOpenNavGroup(current => current === 'staff' ? '' : 'staff')}>
+            {isSchoolManager && <button className={activeNav === 'teachers' ? 'nav-item active' : 'nav-item'} onClick={() => selectNavigation('teachers')}><Users size={18} /><span>المعلمون</span></button>}
+            {account.role === 'admin' && <button className={activeNav === 'vicePrincipals' ? 'nav-item active' : 'nav-item'} onClick={() => selectNavigation('vicePrincipals')}><Users size={18} /><span>وكلاء المدرسة</span></button>}
+            {account.role === 'admin' && <button className={activeNav === 'counselors' ? 'nav-item active' : 'nav-item'} onClick={() => selectNavigation('counselors')}><UserPlus size={18} /><span>الموجّه الطلابي</span></button>}
+            {isSchoolManager && <button className={activeNav === 'administrators' ? 'nav-item active' : 'nav-item'} onClick={() => selectNavigation('administrators')}><Users size={18} /><span>الإداريون</span></button>}
+            {account.role === 'admin' && <button className={activeNav === 'activityLeaders' ? 'nav-item active' : 'nav-item'} onClick={() => selectNavigation('activityLeaders')}><Sparkles size={18} /><span>رائد النشاط</span></button>}
+          </SidebarGroup>
 
-          <button
-            className={activeNav === 'attendance' ? 'nav-item active' : 'nav-item'}
-            onClick={() => {
-              setActiveNav('attendance')
-              setIsMobileMenuOpen(false)
-            }}
-          >
-            <BarChart3 size={18} />
-            <span>سجل الحضور</span>
-          </button>
+          <SidebarGroup title="التشغيل اليومي" open={openNavGroup === 'operations'} onToggle={() => setOpenNavGroup(current => current === 'operations' ? '' : 'operations')}>
+            {isSchoolManager && <button className="nav-item" onClick={() => { setIsMobileMenuOpen(false); window.location.assign('/voice-table/index.html') }}><Clock3 size={18} /><span>الجدول الصوتي</span><b className="absence-procedure-new-badge">جديد</b></button>}
+            <button className={activeNav === 'lessons' ? 'nav-item active' : 'nav-item'} onClick={() => selectNavigation('lessons')}><Layers size={18} /><span>سير الحصص</span></button>
+            {isSchoolManager && <button className={activeNav === 'absenceProcedures' ? 'nav-item active' : 'nav-item'} onClick={() => selectNavigation('absenceProcedures')}><ClipboardList size={18} /><span>إجراءات التعامل مع الغياب</span><b className="absence-procedure-new-badge">جديد</b></button>}
+            <button className={activeNav === 'cooperation' ? 'nav-item active' : 'nav-item'} onClick={() => selectNavigation('cooperation')}><Handshake size={18} /><span>المعلم المتعاون</span></button>
+            {isSchoolManager && <button className={activeNav === 'circulars' ? 'nav-item active' : 'nav-item'} onClick={() => selectNavigation('circulars')}><FileText size={18} /><span>التعاميم</span><b className="absence-procedure-new-badge">جديد</b></button>}
+          </SidebarGroup>
 
-          {isSchoolManager && <button
-            className={activeNav === 'absenceProcedures' ? 'nav-item active' : 'nav-item'}
-            onClick={() => {
-              setActiveNav('absenceProcedures')
-              setIsMobileMenuOpen(false)
-            }}
-          >
-            <ClipboardList size={18} />
-            <span>إجراءات التعامل مع الغياب</span>
-            <b className="absence-procedure-new-badge">جديد</b>
-          </button>}
+          <SidebarGroup title="التواصل والتقارير" open={openNavGroup === 'communication'} onToggle={() => setOpenNavGroup(current => current === 'communication' ? '' : 'communication')}>
+            <button className={activeNav === 'messages' ? 'nav-item active' : 'nav-item'} onClick={() => selectNavigation('messages')}><ExternalLink size={18} /><span>الرسائل</span></button>
+            <button className={activeNav === 'reports' ? 'nav-item active' : 'nav-item'} onClick={() => selectNavigation('reports')}><FileText size={18} /><span>التقارير</span></button>
+          </SidebarGroup>
 
-          {isSchoolManager && <button
-            className={activeNav === 'studentExcuses' ? 'nav-item active' : 'nav-item'}
-            onClick={() => {
-              setActiveNav('studentExcuses')
-              setIsMobileMenuOpen(false)
-            }}
-          >
-            <ClipboardList size={18} />
-            <span>استئذان الطلاب</span>
-            <b className="absence-procedure-new-badge">جديد</b>
-          </button>}
-
-          {isSchoolManager && <button
-            className={activeNav === 'circulars' ? 'nav-item active' : 'nav-item'}
-            onClick={() => {
-              setActiveNav('circulars')
-              setIsMobileMenuOpen(false)
-            }}
-          >
-            <FileText size={18} />
-            <span>التعاميم</span>
-            <b className="absence-procedure-new-badge">جديد</b>
-          </button>}
-
-          <button
-            className={activeNav === 'cooperation' ? 'nav-item active' : 'nav-item'}
-            onClick={() => {
-              setActiveNav('cooperation')
-              setIsMobileMenuOpen(false)
-            }}
-          >
-            <Handshake size={18} />
-            <span>المعلم المتعاون</span>
-          </button>
-
-          <button
-            className={activeNav === 'behavior' ? 'nav-item active' : 'nav-item'}
-            onClick={() => {
-              setActiveNav('behavior')
-              setIsMobileMenuOpen(false)
-            }}
-          >
-            <ShieldAlert size={18} />
-            <span>سجل السلوك</span>
-          </button>
-
-          <button
-            className={activeNav === 'lessons' ? 'nav-item active' : 'nav-item'}
-            onClick={() => {
-              setActiveNav('lessons')
-              setIsMobileMenuOpen(false)
-            }}
-          >
-            <Layers size={18} />
-            <span>سير الحصص</span>
-          </button>
-
-          {isSchoolManager && <button
-            className="nav-item"
-            onClick={() => { window.location.assign('/voice-table/index.html') }}
-          >
-            <Clock3 size={18} />
-            <span>الجدول الصوتي</span>
-            <b className="absence-procedure-new-badge">جديد</b>
-          </button>}
-
-          {isSchoolManager && <button
-            className={activeNav === 'teachers' ? 'nav-item active' : 'nav-item'}
-            onClick={() => {
-              setActiveNav('teachers')
-              setIsMobileMenuOpen(false)
-            }}
-          >
-            <Users size={18} />
-            <span>المعلمون</span>
-          </button>}
-
-          {isSchoolManager && <button
-            className={activeNav === 'administrators' ? 'nav-item active' : 'nav-item'}
-            onClick={() => {
-              setActiveNav('administrators')
-              setIsMobileMenuOpen(false)
-            }}
-          >
-            <Users size={18} />
-            <span>الإداريون</span>
-          </button>}
-
-          {account.role === 'admin' && <button
-            className={activeNav === 'counselors' ? 'nav-item active' : 'nav-item'}
-            onClick={() => {
-              setActiveNav('counselors')
-              setIsMobileMenuOpen(false)
-            }}
-          >
-            <UserPlus size={18} />
-            <span>الموجّه الطلابي</span>
-          </button>}
-
-          {account.role === 'admin' && <button
-            className={activeNav === 'vicePrincipals' ? 'nav-item active' : 'nav-item'}
-            onClick={() => {
-              setActiveNav('vicePrincipals')
-              setIsMobileMenuOpen(false)
-            }}
-          >
-            <Users size={18} />
-            <span>وكلاء المدرسة</span>
-          </button>}
-
-          {account.role === 'admin' && <button
-            className={activeNav === 'activityLeaders' ? 'nav-item active' : 'nav-item'}
-            onClick={() => {
-              setActiveNav('activityLeaders')
-              setIsMobileMenuOpen(false)
-            }}
-          >
-            <Sparkles size={18} />
-            <span>رائد النشاط</span>
-          </button>}
-
-          <button
-            className={activeNav === 'referrals' ? 'nav-item active' : 'nav-item'}
-            onClick={() => {
-              setActiveNav('referrals')
-              setIsMobileMenuOpen(false)
-            }}
-          >
-            <Send size={18} />
-            <span>إحالات الطلاب</span>
-          </button>
-
-          <button
-            className={activeNav === 'reports' ? 'nav-item active' : 'nav-item'}
-            onClick={() => {
-              setActiveNav('reports')
-              setIsMobileMenuOpen(false)
-            }}
-          >
-            <FileText size={18} />
-            <span>التقارير</span>
-          </button>
-
-          <button
-            className={activeNav === 'messages' ? 'nav-item active' : 'nav-item'}
-            onClick={() => {
-              setActiveNav('messages')
-              setIsMobileMenuOpen(false)
-            }}
-          >
-            <ExternalLink size={18} />
-            <span>الرسائل</span>
-          </button>
-
-          {account.role === 'admin' && <button
-            className={activeNav === 'backup' ? 'nav-item active' : 'nav-item'}
-            onClick={() => {
-              setActiveNav('backup')
-              setIsMobileMenuOpen(false)
-            }}
-          >
-            <Save size={18} />
-            <span>النسخ الاحتياطي</span>
-          </button>}
+          {account.role === 'admin' && <SidebarGroup title="إدارة النظام" open={openNavGroup === 'system'} onToggle={() => setOpenNavGroup(current => current === 'system' ? '' : 'system')}>
+            <button className={activeNav === 'backup' ? 'nav-item active' : 'nav-item'} onClick={() => selectNavigation('backup')}><Save size={18} /><span>النسخ الاحتياطي</span></button>
+          </SidebarGroup>}
         </nav>
 
         <div className="sidebar-bottom">
-          <button
-            className={activeNav === 'dashboard' ? 'nav-item active' : 'nav-item'}
-            onClick={() => {
-              setActiveNav('dashboard')
-              setIsMobileMenuOpen(false)
-            }}
-          >
-            <Settings size={18} />
-            <span>إعدادات المدرسة</span>
-          </button>
-
           <div className="help-box">
             <span>تحتاج مساعدة؟</span>
             <small>تواصل مع وكيل المدرسة</small>
