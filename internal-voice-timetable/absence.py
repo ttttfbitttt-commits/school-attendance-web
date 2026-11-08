@@ -145,7 +145,10 @@ def _emergency_choice(project, slot, absent, used, busy, teachers, standby, date
                            'distance':distance})
     if not candidates:
         return None
-    choice=min(candidates,key=lambda item:(item['ratio'],item['weeklyLoad'],item['sameDayCoverages'],item['emergencies'],item['sameDayLoad'],item['distance'],teachers[item['teacherId']]['name']))
+    # Never repeat a teacher in the same day while another eligible teacher
+    # has not covered any absence that day. Repetition is the final fallback,
+    # then teaching load and weekly fairness decide between equal options.
+    choice=min(candidates,key=lambda item:(item['sameDayCoverages'],item['ratio'],item['weeklyLoad'],item['emergencies'],item['sameDayLoad'],item['distance'],teachers[item['teacherId']]['name']))
     percentage=round(choice['ratio']*100)
     choice['note']=(f"تم تكليف معلم طوارئ وفق الموازنة العادلة: متاح في الحصة، "
                     f"نصابه الحالي {choice['weeklyLoad']} من {choice['target']} ({percentage}٪)، "

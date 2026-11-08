@@ -1,6 +1,6 @@
 import unittest
 from standby import signature
-from absence import distribute,official_html,cancel_absence,reconcile_missing_emergency_assignments
+from absence import distribute,official_html,cancel_absence,reconcile_missing_emergency_assignments,_emergency_choice
 class AbsenceTests(unittest.TestCase):
     def school(self):
         p={'days':[{'name':'الأحد'}],'slots':[{'day':0,'period':0,'start':'07:00','end':'07:45'}],'teachers':[{'id':t,'name':t,'blocked':[]} for t in ['a','b','c','d']], 'courses':[{'id':'x','teacherId':'a','classId':'one','subject':'رياضيات'},{'id':'y','teacherId':'b','classId':'two','subject':'علوم'}], 'classes':[{'id':'one','name':'أول'},{'id':'two','name':'ثان'}], 'placements':[{'courseId':'x','slot':0},{'courseId':'y','slot':0}]}
@@ -189,6 +189,24 @@ class AbsenceTests(unittest.TestCase):
         replacements=[entry['replacementId'] for entry in fixed['entries']]
         self.assertNotIn('zero',replacements)
         self.assertTrue(all(replacements))
+
+    def test_emergency_repeats_teacher_only_after_unused_options_are_exhausted(self):
+        p=self.school()
+        p['slots'].append({'day':0,'period':1,'start':'07:45','end':'08:30'})
+        # Teacher c has the lowest load but already covered another period;
+        # teacher d must be selected first even though d has a higher load.
+        p['courses'].extend([
+            {'id':f'd{period}','teacherId':'d','classId':'two','subject':'علوم'}
+            for period in range(2,6)
+        ])
+        for period in range(2,6):
+            p['slots'].append({'day':0,'period':period,'start':'08:30','end':'09:15'})
+        p['placements'].extend({'courseId':f'd{period}','slot':period} for period in range(2,6))
+        from standby import context
+        busy,_=context(p)
+        teachers={teacher['id']:teacher for teacher in p['teachers']}
+        choice=_emergency_choice(p,1,{'a','b'},{('c',0)},busy,teachers,p['standby'],'2026-10-25')
+        self.assertEqual(choice['teacherId'],'d')
     def test_stale_schedule_rejected(self):
         p=self.school();p['teachers'][0]['blocked']=[0]
         with self.assertRaises(ValueError):distribute(p,'2026-10-25',['a'])
