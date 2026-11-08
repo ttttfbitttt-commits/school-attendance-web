@@ -429,6 +429,11 @@ class Handler(SimpleHTTPRequestHandler):
         public_url=os.environ.get('SOUNDTABLE_PUBLIC_URL','').rstrip('/')
         if public_url:
             parsed_public=urlparse(public_url); allowed_origins.add(f'{parsed_public.scheme}://{parsed_public.netloc}')
+            # يعمل نظام الحصر على النطاقين الأساسي وwww؛ يجب قبول كليهما للحفظ.
+            if parsed_public.hostname:
+                alternate_host=parsed_public.hostname.removeprefix('www.') if parsed_public.hostname.startswith('www.') else f'www.{parsed_public.hostname}'
+                alternate_port=f':{parsed_public.port}' if parsed_public.port else ''
+                allowed_origins.add(f'{parsed_public.scheme}://{alternate_host}{alternate_port}')
         if self.headers.get('Origin') and self.headers['Origin'] not in allowed_origins: return self.reply({'errors':['Origin rejected']},403)
         try:
             size=int(self.headers.get('Content-Length',0))
