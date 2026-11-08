@@ -207,6 +207,35 @@ class AbsenceTests(unittest.TestCase):
         teachers={teacher['id']:teacher for teacher in p['teachers']}
         choice=_emergency_choice(p,1,{'a','b'},{('c',0)},busy,teachers,p['standby'],'2026-10-25')
         self.assertEqual(choice['teacherId'],'d')
+
+    def test_absence_distribution_starts_with_last_period(self):
+        p=self.school()
+        p['slots'].extend([
+            {'day':0,'period':1,'start':'07:45','end':'08:30'},
+            {'day':0,'period':2,'start':'08:30','end':'09:15'},
+            {'day':0,'period':3,'start':'09:15','end':'10:00'},
+        ])
+        p['courses'].append({'id':'late-absence','teacherId':'a','classId':'one','subject':'رياضيات'})
+        p['placements'].append({'courseId':'late-absence','slot':1})
+        for teacher in p['teachers'][1:]: teacher['blocked']=[0,1]
+        p['teachers'].extend([
+            {'id':'flexible','name':'متاح للحصتين','blocked':[]},
+            {'id':'early-only','name':'متاح للمبكرة فقط','blocked':[1]},
+        ])
+        p['courses'].extend([
+            {'id':'early-load-1','teacherId':'early-only','classId':'two','subject':'علوم'},
+            {'id':'early-load-2','teacherId':'early-only','classId':'two','subject':'علوم'},
+        ])
+        p['placements'].extend([
+            {'courseId':'early-load-1','slot':2},
+            {'courseId':'early-load-2','slot':3},
+        ])
+        p['standby']['config']={'target':24,'excluded':[]}
+        p['standby']['signature']=signature(p)
+        result=distribute(p,'2026-10-25',['a'])
+        by_period={entry['period']:entry['replacementId'] for entry in result['entries']}
+        self.assertEqual(by_period[2],'flexible')
+        self.assertEqual(by_period[1],'early-only')
     def test_stale_schedule_rejected(self):
         p=self.school();p['teachers'][0]['blocked']=[0]
         with self.assertRaises(ValueError):distribute(p,'2026-10-25',['a'])

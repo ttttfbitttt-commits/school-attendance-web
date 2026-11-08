@@ -185,7 +185,14 @@ def distribute(project, date_text, selected, existing=None):
     absent &= teachers.keys()
     busy,_=context(project);courses={c['id']:c for c in project['courses']};classes={c['id']:c for c in project['classes']}
     used=set();entries=[]
-    positions=sorted(project['placements'],key=lambda v:(v['slot'],v['courseId']))
+    # Cover the hardest end-of-day periods first, as a human scheduler would.
+    # Earlier periods normally have more alternatives; consuming those teachers
+    # first can leave periods 7, 6 and 5 unnecessarily uncovered.
+    positions=sorted(project['placements'],key=lambda v:(
+        project['slots'][v['slot']]['day'],
+        -project['slots'][v['slot']]['period'],
+        v['courseId'],
+    ))
     for pos in positions:
         slot=pos['slot'];timing=project['slots'][slot];course=courses[pos['courseId']]
         if timing['day']!=day or course['teacherId'] not in absent: continue
