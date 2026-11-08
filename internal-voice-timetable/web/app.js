@@ -4,7 +4,7 @@ import {buttonLexicon,tabLexicon,pressVerbs,navVerbs,fillerWords,scrollWords} fr
 import {parseSchoolVoiceField} from '/school-voice.js?v=4';
 import {canonicalVoiceCommand,cleanVoiceRequest,voiceNumber,parseClassAdditions,matchTeacherNames,findClassReferences,parseClassAssignmentIntent,resolveClassAssignmentTargets,parseAvailabilityIntent} from '/voice-command.js?v=22';
 import {parseTimingRequest,planTiming} from '/voice-timing.js?v=3';
-let project=await fetch('/api/project').then(r=>r.json()),step=project.setupStep||0,unlocked=project.setupStep||0,teacher=project.teachers[0]?.id,assignmentTeacher=project.teachers[0]?.id,assignmentSubject='',assignmentClass=project.classes[0]?.id,day=0,dragged=null,pending=null,undo=[],busy=false,editMode=false,editTeacher='',voiceScrollTimer=null,voiceConversation=false,voiceWaiting=false,voiceReplies=false,conversationRecognition=null,voiceRestartTimer=null,voiceRestartAttempts=0,timingSaveTimer=null,timingSaveRunning=false,timingSaveDirty=false,contactsPanelOpen=false,contactsOutsideListener=null;
+let project=await fetch('/api/project').then(r=>r.json()),step=project.setupStep||0,unlocked=project.setupStep||0,teacher=project.teachers[0]?.id,assignmentTeacher=project.teachers[0]?.id,assignmentSubject='',assignmentClass=project.classes[0]?.id,day=0,dragged=null,pending=null,undo=[],busy=false,editMode=false,editTeacher='',voiceScrollTimer=null,voiceConversation=false,voiceWaiting=false,voiceReplies=false,conversationRecognition=null,voiceRestartTimer=null,voiceRestartAttempts=0,timingSaveTimer=null,timingSaveRunning=false,timingSaveDirty=false,nextSaving=false,saveQueue=Promise.resolve(),contactsPanelOpen=false,contactsOutsideListener=null;
 const names=['بيانات المدرسة','الأيام والتوقيت','الفصول والخطة','المعلمون والإسنادات','الإتاحة والقيود','إنشاء الجدول','حصص الانتظار','تكليفات التوقيع'];
 const weekNames=['الأحد','الاثنين','الثلاثاء','الأربعاء','الخميس','الجمعة','السبت'];
 const templateData=await fetch('/api/templates').then(r=>r.json());
@@ -97,16 +97,28 @@ function generalPrintTable(kind,ctx){const rows=kind==='teachers-general'?projec
 function individualPrintTable(kind,row,ctx){const isTeacher=kind==='teachers-individual',max=Math.max(...project.days.map(d=>d.count));return `<section class="printPage">${printDocumentTitle(isTeacher?'جدول المعلم '+row.name:'جدول الفصل '+row.name)}<table class="printGrid individualGrid"><thead><tr><th>اليوم / الحصة</th>${Array.from({length:max},(_,i)=>`<th>${i+1}</th>`).join('')}</tr></thead><tbody>${project.days.map((d,di)=>`<tr><th>${esc(d.name)}</th>${Array.from({length:max},(_,period)=>{const slot=project.slots.findIndex(s=>s.day===di&&s.period===period);if(slot<0)return '<td class="unavailable"></td>';const p=(isTeacher?ctx.byTeacher:ctx.byClass).get(row.id+'|'+slot),c=p&&ctx.courses.get(p.courseId);if(!c)return '<td></td>';const other=isTeacher?ctx.classes.get(c.classId):ctx.teachers.get(c.teacherId);return `<td><b>${esc(isTeacher?classPrintCode(other.name):subjectPrintShort(c))}</b><small>${esc(isTeacher?subjectPrintShort(c):other.short)}</small></td>`}).join('')}</tr>`).join('')}</tbody></table></section>`}
 function printStyles(kind,paper='a4'){const isA3=paper==='a3',paperWidth=isA3?'420mm':'297mm',paperHeight=isA3?'297mm':'210mm',general=kind.includes('general');return `<style>@page{size:${paperWidth} ${paperHeight};margin:${isA3?'7mm':'5mm'}}html,body{width:${paperWidth};min-height:${paperHeight};margin:0;padding:0}*{box-sizing:border-box}body{font-family:Tahoma,Arial,sans-serif;direction:rtl;color:#102f2c}.printHeader{text-align:center;margin:0 0 ${isA3?'8':'4'}px}.printHeader strong{font-size:${isA3?'11':'9'}px;color:#4b6f67}.printHeader h1{font-size:${isA3?'19':'14'}px;margin:4px}.printHeader p{font-size:${isA3?'10':'8'}px;margin:0;color:#49655f}.printGrid{width:100%;border-collapse:collapse;table-layout:fixed}.printGrid thead{display:table-header-group}.printGrid th,.printGrid td{border:1px solid #758a84;text-align:center;padding:${isA3?'4px 2px':'2px 1px'};vertical-align:middle}.printGrid thead th{background:#e2f0e9}.printGrid tbody th{background:#eff6f2}.printGrid b,.printGrid small{display:block}.printGrid small{font-size:${isA3?'8':'6'}px;margin-top:2px}.generalGrid{font-size:${isA3?'8':'5.5'}px}.generalGrid td{height:${isA3?'28':'19'}px}.generalGrid th:first-child{width:${isA3?'85':'43'}px}.individualGrid{font-size:${isA3?'12':'10'}px}.individualGrid td{height:${isA3?'52':'42'}px}.individualGrid th:first-child{width:${isA3?'90':'70'}px}.individualGrid small{font-size:${isA3?'10':'8'}px}.unavailable{background:repeating-linear-gradient(135deg,#fff,#fff 5px,#edf1ef 5px,#edf1ef 10px)}.printPage{width:${paperWidth};min-height:${paperHeight};break-after:page;page-break-after:always}.printPage:last-child{break-after:auto;page-break-after:auto}@media print{html,body,.printPage{width:${paperWidth};min-height:${paperHeight}}.printPage{break-after:page}}</style>`}
 function openPrintDocument(kind,paper='a4'){if(!project.placements.length)return notice('أنشئ الجدول أولًا قبل الطباعة.');const ctx=printContext(),title={"teachers-general":'الجدول العام حسب المعلمين',"classes-general":'الجدول العام حسب الفصول',"teachers-individual":'جداول المعلمين',"classes-individual":'جداول الفصول'}[kind],body=kind.includes('general')?`${printDocumentTitle(title)}${generalPrintTable(kind,ctx)}`:(kind==='teachers-individual'?project.teachers:project.classes).map(row=>individualPrintTable(kind,row,ctx)).join(''),win=window.open('','_blank');if(!win)return notice('تعذر فتح صفحة الطباعة. اسمح بالنوافذ المنبثقة لهذا التطبيق ثم أعد المحاولة.');win.document.open('text/html','replace');win.document.write(`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${esc(title)}</title>${printStyles(kind,paper)}</head><body>${body}</body></html>`);win.document.close();const printWhenReady=()=>{try{if(!win.closed&&win.document.querySelector('.printGrid')){win.focus();win.print()}else if(!win.closed)setTimeout(printWhenReady,80)}catch{}};setTimeout(printWhenReady,250)}
-async function save(){try{project=await api('save',project);setSaveStatus('حُفظت المسودة');notice('حُفظت النسخة على هذا الجهاز.');return true}catch(e){notice(e.message);return false}}
+function queueProjectSave(){
+ const operation=saveQueue.then(async()=>{
+  const saved=await api('save',structuredClone(project));
+  // لا نستبدل المشروع الكامل حتى لا تضيع تعديلات أُدخلت أثناء انتظار استجابة الحفظ.
+  project.revision=saved.revision;
+  return saved;
+ });
+ saveQueue=operation.catch(()=>{});
+ return operation;
+}
+async function save(){try{await queueProjectSave();setSaveStatus('تم الحفظ');notice('حُفظت البيانات بنجاح.');return true}catch(e){setSaveStatus('تعذر الحفظ');notice(e.message);return false}}
+async function flushTimingSave(){
+ clearTimeout(timingSaveTimer);timingSaveTimer=null;
+ if(!timingSaveDirty)return true;
+ timingSaveDirty=false;timingSaveRunning=true;
+ try{await queueProjectSave();setSaveStatus('حُفظ التوقيت تلقائيًا');return true}
+ catch(error){setSaveStatus('تعذر حفظ التوقيت');notice(error.message);return false}
+ finally{timingSaveRunning=false;if(timingSaveDirty)saveTimingSoon()}
+}
 function saveTimingSoon(){
  timingSaveDirty=true;clearTimeout(timingSaveTimer);setSaveStatus('جارٍ حفظ التوقيت…');
- timingSaveTimer=setTimeout(async()=>{
-  if(timingSaveRunning)return;
-  timingSaveRunning=true;timingSaveDirty=false;const snapshot=structuredClone(project);
-  try{const saved=await api('save',snapshot);if(timingSaveDirty){project.revision=saved.revision;saveTimingSoon()}else project=saved;setSaveStatus('حُفظ التوقيت تلقائيًا');}
-  catch(error){setSaveStatus('تعذر حفظ التوقيت');notice(error.message)}
-  finally{timingSaveRunning=false}
- },550);
+ timingSaveTimer=setTimeout(()=>{timingSaveTimer=null;void flushTimingSave()},550);
 }
 $('#resetAllData').onclick=async()=>{
  if(busy)return notice('انتظر حتى تنتهي العملية الحالية قبل مسح البيانات.');
@@ -117,13 +129,19 @@ $('#resetAllData').onclick=async()=>{
  catch(error){const message='لم يتم مسح البيانات. '+error.message+'\nإذا ظهرت رسالة «مسار غير معروف»، أعد تشغيل خادم البرنامج لتفعيل التحديث ثم حاول مجددًا.';notice(message);window.alert(message);button.disabled=false}
 };
 async function next(){
- notice('');
- if(step===5&&!project.placements.length)return notice('أنشئ الجدول الدراسي أولًا قبل إعداد الانتظار.');
- if(step===0&&(!project.school.name.trim()||!project.school.director.trim()||!project.school.year.trim()))return notice('أكمل اسم المدرسة والمدير والعام الدراسي.');
- if(step===2&&!project.classes.length)return notice('أدخل عدد الشعب واضغط إنشاء الفصول أولًا.');
- if(step>=2){const d=await api('validate',project);if(step===2)d.errors=d.errors.filter(e=>!e.startsWith('إسناد غير مكتمل:')&&e!=='أكمل الأيام والفصول والمعلمين.');if(d.errors.length)return notice(d.errors.slice(0,8).join('\n')+(d.errors.length>8?'\nوتوجد عناصر أخرى تحتاج الإكمال.':''));}
- const previous=project.setupStep||0;project.setupStep=Math.max(previous,step+1);
- if(!await save()){project.setupStep=previous;return}unlocked=project.setupStep;step++;render();window.scrollTo(0,0);
+ if(nextSaving)return;
+ nextSaving=true;const button=$('#next');if(button)button.disabled=true;
+ try{
+  notice('');
+  if(step===5&&!project.placements.length)return notice('أنشئ الجدول الدراسي أولًا قبل إعداد الانتظار.');
+  if(step===0&&(!project.school.name.trim()||!project.school.director.trim()||!project.school.year.trim()))return notice('أكمل اسم المدرسة والمدير والعام الدراسي.');
+  if(step===2&&!project.classes.length)return notice('أدخل عدد الشعب واضغط إنشاء الفصول أولًا.');
+  if(step>=2){const d=await api('validate',project);if(step===2)d.errors=d.errors.filter(e=>!e.startsWith('إسناد غير مكتمل:')&&e!=='أكمل الأيام والفصول والمعلمين.');if(d.errors.length)return notice(d.errors.slice(0,8).join('\n')+(d.errors.length>8?'\nوتوجد عناصر أخرى تحتاج الإكمال.':''));}
+  // يحتوي الحفظ التالي على آخر تعديل للتوقيت، لذلك نلغي المؤقت ولا نرسل طلبين متعارضين.
+  clearTimeout(timingSaveTimer);timingSaveTimer=null;timingSaveDirty=false;
+  const previous=project.setupStep||0;project.setupStep=Math.max(previous,step+1);
+  if(!await save()){project.setupStep=previous;return}unlocked=project.setupStep;step++;render();window.scrollTo(0,0);
+ }finally{nextSaving=false;const current=$('#next');if(current)current.disabled=false}
 }
 async function downloadPrintPdf(kind,paper='a4'){
  if(!project.placements.length)return notice('أنشئ الجدول أولًا قبل الطباعة.');
