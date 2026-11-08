@@ -398,8 +398,8 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
     ...settings,
     preferences: { attendanceMode, cutoffTime, gradeAliases },
   })
-  // بطاقة المستخدم تخص صاحب الحساب الحالي. تبقى بيانات المدير ضمن إعدادات المدرسة والتقارير فقط.
-  const currentAccountName = account.displayName.trim() || schoolSettings.principalName
+  // بطاقة رأس المدرسة تعرض اسم مدير المدرسة، لأن هذا الاسم هو جزء من بيانات المدرسة وليس حساب الدخول.
+  const currentAccountName = schoolSettings.principalName.trim() || account.displayName.trim() || 'مدير المدرسة'
   const applySchoolProfile = (profile: SchoolProfile) => {
     cacheReportSchoolBrand(account.schoolId, profile)
     const settings = {
@@ -1852,7 +1852,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
             </span>
             <div>
               <strong>نظام الحصر</strong>
-              <small>برمجة الأستاذ: تركي العبدالعزيز</small>
+              <small>{currentAccountName}</small>
             </div>
           </div>
           <button
