@@ -251,7 +251,7 @@ document.addEventListener('pointermove',e=>{
 document.addEventListener('pointerup',e=>{if(!pointerMove)return;const m=pointerMove;if(m.active){const cell=document.elementFromPoint(e.clientX,e.clientY)?.closest('[data-drop]'),plans=simpleSwapPlans;clearDrag(true);dropOn(cell,m,plans);setTimeout(()=>{pointerMove=null},0)}else pointerMove=null;hoverDay=null;});
 document.addEventListener('pointercancel',()=>{pointerMove=null;clearDrag()});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){pointerMove=null;selectedLesson=null;clearDrag()}});
-$('#next').onclick=()=>next().catch(e=>notice(e.message));$('#prev').onclick=()=>{step--;notice('');render()};$('#save').onclick=save;
+$('#next').onclick=()=>next().catch(e=>notice(e.message));$('#prev').onclick=()=>{step--;notice('');render()};const saveButton=$('#save');if(saveButton)saveButton.onclick=save;
 $('#printCenter').onclick=e=>{const choice=e.target.closest('[data-print-type]');if(choice){const paper=$('#printPaper').value;$('#printCenter').close();downloadPrintPdf(choice.dataset.printType,paper)}};$('#closePrintCenter').onclick=()=>$('#printCenter').close();
 function msg(text,user=false){const p=document.createElement('p');p.className=user?'user':'';p.textContent=text;const messages=$('#messages');messages.append(p);messages.scrollTop=messages.scrollHeight;if(user)guide('فهمت طلبك، لحظة…','thinking');else{guide(text,'ready');if(voiceReplies)speakGuide(text)}}
 function arabicNumber(value){return Number(String(value).replace(/[٠-٩]/g,c=>'٠١٢٣٤٥٦٧٨٩'.indexOf(c)))}
