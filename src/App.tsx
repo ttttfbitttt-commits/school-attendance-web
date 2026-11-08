@@ -941,12 +941,12 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
       principalName: schoolSettingsDraft.principalName.trim(),
       generalEducationAdministration: schoolSettingsDraft.generalEducationAdministration.trim(),
       educationOffice: schoolSettingsDraft.educationOffice.trim(),
-      academicYear: schoolSettingsDraft.academicYear.trim(),
-      semester: schoolSettingsDraft.semester.trim(),
+      academicYear: schoolSettingsDraft.academicYear.trim() || schoolSettings.academicYear.trim() || '1448 / 1449',
+      semester: schoolSettingsDraft.semester.trim() || schoolSettings.semester.trim() || 'الفصل الأول',
     }
 
-    if (Object.values(nextSettings).some((value) => !value)) {
-      setSchoolSettingsNotice('يرجى تعبئة جميع الحقول قبل الحفظ.')
+    if (!nextSettings.schoolName || !nextSettings.principalName) {
+      setSchoolSettingsNotice('يرجى تعبئة اسم المدرسة واسم مدير المدرسة قبل الحفظ.')
       return
     }
 

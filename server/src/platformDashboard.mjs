@@ -484,6 +484,55 @@ async function updateSchoolStatus(adminPool, authPool, schoolId, status, reason 
   return { school }
 }
 
+async function updatePlatformSchoolProfile(adminPool, schoolId, input) {
+  const current = await adminPool.query(`SELECT name,principal_name,general_education_administration,education_office,academic_year,semester,preferences
+    FROM schools WHERE id=$1`, [schoolId])
+  const existing = current.rows[0]
+  if (!existing) return { error: 'school_not_found' }
+
+  const schoolName = String(input.schoolName || existing.name || '').trim()
+  const principalName = String(input.principalName || existing.principal_name || '').trim()
+  const generalEducationAdministration = String(input.generalEducationAdministration || existing.general_education_administration || '').trim()
+  const educationOffice = String(input.educationOffice || existing.education_office || '').trim()
+  const academicYear = String(input.academicYear || existing.academic_year || '').trim()
+  const semester = String(input.semester || existing.semester || '').trim()
+
+  if (!schoolName || !principalName) {
+    return { error: 'missing_required_fields' }
+  }
+
+  const result = await adminPool.query(`UPDATE schools
+    SET name=$1,
+        principal_name=$2,
+        general_education_administration=$3,
+        education_office=$4,
+        academic_year=$5,
+        semester=$6
+    WHERE id=$7
+    RETURNING name,principal_name,general_education_administration,education_office,academic_year,semester,preferences`,
+  [schoolName, principalName, generalEducationAdministration, educationOffice, academicYear, semester, schoolId])
+
+  const school = result.rows[0]
+  if (!school) return { error: 'school_not_found' }
+
+  const preferences = school.preferences && typeof school.preferences === 'object' ? school.preferences : {}
+  return {
+    school: {
+      schoolName: school.name,
+      principalName: school.principal_name,
+      generalEducationAdministration: school.general_education_administration || '',
+      educationOffice: school.education_office || '',
+      academicYear: school.academic_year,
+      semester: school.semester,
+      preferences: {
+        attendanceMode: ['auto', 'present', 'late'].includes(preferences.attendanceMode) ? preferences.attendanceMode : 'auto',
+        cutoffTime: /^([01]\d|2[0-3]):[0-5]\d$/.test(preferences.cutoffTime || '') ? preferences.cutoffTime : '07:30',
+        gradeAliases: preferences.gradeAliases && typeof preferences.gradeAliases === 'object' && !Array.isArray(preferences.gradeAliases) ? preferences.gradeAliases : {},
+      },
+    },
+  }
+}
+
 async function openSchoolSupportSession({ adminPool, authPool, createSession, res, schoolId }) {
   const schoolResult = await adminPool.query(`SELECT id,name,platform_status FROM schools WHERE id=$1`, [schoolId])
   const school = schoolResult.rows[0]
@@ -594,6 +643,18 @@ export async function handlePlatformRequest({
 
   if (req.method === 'GET' && url.pathname === '/api/platform/schools') {
     json(res, 200, { schools: await getPlatformSchools(adminPool) })
+    return true
+  }
+
+  const profileMatch = url.pathname.match(/^\/api\/platform\/schools\/([0-9a-f-]{36})\/profile$/i)
+  if (req.method === 'PUT' && profileMatch) {
+    const input = await body(req, 10_000)
+    const result = await updatePlatformSchoolProfile(adminPool, profileMatch[1], input)
+    if (result.error) {
+      json(res, result.error === 'school_not_found' ? 404 : 400, { error: result.error })
+      return true
+    }
+    json(res, 200, result)
     return true
   }
 

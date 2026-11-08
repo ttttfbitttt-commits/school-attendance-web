@@ -37,11 +37,12 @@ function formatDate(value: string | null) {
   return new Intl.DateTimeFormat('ar-SA', { dateStyle: 'medium' }).format(date)
 }
 
-function PlatformSchoolRow({ school, deleting, updating, opening, onDelete, onStatus, onOpen }: {
+function PlatformSchoolRow({ school, deleting, updating, opening, onEdit, onDelete, onStatus, onOpen }: {
   school: PlatformSchoolUsage
   deleting: boolean
   updating: boolean
   opening: boolean
+  onEdit: (school: PlatformSchoolUsage) => void
   onDelete: (school: PlatformSchoolUsage) => void
   onStatus: (school: PlatformSchoolUsage) => void
   onOpen: (school: PlatformSchoolUsage) => void
@@ -97,6 +98,9 @@ function PlatformSchoolRow({ school, deleting, updating, opening, onDelete, onSt
           <button className="secondary-button" type="button" disabled={opening || school.platformStatus === 'suspended'} onClick={() => onOpen(school)}>
             <ExternalLink size={15} /> {opening ? 'جارٍ الفتح...' : 'دخول إلى نظام المدرسة'}
           </button>
+          <button className="secondary-button" type="button" disabled={updating} onClick={() => onEdit(school)}>
+            <KeyRound size={15} /> {updating ? 'جارٍ الحفظ...' : 'تعديل بيانات المدرسة'}
+          </button>
           <button className={school.platformStatus === 'suspended' ? 'secondary-button' : 'platform-suspend-button'} type="button" disabled={updating} onClick={() => onStatus(school)}>
             {school.platformStatus === 'suspended' ? <PlayCircle size={15} /> : <PauseCircle size={15} />}
             {updating ? 'جارٍ الحفظ...' : school.platformStatus === 'suspended' ? 'إعادة التفعيل' : 'إيقاف الحساب'}
@@ -119,6 +123,8 @@ export function PlatformDashboard() {
   const [updatingSchoolId, setUpdatingSchoolId] = useState('')
   const [openingSchoolId, setOpeningSchoolId] = useState('')
   const [schoolPendingDeletion, setSchoolPendingDeletion] = useState<PlatformSchoolUsage | null>(null)
+  const [editingSchool, setEditingSchool] = useState<PlatformSchoolUsage | null>(null)
+  const [schoolEditDraft, setSchoolEditDraft] = useState({ schoolName: '', principalName: '', generalEducationAdministration: '', educationOffice: '', academicYear: '', semester: '' })
   const [deleteConfirmation, setDeleteConfirmation] = useState('')
   const [deletionNotice, setDeletionNotice] = useState('')
 
@@ -162,6 +168,58 @@ export function PlatformDashboard() {
         .includes(query),
     )
   }, [schools, search])
+
+  const requestSchoolEdit = (school: PlatformSchoolUsage) => {
+    setError('')
+    setDeletionNotice('')
+    setEditingSchool(school)
+    setSchoolEditDraft({
+      schoolName: school.name,
+      principalName: school.activatedBy.name || '',
+      generalEducationAdministration: '',
+      educationOffice: '',
+      academicYear: '',
+      semester: '',
+    })
+  }
+
+  const cancelSchoolEdit = () => {
+    setEditingSchool(null)
+    setSchoolEditDraft({ schoolName: '', principalName: '', generalEducationAdministration: '', educationOffice: '', academicYear: '', semester: '' })
+    setError('')
+  }
+
+  const saveSchoolEdit = async () => {
+    if (!editingSchool) return
+    setError('')
+    setUpdatingSchoolId(editingSchool.id)
+    try {
+      const profile = {
+        schoolName: schoolEditDraft.schoolName.trim(),
+        principalName: schoolEditDraft.principalName.trim(),
+        generalEducationAdministration: schoolEditDraft.generalEducationAdministration.trim(),
+        educationOffice: schoolEditDraft.educationOffice.trim(),
+        academicYear: schoolEditDraft.academicYear.trim(),
+        semester: schoolEditDraft.semester.trim(),
+      }
+
+      if (!profile.schoolName || !profile.principalName) {
+        setError('يجب تعبئة اسم المدرسة واسم المدير قبل الحفظ.')
+        return
+      }
+
+      const result = await api.updatePlatformSchoolProfile(editingSchool.id, profile)
+      setSchools(current => current.map(currentSchool => currentSchool.id === editingSchool.id
+        ? { ...currentSchool, name: result.school.schoolName, activatedBy: { ...currentSchool.activatedBy, name: result.school.principalName || currentSchool.activatedBy.name } }
+        : currentSchool))
+      setDeletionNotice('تم تحديث بيانات المدرسة بنجاح.')
+      setEditingSchool(null)
+    } catch {
+      setError('تعذر تحديث بيانات المدرسة. تأكد من صلاحية المشرف ثم أعد المحاولة.')
+    } finally {
+      setUpdatingSchoolId('')
+    }
+  }
 
   const requestSchoolDeletion = (school: PlatformSchoolUsage) => {
     setError('')
@@ -325,7 +383,7 @@ export function PlatformDashboard() {
                     <th>إجراء المشرف</th>
                   </tr>
                 </thead>
-                <tbody>{filteredSchools.map(school => <PlatformSchoolRow key={school.id} school={school} deleting={deletingSchoolId === school.id} updating={updatingSchoolId === school.id} opening={openingSchoolId === school.id} onDelete={requestSchoolDeletion} onStatus={school => void changeSchoolStatus(school)} onOpen={school => void openSchool(school)} />)}</tbody>
+                <tbody>{filteredSchools.map(school => <PlatformSchoolRow key={school.id} school={school} deleting={deletingSchoolId === school.id} updating={updatingSchoolId === school.id} opening={openingSchoolId === school.id} onEdit={requestSchoolEdit} onDelete={requestSchoolDeletion} onStatus={school => void changeSchoolStatus(school)} onOpen={school => void openSchool(school)} />)}</tbody>
               </table>
             </div>}
 
@@ -337,6 +395,49 @@ export function PlatformDashboard() {
           تصنّف المدرسة غير نشطة إذا لم تُسجّل أي استخدام فعلي خلال آخر 90 يومًا، سواء استخدمت النظام سابقًا أو لم تستخدمه مطلقًا. يشمل الاستخدام الحضور والغياب والرسائل والحصص والسلوك والإحالات وملفات الإنجاز. أعداد الدخول اليومية تبدأ بعد نشر الميزة.
         </p>
       </div>
+      {editingSchool && <div className="platform-delete-backdrop" role="presentation" onMouseDown={event => {
+        if (event.target === event.currentTarget) cancelSchoolEdit()
+      }}>
+        <section className="platform-delete-dialog" role="dialog" aria-modal="true" aria-labelledby="platform-edit-title" aria-describedby="platform-edit-description">
+          <h3 id="platform-edit-title">تعديل بيانات المدرسة</h3>
+          <p id="platform-edit-description">
+            يمكنك تعديل اسم المدرسة واسم مديرها من هنا مباشرة، مع حفظ التعديلات على بيانات المؤسسة في قاعدة البيانات.
+          </p>
+          <div className="platform-edit-form">
+            <label>
+              <span>اسم المدرسة</span>
+              <input value={schoolEditDraft.schoolName} onChange={event => setSchoolEditDraft(current => ({ ...current, schoolName: event.target.value }))} />
+            </label>
+            <label>
+              <span>اسم مدير المدرسة</span>
+              <input value={schoolEditDraft.principalName} onChange={event => setSchoolEditDraft(current => ({ ...current, principalName: event.target.value }))} />
+            </label>
+            <label>
+              <span>الإدارة العامة</span>
+              <input value={schoolEditDraft.generalEducationAdministration} onChange={event => setSchoolEditDraft(current => ({ ...current, generalEducationAdministration: event.target.value }))} />
+            </label>
+            <label>
+              <span>المكتب / المنطقة</span>
+              <input value={schoolEditDraft.educationOffice} onChange={event => setSchoolEditDraft(current => ({ ...current, educationOffice: event.target.value }))} />
+            </label>
+            <label>
+              <span>العام الدراسي</span>
+              <input value={schoolEditDraft.academicYear} onChange={event => setSchoolEditDraft(current => ({ ...current, academicYear: event.target.value }))} />
+            </label>
+            <label>
+              <span>الفصل الدراسي</span>
+              <input value={schoolEditDraft.semester} onChange={event => setSchoolEditDraft(current => ({ ...current, semester: event.target.value }))} />
+            </label>
+            {error && <div className="platform-error" role="alert">{error}</div>}
+            <div className="platform-delete-dialog-actions">
+              <button type="button" className="secondary-button" onClick={cancelSchoolEdit} disabled={Boolean(updatingSchoolId)}>إلغاء</button>
+              <button className="platform-delete-button" type="button" onClick={() => void saveSchoolEdit()} disabled={Boolean(updatingSchoolId)}>
+                {updatingSchoolId ? 'جارٍ الحفظ...' : 'حفظ التعديلات'}
+              </button>
+            </div>
+          </div>
+        </section>
+      </div>}
       {schoolPendingDeletion && <div className="platform-delete-backdrop" role="presentation" onMouseDown={event => {
         if (event.target === event.currentTarget) cancelSchoolDeletion()
       }}>

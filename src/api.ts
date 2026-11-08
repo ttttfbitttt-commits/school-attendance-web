@@ -56,6 +56,14 @@ export type PlatformSchoolUsage = {
   }
   storage: { totalBytes: number; recordsBytes: number; portfolioBytes: number; portfolioFiles: number; records: number }
 }
+export type PlatformSchoolProfileUpdate = {
+  schoolName: string
+  principalName: string
+  generalEducationAdministration: string
+  educationOffice: string
+  academicYear: string
+  semester: string
+}
 export type AlmadarAccount = { configured: boolean; senderName?: string; lastBalance?: string | null; verifiedAt?: string | null; updatedAt?: string | null }
 export type Excuse = { id: string; studentId: string; name: string; grade: string; classroom: string; category: string; note: string; startDate: string; endDate: string | null; createdAt: string }
 export type StudentExcuseReason = 'health_condition' | 'family_condition' | 'medical_appointment' | 'government_appointment' | 'exam' | 'job_interview' | 'national_mission'
@@ -417,6 +425,7 @@ export const api = {
   cancelAcademicTermConfirmation: () => request<{ ok: true }>('/academic-terms/cancel-confirmation', { method: 'POST', body: JSON.stringify({}) }),
   activateAcademicTerm: (termId: string) => request<{ ok: true; term: AcademicTerm; school: SchoolProfile }>(`/academic-terms/${encodeURIComponent(termId)}/activate`, { method: 'POST', body: JSON.stringify({ confirmation: 'استعادة الفصل الدراسي' }) }),
   platformSchools: () => request<{ schools: PlatformSchoolUsage[] }>('/platform/schools'),
+  updatePlatformSchoolProfile: (schoolId: string, profile: PlatformSchoolProfileUpdate) => request<{ school: SchoolProfile }>('/platform/schools/' + encodeURIComponent(schoolId) + '/profile', { method: 'PUT', body: JSON.stringify(profile) }),
   platformMe: () => request<{ authenticated: true }>('/platform/me'),
   platformLogin: (username: string, password: string) => request<{ authenticated: true }>('/platform/login', { method: 'POST', body: JSON.stringify({ username, password }) }),
   platformLogout: () => request<{ ok: true }>('/platform/logout', { method: 'POST' }),

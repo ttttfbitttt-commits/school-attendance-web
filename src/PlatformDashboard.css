@@ -395,15 +395,28 @@
   line-height: 1.8;
 }
 
-.platform-delete-dialog form {
+.platform-delete-dialog form,
+.platform-edit-form {
   display: grid;
   gap: 10px;
 }
 
-.platform-delete-dialog label {
+.platform-delete-dialog label,
+.platform-edit-form label {
+  display: grid;
+  gap: 7px;
   color: #40566b;
   font-size: 13px;
   font-weight: 700;
+}
+
+.platform-edit-form input {
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 12px;
+  border: 1px solid #d6e0e8;
+  border-radius: 9px;
+  direction: rtl;
 }
 
 .platform-delete-dialog input {

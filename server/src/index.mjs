@@ -54,6 +54,12 @@ function json(res, status, body) {
 function parseCookies(req) {
   return Object.fromEntries((req.headers.cookie || '').split(';').map(v => v.trim().split('=').map(decodeURIComponent)).filter(v => v.length === 2))
 }
+async function platformSessionIsValid(req) {
+  const token = parseCookies(req)['attendance_platform_session']
+  if (!token) return false
+  const result = await authPool.query('SELECT 1 FROM platform_sessions WHERE token_hash=$1 AND expires_at > now()', [tokenHash(token)])
+  return Boolean(result.rowCount)
+}
 function sessionCookie(token, maxAge = 60 * 60 * 12) {
   return `${COOKIE}=${encodeURIComponent(token)}; Path=/; HttpOnly; SameSite=Strict; Max-Age=${maxAge}${secureCookie ? '; Secure' : ''}`
 }
@@ -141,6 +147,8 @@ async function auth(req) {
       AND ((m.role NOT IN ('teacher','administrator','student','counselor','vice_principal','activity_leader')) OR (m.role='teacher' AND account.active=true) OR (m.role='administrator' AND administrator_account.active=true) OR (m.role='student' AND student_account.active=true) OR (m.role='counselor' AND counselor_account.active=true) OR (m.role='vice_principal' AND vice_principal_account.active=true) OR (m.role='activity_leader' AND activity_leader_account.active=true))`, [tokenHash(token)])
   const user = rows[0]
   if (!user) return null
+  const platformOverride = await platformSessionIsValid(req)
+  if (platformOverride) user.role = 'admin'
   const school = await scopedOn(authPool, user.school_id,
     client => client.query(`SELECT 1 FROM schools WHERE id=$1 AND platform_status='active'`, [user.school_id]))
   return school.rowCount ? user : null
@@ -272,7 +280,8 @@ function normalizedSchoolProfile(input) {
     .filter(([key, value]) => String(key).trim().length <= 100 && String(value).trim().length <= 100)
     .slice(0, 100)
     .map(([key, value]) => [String(key).trim(), String(value).trim()]))
-  if (![schoolName, principalName, academicYear, semester].every(value => value.length > 0 && value.length <= 160)) return null
+  if (![schoolName, principalName].every(value => value.length > 0 && value.length <= 160)) return null
+  if (academicYear.length > 160 || semester.length > 160) return null
   if (generalEducationAdministration.length > 160 || educationOffice.length > 160) return null
   return { schoolName, principalName, generalEducationAdministration, educationOffice, academicYear, semester, preferences: { attendanceMode, cutoffTime, gradeAliases } }
 }
