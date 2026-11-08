@@ -142,6 +142,7 @@ def import_smarttable_project(path):
     teaching_load = Counter(course['teacherId'] for placement in data['referencePlacements']
                             for course in data['courses'] if course['id'] == placement['courseId'])
     waiting_load = Counter(row['teacherId'] for row in assignments)
+    excluded_waiting = [teacher['id'] for teacher in data['teachers'] if waiting_load[teacher['id']] == 0]
     target = max([20, *(teaching_load[teacher['id']] + waiting_load[teacher['id']] for teacher in data['teachers'])])
     maximum_rank = max((row['rank'] for row in assignments), default=1)
     meta = dict(list(workbook['_META'].values)[1:])
@@ -154,7 +155,10 @@ def import_smarttable_project(path):
         'config': {
             'target': target,
             'count': maximum_rank,
-            'excluded': [],
+            # In the source timetable, having no waiting row means a deliberate
+            # zero waiting quota. Preserve that rule for normal and emergency
+            # allocation instead of silently drafting the teacher later.
+            'excluded': excluded_waiting,
             'emergency': True,
             'farEmergency': True,
             'maxDistance': 3,

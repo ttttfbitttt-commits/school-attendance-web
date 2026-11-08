@@ -74,7 +74,8 @@ def generate(p, config):
         for rank in range(1,len(chosen)+1):
             tid=min(chosen,key=lambda i:(ranks[i][rank],sum(ranks[i].values()),i));chosen.remove(tid);ranks[tid][rank]+=1
             rows.append({'slot':si,'teacherId':tid,'rank':rank})
-    return {'config':config,'assignments':rows,'signature':signature(p),'ruleVersion':2}
+    quotas={t['id']:(0 if t['id'] in excluded else max(0,target-loads[t['id']])) for t in p['teachers']}
+    return {'config':config,'assignments':rows,'quotas':quotas,'signature':signature(p),'ruleVersion':2}
 
 def signature(p):
     import json,hashlib

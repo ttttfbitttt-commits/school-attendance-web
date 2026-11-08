@@ -2,7 +2,7 @@
 import copy, datetime, uuid, html, subprocess, os, base64
 from pathlib import Path
 from functools import lru_cache
-from collections import defaultdict
+from collections import Counter, defaultdict
 from standby import context, signature
 WEEK=['الاثنين','الثلاثاء','الأربعاء','الخميس','الجمعة','السبت','الأحد']
 
@@ -86,42 +86,71 @@ def _weekly_coverage_counts(project, date_text, ignored_record_id=None):
     return all_coverages,emergency_coverages
 
 
+def _emergency_quota(project, teacher_id, busy, standby):
+    """Return the teacher's approved emergency eligibility/quota.
+
+    A complete Smart Table import is authoritative: a teacher who has no row
+    in its waiting table has a waiting quota of zero and must never be pulled
+    in by the emergency fallback.  Locally generated tables persist the quota
+    map; older local tables fall back to the configured target minus teaching
+    load so existing schools keep working.
+    """
+    config=standby.get('config',{})
+    if teacher_id in set(config.get('excluded',[])):
+        return 0
+    teaching_load=len(busy[teacher_id])
+    target=max(0,_whole_number(config.get('target'),20))
+    calculated=max(0,target-teaching_load)
+    quotas=standby.get('quotas')
+    if isinstance(quotas,dict) and teacher_id in quotas:
+        return min(calculated,max(0,_whole_number(quotas.get(teacher_id),0)))
+    if standby.get('importedFromSmartTable') or config.get('importedFromSmartTable'):
+        imported=sum(1 for item in standby.get('assignments',[])
+                     if not _is_emergency_assignment(item) and item.get('teacherId')==teacher_id)
+        return min(calculated,imported)
+    return calculated
+
+
+def _emergency_teacher_is_eligible(project, teacher_id, slot, absent, busy, standby):
+    teacher=next((item for item in project.get('teachers',[]) if item.get('id')==teacher_id),None)
+    if not teacher or teacher_id in absent:
+        return False
+    if _emergency_quota(project,teacher_id,busy,standby)<=0:
+        return False
+    return slot not in busy[teacher_id] and slot not in teacher.get('blocked',[])
+
+
 def _emergency_choice(project, slot, absent, used, busy, teachers, standby, date_text, ignored_record_id=None):
     """Pick the fairest safe emergency cover and explain the decision."""
     day = project['slots'][slot]['day']
-    same_day_covered = {teacher_id for teacher_id, used_slot in used if project['slots'][used_slot]['day'] == day}
-    exclusions = set(standby.get('config', {}).get('excluded', []))
+    same_day_covered = Counter(teacher_id for teacher_id, used_slot in used if project['slots'][used_slot]['day'] == day)
+    current_record_covered = Counter(teacher_id for teacher_id,_ in used)
     all_coverages,emergency_coverages=_weekly_coverage_counts(project,date_text,ignored_record_id)
     candidates=[]
     for teacher in project['teachers']:
         teacher_id = teacher['id']
-        if teacher_id in absent or teacher_id in exclusions:
+        if not _emergency_teacher_is_eligible(project,teacher_id,slot,absent,busy,standby):
             continue
         if (teacher_id, slot) in used:
-            continue
-        if slot in busy[teacher_id] or slot in teacher.get('blocked', []):
-            continue
-        if teacher_id in same_day_covered:
-            continue
-        if any(not _is_emergency_assignment(item) and item.get('teacherId') == teacher_id and project['slots'][item.get('slot')]['day'] == day for item in standby.get('assignments', [])):
             continue
         same_day_busy_slots=[other_slot for other_slot in busy[teacher_id] if project['slots'][other_slot]['day']==day]
         same_day_load=len(same_day_busy_slots)
         distance=min((abs(project['slots'][slot]['period']-project['slots'][other_slot]['period']) for other_slot in same_day_busy_slots), default=999)
-        weekly_load=len(busy[teacher_id])+all_coverages[teacher_id]
-        target=max(1,_whole_number(teacher.get('max'),weekly_load or 1))
+        weekly_load=len(busy[teacher_id])+all_coverages[teacher_id]+current_record_covered[teacher_id]
+        target=max(1,_whole_number(standby.get('config',{}).get('target'),_whole_number(teacher.get('max'),weekly_load or 1)))
         ratio=weekly_load/target
         candidates.append({'teacherId':teacher_id,'weeklyLoad':weekly_load,'target':target,
                            'ratio':ratio,'emergencies':emergency_coverages[teacher_id],
-                           'sameDayLoad':same_day_load,'distance':distance})
+                           'sameDayLoad':same_day_load,'sameDayCoverages':same_day_covered[teacher_id],
+                           'distance':distance})
     if not candidates:
         return None
-    choice=min(candidates,key=lambda item:(item['ratio'],item['weeklyLoad'],item['emergencies'],item['sameDayLoad'],item['distance'],teachers[item['teacherId']]['name']))
+    choice=min(candidates,key=lambda item:(item['ratio'],item['weeklyLoad'],item['sameDayCoverages'],item['emergencies'],item['sameDayLoad'],item['distance'],teachers[item['teacherId']]['name']))
     percentage=round(choice['ratio']*100)
     choice['note']=(f"تم تكليف معلم طوارئ وفق الموازنة العادلة: متاح في الحصة، "
                     f"نصابه الحالي {choice['weeklyLoad']} من {choice['target']} ({percentage}٪)، "
                     f"وتكليفات الطوارئ هذا الأسبوع {choice['emergencies']}، "
-                    f"وحصصه اليوم {choice['sameDayLoad']}.")
+                    f"وحصصه اليوم {choice['sameDayLoad']}، وتكليفاته في سجل اليوم {choice['sameDayCoverages']}.")
     return choice
 
 
@@ -216,14 +245,30 @@ def reconcile_missing_emergency_assignments(project, record):
         return record
     busy,_=context(project)
     absent=set(str(t) for t in record.get('teacherIds',[]))
+    updated=copy.deepcopy(record)
+    changed=False
+    # Drop only unsigned emergency choices that are no longer eligible.  A
+    # signed row is an official acknowledgement and is never rewritten.
+    for entry in updated.get('entries',[]):
+        replacement_id=entry.get('replacementId')
+        if not _is_emergency_assignment(entry) or replacement_id in (None,''):
+            continue
+        signed=str(entry.get('signature') or '').startswith('data:image/')
+        slot=int(entry.get('slot'))
+        if not signed and not _emergency_teacher_is_eligible(project,replacement_id,slot,absent,busy,standby):
+            entry['replacementId']=None
+            entry['replacementName']=''
+            entry['rank']=None
+            entry['rankLabel']=None
+            entry['execution']=''
+            entry['notes']='لم يتوفر منتظر صالح لهذه الحصة؛ يلزم تكليف يدوي.'
+            changed=True
     used=set()
-    for entry in record.get('entries',[]):
+    for entry in updated.get('entries',[]):
         replacement_id=entry.get('replacementId')
         if replacement_id is None or str(replacement_id).strip() in ('', 'None', 'null'):
             continue
         used.add((str(replacement_id), int(entry.get('slot'))))
-    updated=copy.deepcopy(record)
-    changed=False
     for entry in updated.get('entries',[]):
         replacement_id=entry.get('replacementId')
         replacement_name=entry.get('replacementName')

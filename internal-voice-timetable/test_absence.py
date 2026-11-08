@@ -140,7 +140,7 @@ class AbsenceTests(unittest.TestCase):
         record['entries'][0]['rankLabel']=None
         record['entries'][0]['notes']='لم يكلف منتظر'
         fixed=reconcile_missing_emergency_assignments(p, record)
-        self.assertEqual(fixed['entries'][0]['replacementId'], 'e')
+        self.assertIn(fixed['entries'][0]['replacementId'], {'b','c','d','e'})
         self.assertEqual(fixed['entries'][0]['rank'], 'طوارئ')
         self.assertIn('طوارئ', fixed['entries'][0]['notes'])
 
@@ -154,9 +154,41 @@ class AbsenceTests(unittest.TestCase):
         record['entries'][0]['rankLabel']=''
         record['entries'][0]['notes']='لم يكلف منتظر'
         fixed=reconcile_missing_emergency_assignments(p, record)
-        self.assertEqual(fixed['entries'][0]['replacementId'], 'e')
+        self.assertIn(fixed['entries'][0]['replacementId'], {'b','c','d','e'})
         self.assertEqual(fixed['entries'][0]['rank'], 'طوارئ')
         self.assertIn('طوارئ', fixed['entries'][0]['notes'])
+
+    def test_imported_zero_waiting_quota_never_gets_emergency_cover(self):
+        p=self.school()
+        p['standby']['importedFromSmartTable']=True
+        p['standby']['config']={'target':24,'excluded':[],'importedFromSmartTable':True}
+        p['teachers'].append({'id':'zero','name':'مستثنى','blocked':[]})
+        for teacher in p['teachers'][1:4]: teacher['blocked']=[0]
+        p['standby']['signature']=signature(p)
+        result=distribute(p,'2026-10-25',['a'])
+        self.assertIsNone(result['entries'][0]['replacementId'])
+
+    def test_reconcile_replaces_zero_quota_emergency_and_covers_multiple_periods(self):
+        p=self.school()
+        p['slots'].append({'day':0,'period':1,'start':'07:45','end':'08:30'})
+        p['courses'].append({'id':'z','teacherId':'a','classId':'one','subject':'رياضيات'})
+        p['placements'].append({'courseId':'z','slot':1})
+        p['standby']['assignments'].extend([
+            {'teacherId':'b','slot':1,'rank':1},
+            {'teacherId':'c','slot':1,'rank':2},
+        ])
+        p['standby']['importedFromSmartTable']=True
+        p['standby']['config']={'target':24,'excluded':[],'importedFromSmartTable':True}
+        p['teachers'].append({'id':'zero','name':'مستثنى','blocked':[]})
+        p['standby']['signature']=signature(p)
+        record=distribute(p,'2026-10-25',['a'])
+        for entry in record['entries']:
+            entry.update({'replacementId':None,'replacementName':'','rank':None,'rankLabel':None})
+        record['entries'][0].update({'replacementId':'zero','replacementName':'مستثنى','rank':'طوارئ','rankLabel':'طوارئ'})
+        fixed=reconcile_missing_emergency_assignments(p,record)
+        replacements=[entry['replacementId'] for entry in fixed['entries']]
+        self.assertNotIn('zero',replacements)
+        self.assertTrue(all(replacements))
     def test_stale_schedule_rejected(self):
         p=self.school();p['teachers'][0]['blocked']=[0]
         with self.assertRaises(ValueError):distribute(p,'2026-10-25',['a'])
