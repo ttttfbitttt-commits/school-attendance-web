@@ -236,6 +236,21 @@ class AbsenceTests(unittest.TestCase):
         by_period={entry['period']:entry['replacementId'] for entry in result['entries']}
         self.assertEqual(by_period[2],'flexible')
         self.assertEqual(by_period[1],'early-only')
+
+    def test_regular_waiting_rank_does_not_repeat_while_an_unused_teacher_exists(self):
+        p=self.school()
+        p['slots'].append({'day':0,'period':1,'start':'07:45','end':'08:30'})
+        p['courses'].append({'id':'late-absence','teacherId':'a','classId':'one','subject':'رياضيات'})
+        p['placements'].append({'courseId':'late-absence','slot':1})
+        p['standby']['assignments'].extend([
+            {'teacherId':'c','slot':1,'rank':1},
+            {'teacherId':'d','slot':1,'rank':2},
+        ])
+        p['standby']['signature']=signature(p)
+        result=distribute(p,'2026-10-25',['a'])
+        by_period={entry['period']:entry['replacementId'] for entry in result['entries']}
+        self.assertEqual(by_period[2],'c')
+        self.assertEqual(by_period[1],'d')
     def test_stale_schedule_rejected(self):
         p=self.school();p['teachers'][0]['blocked']=[0]
         with self.assertRaises(ValueError):distribute(p,'2026-10-25',['a'])

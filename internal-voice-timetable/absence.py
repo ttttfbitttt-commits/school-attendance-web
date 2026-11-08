@@ -120,8 +120,8 @@ def _emergency_teacher_is_eligible(project, teacher_id, slot, absent, busy, stan
     return slot not in busy[teacher_id] and slot not in teacher.get('blocked',[])
 
 
-def _emergency_choice(project, slot, absent, used, busy, teachers, standby, date_text, ignored_record_id=None):
-    """Pick the fairest safe emergency cover and explain the decision."""
+def _emergency_candidates(project, slot, absent, used, busy, teachers, standby, date_text, ignored_record_id=None):
+    """Return every safe emergency candidate in the fair fallback order."""
     day = project['slots'][slot]['day']
     same_day_covered = Counter(teacher_id for teacher_id, used_slot in used if project['slots'][used_slot]['day'] == day)
     current_record_covered = Counter(teacher_id for teacher_id,_ in used)
@@ -143,17 +143,27 @@ def _emergency_choice(project, slot, absent, used, busy, teachers, standby, date
                            'ratio':ratio,'emergencies':emergency_coverages[teacher_id],
                            'sameDayLoad':same_day_load,'sameDayCoverages':same_day_covered[teacher_id],
                            'distance':distance})
-    if not candidates:
-        return None
     # Never repeat a teacher in the same day while another eligible teacher
     # has not covered any absence that day. Repetition is the final fallback,
     # then teaching load and weekly fairness decide between equal options.
-    choice=min(candidates,key=lambda item:(item['sameDayCoverages'],item['ratio'],item['weeklyLoad'],item['emergencies'],item['sameDayLoad'],item['distance'],teachers[item['teacherId']]['name']))
+    return sorted(candidates,key=lambda item:(item['sameDayCoverages'],item['ratio'],item['weeklyLoad'],item['emergencies'],item['sameDayLoad'],item['distance'],teachers[item['teacherId']]['name']))
+
+
+def _emergency_note(choice):
     percentage=round(choice['ratio']*100)
-    choice['note']=(f"تم تكليف معلم طوارئ وفق الموازنة العادلة: متاح في الحصة، "
-                    f"نصابه الحالي {choice['weeklyLoad']} من {choice['target']} ({percentage}٪)، "
-                    f"وتكليفات الطوارئ هذا الأسبوع {choice['emergencies']}، "
-                    f"وحصصه اليوم {choice['sameDayLoad']}، وتكليفاته في سجل اليوم {choice['sameDayCoverages']}.")
+    return (f"تم تكليف معلم طوارئ وفق الموازنة العادلة: متاح في الحصة، "
+            f"نصابه الحالي {choice['weeklyLoad']} من {choice['target']} ({percentage}٪)، "
+            f"وتكليفات الطوارئ هذا الأسبوع {choice['emergencies']}، "
+            f"وحصصه اليوم {choice['sameDayLoad']}، وتكليفاته في سجل اليوم {choice['sameDayCoverages']}.")
+
+
+def _emergency_choice(project, slot, absent, used, busy, teachers, standby, date_text, ignored_record_id=None):
+    """Pick the fairest safe emergency cover and explain the decision."""
+    candidates=_emergency_candidates(project,slot,absent,used,busy,teachers,standby,date_text,ignored_record_id)
+    if not candidates:
+        return None
+    choice=candidates[0]
+    choice['note']=_emergency_note(choice)
     return choice
 
 
@@ -193,12 +203,60 @@ def distribute(project, date_text, selected, existing=None):
         -project['slots'][v['slot']]['period'],
         v['courseId'],
     ))
+    rows=[]
     for pos in positions:
         slot=pos['slot'];timing=project['slots'][slot];course=courses[pos['courseId']]
         if timing['day']!=day or course['teacherId'] not in absent: continue
         candidates=sorted((a for a in standby['assignments'] if a['slot']==slot and not _is_emergency_assignment(a)),key=lambda a:_standby_rank_key(a.get('rank')))
-        chosen=next((a for a in candidates if a['teacherId'] in teachers and a['teacherId'] not in absent and (a['teacherId'],slot) not in used and slot not in busy[a['teacherId']] and slot not in teachers[a['teacherId']].get('blocked',[]) and a['teacherId'] not in standby.get('config',{}).get('excluded',[])),None)
+        regular=[a for a in candidates if a['teacherId'] in teachers and a['teacherId'] not in absent and slot not in busy[a['teacherId']] and slot not in teachers[a['teacherId']].get('blocked',[]) and a['teacherId'] not in standby.get('config',{}).get('excluded',[])]
+        emergency_options=_emergency_candidates(project,slot,absent,set(),busy,teachers,standby,date_text,(existing or {}).get('id'))
+        emergency_by_id={item['teacherId']:item for item in emergency_options}
+        candidate_ids=[]
+        for teacher_id in [a['teacherId'] for a in regular]+[item['teacherId'] for item in emergency_options]:
+            if teacher_id not in candidate_ids:
+                candidate_ids.append(teacher_id)
+        rows.append({'pos':pos,'slot':slot,'timing':timing,'course':course,'regular':regular,
+                     'emergencyById':emergency_by_id,'candidateIds':candidate_ids})
+
+    # Maximum bipartite matching gives every teacher at most one duty while
+    # preserving late-period priority. An earlier row may move a late row to
+    # another valid teacher, but can never leave that late row uncovered.
+    teacher_match={}
+    def assign_unique(row_index,seen):
+        # First consume a still-unused candidate so an earlier period does not
+        # displace the preferred teacher already reserved for a later period.
+        for teacher_id in rows[row_index]['candidateIds']:
+            if teacher_id not in teacher_match:
+                teacher_match[teacher_id]=row_index
+                return True
+        for teacher_id in rows[row_index]['candidateIds']:
+            if teacher_id in seen:
+                continue
+            seen.add(teacher_id)
+            if assign_unique(teacher_match[teacher_id],seen):
+                teacher_match[teacher_id]=row_index
+                return True
+        return False
+    for row_index in range(len(rows)):
+        assign_unique(row_index,set())
+    unique_by_row={row_index:teacher_id for teacher_id,row_index in teacher_match.items()}
+    used.update((teacher_id,rows[row_index]['slot']) for row_index,teacher_id in unique_by_row.items())
+
+    for row_index,row in enumerate(rows):
+        slot=row['slot'];timing=row['timing'];course=row['course']
+        teacher_id=unique_by_row.get(row_index)
+        chosen=next((a for a in row['regular'] if a['teacherId']==teacher_id),None)
         emergency_note=''
+        if teacher_id is not None and chosen is None:
+            info=row['emergencyById'][teacher_id]
+            chosen={'teacherId':teacher_id,'slot':slot,'rank':'طوارئ','emergency':True}
+            emergency_note=_emergency_note(info)
+        if teacher_id is None:
+            repeated_regular=next((a for a in row['regular'] if (a['teacherId'],slot) not in used),None)
+            if repeated_regular is not None:
+                chosen=repeated_regular
+            else:
+                chosen=None
         if not chosen:
             emergency=_emergency_choice(project, slot, absent, used, busy, teachers, standby, date_text,
                                         (existing or {}).get('id'))
