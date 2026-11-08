@@ -118,7 +118,7 @@ const DEFAULT_SCHOOL_SETTINGS: SchoolSettings = {
   semester: 'الفصل الأول',
 }
 
-const readSchoolSettings = (): SchoolSettings => DEFAULT_SCHOOL_SETTINGS
+const readSchoolSettings = (): SchoolSettings => ({ ...DEFAULT_SCHOOL_SETTINGS })
 
 function timeToMinutes(value: string) {
   const match = /^(\d{2}):(\d{2})$/.exec(value)
@@ -419,9 +419,15 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
   }
 
   // المصدر المعتمد بعد تسجيل الدخول هو الخادم؛ التخزين المحلي يبقى فقط كنسخة مؤقتة للمتصفح.
+  // نعيد تحميل بيانات المدرسة عند تغيير المدرسة الحالية، لأن كل مدرسة لها اسم مدير خاص بها.
   useEffect(() => {
-    void Promise.all([api.school(), api.students(), api.attendance()])
-      .then(([schoolResult, studentResult, attendanceResult]) => {
+    let cancelled = false
+
+    const loadSchoolData = async () => {
+      try {
+        const [schoolResult, studentResult, attendanceResult] = await Promise.all([api.school(), api.students(), api.attendance()])
+        if (cancelled) return
+
         const remoteSchool = schoolResult.school
         const remoteStudents = studentResult.students as Student[]
         const remoteRecords = attendanceResult.records as Array<Omit<ScanRecord, 'day'>>
@@ -433,9 +439,16 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
           day: ARABIC_DAYS[new Date(`${record.date}T12:00:00`).getDay()],
         })))
         setNotice('تم تحميل بيانات المدرسة من الخادم الآمن.')
-      })
-      .catch(() => setNotice('تعذر تحميل بيانات الخادم. تحقق من الاتصال ثم أعد المحاولة.'))
-  }, [])
+      } catch {
+        if (!cancelled) setNotice('تعذر تحميل بيانات الخادم. تحقق من الاتصال ثم أعد المحاولة.')
+      }
+    }
+
+    void loadSchoolData()
+    return () => {
+      cancelled = true
+    }
+  }, [account.schoolId])
 
   const loadSchoolStorageUsage = async () => {
     setSchoolStorageLoading(true)
