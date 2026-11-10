@@ -237,11 +237,11 @@ const QR_SCAN_MAX_DIMENSION = 420
 const QR_SCAN_PAUSE_AFTER_READ_MS = 450
 
 const aliases = {
-  id: ['رقم الطالب', 'الهوية', 'رقم الهوية', 'student id', 'id', 'الرقم'],
-  name: ['اسم الطالب', 'الاسم', 'اسم', 'student name', 'name'],
-  phone: ['الجوال', 'رقم الجوال', 'الهاتف', 'الجوال الرسمي', 'phone', 'mobile'],
-  grade: ['رقم الصف', 'الصف', 'المرحلة', 'المستوى', 'grade'],
-  classroom: ['الفصل', 'الشعبة', 'class', 'classroom'],
+  id: ['رقم الطالب', 'رقم الهوية', 'هوية الطالب', 'السجل المدني', 'الهوية', 'student id', 'student number', 'student no', 'id', 'الرقم'],
+  name: ['اسم الطالب', 'اسم الطالبة', 'اسم المتعلم', 'اسم المتعلمة', 'الاسم الكامل', 'الاسم الرباعي', 'الاسم', 'اسم', 'student name', 'full name', 'name'],
+  phone: ['جوال ولي الأمر', 'رقم جوال ولي الأمر', 'هاتف ولي الأمر', 'جوال الطالب', 'رقم الجوال', 'الجوال', 'الهاتف', 'الجوال الرسمي', 'phone', 'mobile', 'mobile number'],
+  grade: ['الصف الدراسي', 'المرحلة الدراسية', 'المستوى الدراسي', 'رقم الصف', 'الصف', 'المرحلة', 'المستوى', 'grade', 'level'],
+  classroom: ['الفصل الدراسي', 'الشعبة الدراسية', 'اسم الفصل', 'رقم الفصل', 'الفصل', 'الشعبة', 'class', 'classroom', 'section'],
 }
 
 const ARABIC_DAYS = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت']
@@ -255,7 +255,15 @@ const getTodayDateStr = () => {
 }
 
 const normalize = (value: unknown) => String(value ?? '').replace(/\s+/g, ' ').trim()
-const cleanKey = (value: unknown) => normalize(value).toLowerCase()
+// نحول صيغ رؤوس الأعمدة الشائعة إلى مفتاح واحد. لا نطبق ذلك على بيانات
+// الطلاب نفسها، بل على الرأس فقط، حتى تبقى الأسماء والأرقام كما وردت في الملف.
+const cleanKey = (value: unknown) => normalize(value)
+  .toLowerCase()
+  .replace(/[أإآٱ]/g, 'ا')
+  .replace(/ة/g, 'ه')
+  .replace(/ى/g, 'ي')
+  .replace(/[ـ\u064B-\u065F]/g, '')
+  .replace(/[^\p{L}\p{N}]+/gu, '')
 const getBarcodeIdCandidates = (rawCode: string) => {
   const code = normalize(rawCode)
   if (!code) return []
@@ -307,11 +315,18 @@ function SidebarGroup({ title, open, onToggle, children }: { title: string; open
 }
 
 
-const findColumnIndex = (headers: unknown[], names: readonly string[]) => {
-  return headers.findIndex((header) =>
-    names.some((name) => cleanKey(header) === cleanKey(name))
-  )
+const headerMatches = (header: unknown, name: string) => {
+  const candidate = cleanKey(header)
+  const expected = cleanKey(name)
+  // لا نطابق مقطعًا قصيرًا مثل «اسم» داخل عنوان غير متعلق بالطالب.
+  return candidate === expected || (expected.length >= 5 && candidate.includes(expected))
 }
+
+const findColumnIndex = (headers: unknown[], names: readonly string[]) => {
+  return headers.findIndex((header) => names.some((name) => headerMatches(header, name)))
+}
+
+const importColumnLabel = (headers: unknown[], index: number) => index >= 0 ? normalize(headers[index]) : 'غير موجود'
 
 const findHeaderRow = (rows: unknown[][]) => {
   let best = { index: -1, score: 0 }
@@ -319,9 +334,9 @@ const findHeaderRow = (rows: unknown[][]) => {
   rows.slice(0, 40).forEach((row, index) => {
     if (!Array.isArray(row)) return
 
-    const rowValues = row.map(cleanKey)
+    const rowValues = row
     const score = Object.values(aliases).reduce((total, names) => {
-      return total + (names.some((name) => rowValues.includes(cleanKey(name))) ? 1 : 0)
+      return total + (names.some((name) => rowValues.some((header) => headerMatches(header, name))) ? 1 : 0)
     }, 0)
 
     if (score > best.score) {
@@ -748,6 +763,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
 
       const imported: Student[] = []
       const warnings: string[] = []
+      const detectedMappings: string[] = []
 
       workbook.SheetNames.forEach((sheetName) => {
         const rows = XLSX.utils.sheet_to_json<unknown[]>(workbook.Sheets[sheetName], {
@@ -773,6 +789,8 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
           warnings.push(`تعذر التعرف على اسم الطالب أو رقم الطالب في ورقة ${sheetName}`)
           return
         }
+
+        detectedMappings.push(`${sheetName}: الاسم ← ${importColumnLabel(headers, columns.name)}، الرقم ← ${importColumnLabel(headers, columns.id)}${columns.grade >= 0 ? `، الصف ← ${importColumnLabel(headers, columns.grade)}` : ''}${columns.classroom >= 0 ? `، الفصل ← ${importColumnLabel(headers, columns.classroom)}` : ''}`)
 
         rows.slice(headerRowIndex + 1).forEach((row, index) => {
           if (!Array.isArray(row)) return
@@ -803,6 +821,18 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
       )
 
       const duplicateCount = imported.length - uniqueStudents.length
+      if (!uniqueStudents.length) {
+        setNotice(warnings.length ? `لم يُحفظ شيء: ${warnings.join('؛ ')}` : 'لم أجد بيانات طلاب صالحة في الملف؛ لم يُحفظ أي تغيير.')
+        return
+      }
+
+      const approved = window.confirm(
+        `معاينة الاستيراد\n\nسيتم حفظ ${uniqueStudents.length} طالبًا فقط بعد موافقتك.\n\n${detectedMappings.join('\n')}\n\n${warnings.length ? `تنبيهات: ${warnings.join('؛ ')}\n\n` : ''}لن يُحذف أي سجل حضور أو بيانات سابقة. هل تريد المتابعة؟`
+      )
+      if (!approved) {
+        setNotice('تم إلغاء الاستيراد قبل الحفظ؛ لم تتغير أي بيانات.')
+        return
+      }
       await api.saveStudents(uniqueStudents.map(({ qr, ...student }) => student))
       setStudents(uniqueStudents)
       setShowPrintableCards(false)
