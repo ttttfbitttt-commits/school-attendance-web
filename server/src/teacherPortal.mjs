@@ -373,6 +373,7 @@ async function teacherEvidenceOptions(client, schoolId, teacherId) {
   }
   return {
     classes: [...grades.entries()].map(([grade, classrooms]) => ({ grade, classrooms: [...new Set(classrooms)].sort(compareSchoolClassroom) })).sort((left, right) => compareSchoolGrade(left.grade, right.grade)),
+    subjects: subjects.rows.map(row => row.name),
     teachers: teachers.rows,
     vicePrincipals: vicePrincipals.rows,
     activityLeaders: activityLeaders.rows,
