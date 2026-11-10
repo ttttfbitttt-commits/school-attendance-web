@@ -263,7 +263,7 @@ export async function handleCircularPublicRequest({ req, res, url, body, json, p
   if (req.method === 'GET' && url.pathname === '/api/circulars/public') {
     const result = await publicPool.query(`SELECT a.teacher_name AS "teacherName",a.status,c.title,c.file_name AS "fileName",c.file_type AS "fileType",c.file_data AS "fileData",
       to_char(c.circular_date,'YYYY-MM-DD') AS "circularDate",s.name AS "schoolName"
-      FROM school_circular_acknowledgements a JOIN school_circulars c ON c.id=a.circular_id JOIN schools s ON s.id=a.school_id
+      FROM school_circular_acknowledgements a JOIN school_circulars c ON c.id=a.circular_id AND c.school_id=a.school_id JOIN schools s ON s.id=a.school_id
       WHERE a.access_token_hash=$1`, [hash])
     if (!result.rowCount) { json(res, 404, { error: 'link_not_found' }); return true }
     json(res, 200, { circular: result.rows[0] })
