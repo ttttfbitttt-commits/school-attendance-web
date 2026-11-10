@@ -348,7 +348,7 @@ export function sendEvidenceImage(res, image) {
 }
 
 async function teacherEvidenceOptions(client, schoolId, teacherId) {
-  const [classes, teachers, vicePrincipals, activityLeaders, school] = await Promise.all([
+  const [classes, teachers, vicePrincipals, activityLeaders, school, subjects] = await Promise.all([
     client.query(`SELECT DISTINCT m.grade_value AS grade,m.classroom_value AS classroom
       FROM lesson_schedule_assignments a
       JOIN lesson_schedule_imports imported ON imported.id=a.import_id AND imported.school_id=a.school_id AND imported.is_active=true
@@ -362,6 +362,9 @@ async function teacherEvidenceOptions(client, schoolId, teacherId) {
     client.query(`SELECT id AS "activityLeaderId",full_name AS name FROM school_activity_leaders
       WHERE school_id=$1 AND active=true ORDER BY full_name`, [schoolId]),
     client.query(`SELECT principal_name AS "principalName" FROM schools WHERE id=$1`, [schoolId]),
+    client.query(`SELECT DISTINCT btrim(a.subject_name) AS name FROM lesson_schedule_assignments a
+      JOIN lesson_schedule_imports imported ON imported.id=a.import_id AND imported.school_id=a.school_id AND imported.is_active=true
+      WHERE a.school_id=$1 AND a.teacher_id=$2 AND a.subject_name IS NOT NULL AND btrim(a.subject_name) <> '' ORDER BY name`, [schoolId, teacherId]),
   ])
   const grades = new Map()
   for (const row of classes.rows) {
