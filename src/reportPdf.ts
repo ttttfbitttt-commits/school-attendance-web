@@ -25,6 +25,13 @@ function safeFileName(title: string) {
   return `${title.trim().replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, '-').slice(0, 100) || 'تقرير'}.pdf`
 }
 
+export function documentationSliceEnd(offset: number, maxHeight: number, totalHeight: number, regions: Array<{ top: number; bottom: number }>) {
+  let end = Math.min(offset + maxHeight, totalHeight)
+  const crossed = regions.filter(region => region.top > offset && region.top < end && region.bottom > end && region.bottom - region.top <= maxHeight)
+  if (crossed.length) end = Math.min(...crossed.map(region => region.top))
+  return Math.max(offset + 1, end)
+}
+
 export async function downloadReportPdf(
   document: Document,
   title: string,
@@ -58,10 +65,17 @@ export async function downloadReportPdf(
     })
 
     const sliceHeight = Math.max(1, Math.floor(canvas.width * contentHeight / contentWidth))
-    for (let offsetY = 0; offsetY < canvas.height; offsetY += sliceHeight) {
+    const bounds = element.getBoundingClientRect()
+    const scaleY = canvas.height / Math.max(1, element.scrollHeight)
+    const protectedImages = Array.from(element.querySelectorAll<HTMLElement>('.documentation-print figure')).map(figure => {
+      const rect = figure.getBoundingClientRect()
+      return { top: Math.max(0, Math.floor((rect.top - bounds.top) * scaleY)), bottom: Math.ceil((rect.bottom - bounds.top) * scaleY) }
+    })
+    for (let offsetY = 0; offsetY < canvas.height;) {
       if (pageAdded) pdf.addPage('a4', orientation)
       pageAdded = true
-      const currentHeight = Math.min(sliceHeight, canvas.height - offsetY)
+      const endY = documentationSliceEnd(offsetY, sliceHeight, canvas.height, protectedImages)
+      const currentHeight = endY - offsetY
       const slice = document.createElement('canvas')
       slice.width = canvas.width
       slice.height = currentHeight
@@ -73,6 +87,7 @@ export async function downloadReportPdf(
       const image = slice.toDataURL('image/jpeg', 0.94)
       const imageHeight = currentHeight * contentWidth / canvas.width
       pdf.addImage(image, 'JPEG', margin, margin, contentWidth, imageHeight, undefined, 'FAST')
+      offsetY += currentHeight
     }
   }
 

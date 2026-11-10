@@ -378,21 +378,29 @@ export async function teacherEvidenceRecords(client, schoolId, teacherId, access
       vice_principal_name AS "vicePrincipalName",activity_leader_name AS "activityLeaderName",activity_id AS "activityId",notes,
       created_at AS "createdAt",updated_at AS "updatedAt"
     FROM teacher_evidence_records WHERE school_id=$1 AND teacher_id=$2 ORDER BY slot_number`, [schoolId, teacherId])).rows
-  if (!records.length) return []
-  const images = (await client.query(`SELECT evidence_id AS "evidenceId",slot_number AS "slotNumber",updated_at AS "updatedAt"
+  const images = records.length ? (await client.query(`SELECT evidence_id AS "evidenceId",slot_number AS "slotNumber",updated_at AS "updatedAt"
     FROM teacher_evidence_images WHERE school_id=$1 AND evidence_id=ANY($2::uuid[]) ORDER BY slot_number`, [schoolId, records.map(record => record.id)])).rows
+    : []
   const imagesByEvidence = new Map()
   for (const image of images) {
     const list = imagesByEvidence.get(image.evidenceId) || []
     list.push({ slotNumber: Number(image.slotNumber), fileUrl: teacherEvidenceFileUrl(image.evidenceId, image.slotNumber, access), updatedAt: image.updatedAt })
     imagesByEvidence.set(image.evidenceId, list)
   }
-  return records.map(record => ({ ...record, slotNumber: Number(record.slotNumber), activityId: record.activityId || null, images: imagesByEvidence.get(record.id) || [] }))
+  const legacy = records.map(record => ({ ...record, slotNumber: Number(record.slotNumber), activityId: record.activityId || null, images: imagesByEvidence.get(record.id) || [] }))
+  if (access === 'teacher') return legacy
+  const documents = (await client.query(`SELECT id,kind,title,subject,grade_value AS grade,classroom_value AS classroom,
+    to_char(execution_date,'YYYY-MM-DD') AS "executionDate",strategy,report_for AS "reportFor",description,
+    visit_teacher_name AS "visitTeacherName",vice_principal_name AS "vicePrincipalName",activity_leader_name AS "activityLeaderName",notes,jsonb_array_length(images) AS "imageCount",
+    created_at AS "createdAt",updated_at AS "updatedAt" FROM teacher_documentations WHERE school_id=$1 AND teacher_id=$2 ORDER BY updated_at DESC`, [schoolId,teacherId])).rows
+  return [...legacy, ...documents.map((record,index) => ({ ...record, slotNumber: index + 1, activityId: null, visitTeacherId: null, vicePrincipalId: null,
+    notes: [record.kind === 'strategy' ? 'توثيق استراتيجية' : 'تقرير تعليمي', record.subject && `المادة: ${record.subject}`, record.executionDate && `تاريخ التنفيذ: ${record.executionDate}`, record.reportFor && `تقرير لـ: ${record.reportFor}`, record.description, record.notes].filter(Boolean).join('\n'),
+    images: Array.from({ length: Number(record.imageCount) || 0 },(_,slot) => ({ slotNumber: slot + 1, fileUrl: `/api/teacher-portal/documentation-image?id=${encodeURIComponent(record.id)}&slot=${slot + 1}`, updatedAt: record.updatedAt })) }))]
 }
 
 export async function teacherEvidenceTeachers(client, schoolId) {
   return (await client.query(`SELECT t.id AS "teacherId",t.full_name AS name,t.identity_number AS "identityNumber",
-      COUNT(evidence.id)::int AS "evidenceCount"
+      (COUNT(evidence.id) + (SELECT COUNT(*) FROM teacher_documentations documentation WHERE documentation.school_id=t.school_id AND documentation.teacher_id=t.id))::int AS "evidenceCount"
     FROM lesson_teachers t
     LEFT JOIN teacher_evidence_records evidence ON evidence.school_id=t.school_id AND evidence.teacher_id=t.id
     WHERE t.school_id=$1 AND t.active=true

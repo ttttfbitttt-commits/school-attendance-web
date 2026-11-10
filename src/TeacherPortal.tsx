@@ -8,7 +8,7 @@ import { TeacherReferralCenter } from './StudentReferrals'
 import { TeacherCooperationPanel } from './TeacherCooperation'
 import { StudentPortfolioBoard } from './StudentPortfolio'
 import { TeacherEvidence } from './TeacherEvidence'
-import { addReportBrandToDocument, brandReportFragment, prependReportHeaderToWorksheet } from './SchoolFeatures'
+import { addReportBrandToDocument, brandReportFragment, cacheReportSchoolBrand, prependReportHeaderToWorksheet } from './SchoolFeatures'
 import { TeacherCirculars } from './TeacherCirculars'
 
 const notes: TeacherNote[] = ['هروب من الحصة', 'نائم أثناء الدرس', 'لم يحل الواجب', 'عدم التفاعل والمشاركة', 'مشارك فعال', 'لم يحضر الكتاب أو أوراق العمل', 'استخدام الجوال أثناء الحصة', 'الحديث مع زملائه أثناء الدرس']
@@ -649,6 +649,7 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
   }
 
   useEffect(() => { void loadDashboard() }, [date])
+  useEffect(() => { void api.reportSchoolBrand().then(result => cacheReportSchoolBrand(account.schoolId, result.school)).catch(() => {}) }, [account.schoolId])
   useEffect(() => { void api.teacherSheets().then(result => setSheets(result.sheets)).catch(() => setSheets([])) }, [])
   useEffect(() => {
     void loadCooperationStatus()

@@ -58,7 +58,7 @@ function termSummary(snapshot) {
     lessonRecords: count('teacher_lesson_student_records'),
     circulars: count('school_circulars'),
     referrals: count('student_referrals'),
-    teacherRecords: count('teacher_evidence_records'),
+    teacherRecords: count('teacher_evidence_records') + count('teacher_documentations'),
     teachers: Array.isArray(snapshot?.teachers) ? snapshot.teachers.length : 0,
     portfolioFilesDeleted: Number(snapshot?.portfolio?.files || 0),
     portfolioBytesDeleted: Number(snapshot?.portfolio?.bytes || 0),

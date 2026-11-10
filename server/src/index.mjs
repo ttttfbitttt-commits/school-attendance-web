@@ -21,6 +21,7 @@ import { handleCircularPublicRequest, handleCircularRequest, migrateCirculars } 
 import { guideCanAccessStudent, gradeScope, studentGuideGrades } from './counselorScope.mjs'
 import { handlePlatformRequest, migratePlatformDashboard, SCHOOL_STORAGE_TABLES } from './platformDashboard.mjs'
 import { createLoginRateLimiter, migrateLoginRateLimit } from './loginRateLimit.mjs'
+import { handleTeacherDocumentation, migrateTeacherDocumentation } from './teacherDocumentation.mjs'
 
 const { Pool } = pg
 if (!process.env.DATABASE_URL || !process.env.RUNTIME_DATABASE_URL || !process.env.AUTH_DATABASE_URL) {
@@ -319,7 +320,7 @@ async function configureDatabaseRoles() {
     lesson_name_mappings, lesson_time_slots, lesson_schedule_assignments, teacher_incidents, teacher_day_absences,
     voice_timetable_coverages,
     teacher_classroom_student_maps, teacher_lesson_sessions, teacher_lesson_student_records,
-    teacher_sheet_configs, teacher_sheet_entries, teacher_evidence_records, teacher_evidence_images, behavior_incidents, behavior_student_records,
+    teacher_sheet_configs, teacher_sheet_entries, teacher_evidence_records, teacher_evidence_images, teacher_documentations, behavior_incidents, behavior_student_records,
     behavior_action_steps, behavior_score_movements, behavior_audit_logs, student_referrals, administrative_staff,
     student_referral_events, student_leave_requests, school_circulars, school_circular_acknowledgements, teacher_attendance_contributions, student_portfolio_files, teacher_portfolio_correction_settings, student_portfolio_corrections, student_counselors, student_counselor_grade_assignments,
     school_vice_principals, vice_principal_grade_assignments, school_activity_leaders, activity_leader_activities, activity_leader_activity_recipients TO attendance_app`)
@@ -367,6 +368,7 @@ async function enforceTenantRowSecurity() {
     ['teacher_sheet_entries', 'school_id', 'teacher_sheet_entries_school_scope'],
     ['teacher_evidence_records', 'school_id', 'teacher_evidence_records_school_scope'],
     ['teacher_evidence_images', 'school_id', 'teacher_evidence_images_school_scope'],
+    ['teacher_documentations', 'school_id', 'teacher_documentations_school_scope'],
     ['behavior_incidents', 'school_id', 'behavior_incidents_school_scope'],
     ['behavior_student_records', 'school_id', 'behavior_student_records_school_scope'],
     ['behavior_action_steps', 'school_id', 'behavior_action_steps_school_scope'],
@@ -432,6 +434,7 @@ async function migrateDatabase() {
   await migrateEmailVerification(adminPool)
   await migrateLessonFlow(adminPool)
   await migrateTeacherPortal(adminPool)
+  await migrateTeacherDocumentation(adminPool)
   await migrateAdministratorPortal(adminPool)
   await migrateStudentPortal(adminPool)
   await migrateCounselorPortal(adminPool)
@@ -634,6 +637,7 @@ const server = http.createServer(async (req, res) => {
     if (await handleStudentExcuseRequest({ req, res, url, user, body, json, scoped, todayRiyadh })) return
     if (await handleCircularRequest({ req, res, url, user, body, json, scoped, todayRiyadh })) return
     if (await handleActivityLeaderPortalRequest({ req, res, url, user, body, json, scoped, authPool, passwordHash })) return
+    if (await handleTeacherDocumentation({ req, res, url, user, body, json, scoped })) return
     if (await handleTeacherPortalRequest({ req, res, url, user, pool, authPool, body, json, scoped, todayRiyadh, passwordHash })) return
     if (await handleStudentPortalRequest({ req, res, url, user, pool, authPool, body, json, scoped, todayRiyadh, passwordHash })) return
     if (await handleAdministratorPortalRequest({ req, res, url, user, body, json, scoped, todayRiyadh, authPool, passwordHash })) return
