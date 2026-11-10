@@ -399,7 +399,7 @@ export async function teacherEvidenceRecords(client, schoolId, teacherId, access
     visit_teacher_name AS "visitTeacherName",vice_principal_name AS "vicePrincipalName",activity_leader_name AS "activityLeaderName",notes,jsonb_array_length(images) AS "imageCount",
     created_at AS "createdAt",updated_at AS "updatedAt" FROM teacher_documentations WHERE school_id=$1 AND teacher_id=$2 ORDER BY updated_at DESC`, [schoolId,teacherId])).rows
   return [...legacy, ...documents.map((record,index) => ({ ...record, slotNumber: index + 1, activityId: null, visitTeacherId: null, vicePrincipalId: null,
-    notes: [record.kind === 'strategy' ? 'توثيق استراتيجية' : 'تقرير تعليمي', record.subject && `المادة: ${record.subject}`, record.executionDate && `تاريخ التنفيذ: ${record.executionDate}`, record.reportFor && `تقرير لـ: ${record.reportFor}`, record.description, record.notes].filter(Boolean).join('\n'),
+    notes: [record.kind === 'strategy' ? 'توثيق استراتيجية' : 'تقرير تعليمي', record.subject && `المادة: ${record.subject}`, record.executionDate && `تاريخ التنفيذ: ${new Intl.DateTimeFormat('ar-SA-u-ca-islamic-umalqura', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Riyadh' }).format(new Date(`${record.executionDate}T12:00:00+03:00`))}`, record.reportFor && `تقرير لـ: ${record.reportFor}`, record.description, record.notes].filter(Boolean).join('\n'),
     images: Array.from({ length: Number(record.imageCount) || 0 },(_,slot) => ({ slotNumber: slot + 1, fileUrl: `/api/teacher-portal/documentation-image?id=${encodeURIComponent(record.id)}&slot=${slot + 1}`, updatedAt: record.updatedAt })) }))]
 }
 
