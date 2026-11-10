@@ -597,6 +597,7 @@ const server = http.createServer(async (req, res) => {
     const user = await auth(req)
     if (!user) return json(res, 401, { error: 'unauthorized' })
     if (req.method === 'GET' && url.pathname === '/api/internal/voice-auth') {
+      if (!['admin', 'vice_principal'].includes(user.role)) return json(res, 403, { error: 'forbidden' })
       res.writeHead(204, { 'x-voice-school-id': user.school_id, 'x-voice-user-id': user.user_id, 'cache-control': 'no-store' }); res.end(); return
     }
     if (req.method === 'GET' && url.pathname === '/api/me') return json(res, 200, { user: account(user) })
