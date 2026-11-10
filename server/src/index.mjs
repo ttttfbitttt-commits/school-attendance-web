@@ -647,7 +647,7 @@ const server = http.createServer(async (req, res) => {
       const input = await body(req)
       const currentPassword = String(input.currentPassword || '')
       const newPassword = String(input.newPassword || '')
-      const minimumLength = user.role === 'vice_principal' ? 8 : 12
+      const minimumLength = 12
       if (newPassword.length < minimumLength || newPassword.length > 200) return json(res, 400, { error: 'invalid_school_password' })
       const currentUser = await authPool.query('SELECT password_hash FROM users WHERE id=$1', [user.user_id])
       if (!currentUser.rows[0] || !passwordMatches(currentPassword, currentUser.rows[0].password_hash)) return json(res, 401, { error: 'current_password_invalid' })
