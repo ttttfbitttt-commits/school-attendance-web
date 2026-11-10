@@ -252,7 +252,7 @@ export async function handleAdministratorPortalRequest({ req, res, url, user, bo
   }
   if (req.method === 'POST' && url.pathname === '/api/administrator-portal/password') {
     const input = await body(req); const currentPassword = String(input.currentPassword || ''); const newPassword = String(input.newPassword || '')
-    if (newPassword.length < 8 || newPassword.length > 200) { json(res, 400, { error: 'invalid_administrator_password' }); return true }
+    if (newPassword.length < 12 || newPassword.length > 200) { json(res, 400, { error: 'invalid_administrator_password' }); return true }
     const saved = await authPool.query('SELECT password_hash FROM administrative_login_accounts WHERE school_id=$1 AND administrator_id=$2 AND user_id=$3 AND active=true', [user.school_id, user.administrator_id, user.user_id])
     if (!saved.rowCount || !passwordMatches(currentPassword, saved.rows[0].password_hash)) { json(res, 401, { error: 'current_password_invalid' }); return true }
     const hash = passwordHash(newPassword)

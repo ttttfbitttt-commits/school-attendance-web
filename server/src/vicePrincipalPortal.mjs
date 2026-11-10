@@ -1,4 +1,4 @@
-const DEFAULT_VICE_PRINCIPAL_PASSWORD = '12345678'
+import { decryptTemporaryPassword, encryptTemporaryPassword, newTemporaryPassword } from './credentialSecurity.mjs'
 
 const clean = (value, max = 200) => String(value ?? '').replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max)
 const identityNumber = value => String(value ?? '').replace(/\s/g, '').replace(/[^0-9]/g, '')
@@ -30,6 +30,7 @@ export async function migrateVicePrincipalPortal(adminPool) {
       user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       identity_number text NOT NULL,
       password_hash text NOT NULL,
+      temporary_password_encrypted text,
       active boolean NOT NULL DEFAULT true,
       must_change_password boolean NOT NULL DEFAULT true,
       created_at timestamptz NOT NULL DEFAULT now(),
@@ -40,6 +41,7 @@ export async function migrateVicePrincipalPortal(adminPool) {
       FOREIGN KEY (school_id,vice_principal_id) REFERENCES school_vice_principals(school_id,id) ON DELETE CASCADE
     );
     CREATE INDEX IF NOT EXISTS vice_principal_login_accounts_identity ON vice_principal_login_accounts(identity_number) WHERE active=true;
+    ALTER TABLE vice_principal_login_accounts ADD COLUMN IF NOT EXISTS temporary_password_encrypted text;
 
     CREATE TABLE IF NOT EXISTS vice_principal_grade_assignments (
       school_id uuid NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
@@ -91,15 +93,15 @@ async function overview(user, scoped, authPool) {
       WHERE p.school_id=$1 GROUP BY p.id ORDER BY p.active DESC,p.full_name`, [user.school_id])).rows
     return { vicePrincipals, grades: [...(await gradeOptions(client, user.school_id)).values()] }
   })
-  const accounts = await authPool.query(`SELECT vice_principal_id AS "vicePrincipalId",active AS "accountActive",must_change_password AS "mustChangePassword"
+  const accounts = await authPool.query(`SELECT vice_principal_id AS "vicePrincipalId",active AS "accountActive",must_change_password AS "mustChangePassword",temporary_password_encrypted AS encrypted
     FROM vice_principal_login_accounts WHERE school_id=$1`, [user.school_id])
   const byPrincipal = new Map(accounts.rows.map(row => [row.vicePrincipalId, row]))
   return {
-    defaultPassword: DEFAULT_VICE_PRINCIPAL_PASSWORD,
+    defaultPassword: 'كلمة فريدة لكل حساب',
     grades: data.grades,
     vicePrincipals: data.vicePrincipals.map(principal => {
       const account = byPrincipal.get(principal.vicePrincipalId)
-      return { ...principal, active: Boolean(principal.active), accountCreated: Boolean(account), accountActive: Boolean(account?.accountActive), mustChangePassword: Boolean(account?.mustChangePassword) }
+      return { ...principal, active: Boolean(principal.active), accountCreated: Boolean(account), accountActive: Boolean(account?.accountActive), mustChangePassword: Boolean(account?.mustChangePassword), temporaryPassword: decryptTemporaryPassword(account?.encrypted) }
     }),
   }
 }
@@ -182,7 +184,9 @@ export async function handleVicePrincipalPortalRequest(context) {
     if (!validUuid(vicePrincipalId)) return { error: 'invalid_vice_principal' }
     const principal = await scoped(user.school_id, async client => (await client.query(`SELECT id,full_name,identity_number,active FROM school_vice_principals WHERE school_id=$1 AND id=$2`, [user.school_id, vicePrincipalId])).rows[0])
     if (!principal || !principal.active) return { error: 'vice_principal_not_found' }
-    const hash = passwordHash(DEFAULT_VICE_PRINCIPAL_PASSWORD)
+    const temporaryPassword = newTemporaryPassword()
+    const hash = passwordHash(temporaryPassword)
+    const encrypted = encryptTemporaryPassword(temporaryPassword)
     const existing = await authPool.query(`SELECT user_id FROM vice_principal_login_accounts WHERE school_id=$1 AND vice_principal_id=$2`, [user.school_id, vicePrincipalId])
     let userId = existing.rows[0]?.user_id
     if (!userId) {
@@ -190,14 +194,14 @@ export async function handleVicePrincipalPortalRequest(context) {
         ON CONFLICT(email) DO UPDATE SET password_hash=EXCLUDED.password_hash,display_name=EXCLUDED.display_name RETURNING id`, [localEmail(user.school_id, vicePrincipalId), hash, principal.full_name])
       userId = savedUser.rows[0].id
       await authPool.query(`INSERT INTO memberships(school_id,user_id,role) VALUES($1,$2,'vice_principal') ON CONFLICT(school_id,user_id) DO UPDATE SET role='vice_principal'`, [user.school_id, userId])
-      await authPool.query(`INSERT INTO vice_principal_login_accounts(school_id,vice_principal_id,user_id,identity_number,password_hash,active,must_change_password)
-        VALUES($1,$2,$3,$4,$5,true,true)`, [user.school_id, vicePrincipalId, userId, principal.identity_number, hash])
+      await authPool.query(`INSERT INTO vice_principal_login_accounts(school_id,vice_principal_id,user_id,identity_number,password_hash,temporary_password_encrypted,active,must_change_password)
+        VALUES($1,$2,$3,$4,$5,$6,true,true)`, [user.school_id, vicePrincipalId, userId, principal.identity_number, hash, encrypted])
     } else {
-      await authPool.query(`UPDATE vice_principal_login_accounts SET password_hash=$1,active=true,must_change_password=true,updated_at=now() WHERE school_id=$2 AND vice_principal_id=$3`, [hash, user.school_id, vicePrincipalId])
+      await authPool.query(`UPDATE vice_principal_login_accounts SET password_hash=$1,temporary_password_encrypted=$2,active=true,must_change_password=true,updated_at=now() WHERE school_id=$3 AND vice_principal_id=$4`, [hash, encrypted, user.school_id, vicePrincipalId])
       await authPool.query('UPDATE users SET password_hash=$1,display_name=$2 WHERE id=$3', [hash, principal.full_name, userId])
       await authPool.query('DELETE FROM sessions WHERE user_id=$1 AND school_id=$2', [userId, user.school_id])
     }
-    return { ok: true, temporaryPassword: DEFAULT_VICE_PRINCIPAL_PASSWORD, reset }
+    return { ok: true, temporaryPassword, reset }
   }
 
   if (req.method === 'POST' && url.pathname === '/api/vice-principals/admin/accounts/activate') {

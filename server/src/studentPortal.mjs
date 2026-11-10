@@ -1,7 +1,6 @@
 import sharp from 'sharp'
 import { readFileSync } from 'node:fs'
-
-const DEFAULT_STUDENT_PASSWORD = '12345678'
+import { decryptTemporaryPassword, encryptTemporaryPassword, newTemporaryPassword } from './credentialSecurity.mjs'
 const validUuid = value => /^[0-9a-f-]{36}$/i.test(String(value || ''))
 const identityNumber = value => String(value ?? '').trim().replace(/\s/g, '').replace(/[^0-9]/g, '')
 const clean = (value, max = 200) => String(value ?? '').replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max)
@@ -265,14 +264,16 @@ async function studentSubjects(client, schoolId, studentId) {
 async function upsertStudentAccount({ authPool, schoolId, student, passwordHash }) {
   const existing = await authPool.query('SELECT 1 FROM student_login_accounts WHERE school_id=$1 AND student_id=$2', [schoolId, student.id])
   if (existing.rowCount) return null
-  const hash = passwordHash(DEFAULT_STUDENT_PASSWORD)
+  const temporaryPassword = newTemporaryPassword()
+  const hash = passwordHash(temporaryPassword)
+  const encrypted = encryptTemporaryPassword(temporaryPassword)
   const savedUser = await authPool.query(`INSERT INTO users(email,password_hash,display_name) VALUES($1,$2,$3)
     ON CONFLICT(email) DO UPDATE SET password_hash=EXCLUDED.password_hash,display_name=EXCLUDED.display_name RETURNING id`, [localEmail(schoolId, student.id), hash, student.name])
   await authPool.query(`INSERT INTO memberships(school_id,user_id,role) VALUES($1,$2,'student')
     ON CONFLICT(school_id,user_id) DO UPDATE SET role='student'`, [schoolId, savedUser.rows[0].id])
-  await authPool.query(`INSERT INTO student_login_accounts(school_id,student_id,user_id,identity_number,password_hash,active,must_change_password)
-    VALUES($1,$2,$3,$4,$5,true,true)`, [schoolId, student.id, savedUser.rows[0].id, identityNumber(student.id), hash])
-  return { studentId: student.id, name: student.name, identityNumber: identityNumber(student.id), temporaryPassword: DEFAULT_STUDENT_PASSWORD }
+  await authPool.query(`INSERT INTO student_login_accounts(school_id,student_id,user_id,identity_number,password_hash,temporary_password_encrypted,active,must_change_password)
+    VALUES($1,$2,$3,$4,$5,$6,true,true)`, [schoolId, student.id, savedUser.rows[0].id, identityNumber(student.id), hash, encrypted])
+  return { studentId: student.id, name: student.name, identityNumber: identityNumber(student.id), temporaryPassword }
 }
 
 async function runStudentAccountGeneration(job, students, authPool, passwordHash) {
@@ -308,6 +309,7 @@ export async function migrateStudentPortal(adminPool) {
       user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       identity_number text NOT NULL,
       password_hash text NOT NULL,
+      temporary_password_encrypted text,
       active boolean NOT NULL DEFAULT true,
       must_change_password boolean NOT NULL DEFAULT true,
       attendance_cooperation_access boolean NOT NULL DEFAULT false,
@@ -319,6 +321,7 @@ export async function migrateStudentPortal(adminPool) {
       FOREIGN KEY (school_id,student_id) REFERENCES students(school_id,id) ON DELETE CASCADE
     );
     CREATE INDEX IF NOT EXISTS student_login_accounts_identity ON student_login_accounts(identity_number) WHERE active=true;
+    ALTER TABLE student_login_accounts ADD COLUMN IF NOT EXISTS temporary_password_encrypted text;
     CREATE TABLE IF NOT EXISTS student_portfolio_files (
       school_id uuid NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
       student_id text NOT NULL,
@@ -413,14 +416,14 @@ export async function handleStudentPortalRequest(context) {
     if (!adminOnly()) { json(res, 403, { error: 'forbidden' }); return true }
     const students = await scoped(user.school_id, client => client.query(`SELECT id,name,grade,classroom,phone FROM students
       WHERE school_id=$1 AND active=true ORDER BY grade,classroom,name`, [user.school_id]))
-    const accounts = await authPool.query(`SELECT student_id AS "studentId",active AS "accountActive",must_change_password AS "mustChangePassword",attendance_cooperation_access AS "attendanceCooperationAccess"
+    const accounts = await authPool.query(`SELECT student_id AS "studentId",active AS "accountActive",must_change_password AS "mustChangePassword",attendance_cooperation_access AS "attendanceCooperationAccess",temporary_password_encrypted AS encrypted
       FROM student_login_accounts WHERE school_id=$1`, [user.school_id])
     const byId = new Map(accounts.rows.map(row => [row.studentId, row]))
-    json(res, 200, { defaultPassword: DEFAULT_STUDENT_PASSWORD, students: students.rows.map(student => {
+    json(res, 200, { defaultPassword: 'كلمة فريدة لكل حساب', students: students.rows.map(student => {
       const account = byId.get(student.id)
       const number = identityNumber(student.id)
       return { studentId: student.id, name: student.name, grade: student.grade, classroom: student.classroom, phone: student.phone,
-        identityNumber: number, eligible: number.length >= 6, accountCreated: Boolean(account), accountActive: Boolean(account?.accountActive), mustChangePassword: Boolean(account?.mustChangePassword), attendanceCooperationAccess: Boolean(account?.attendanceCooperationAccess) }
+        identityNumber: number, eligible: number.length >= 6, accountCreated: Boolean(account), accountActive: Boolean(account?.accountActive), mustChangePassword: Boolean(account?.mustChangePassword), attendanceCooperationAccess: Boolean(account?.attendanceCooperationAccess), temporaryPassword: decryptTemporaryPassword(account?.encrypted) }
     }) })
     return true
   }
@@ -429,7 +432,7 @@ export async function handleStudentPortalRequest(context) {
     if (!adminOnly()) { json(res, 403, { error: 'forbidden' }); return true }
     const job = portfolioGenerationJobs.get(String(url.searchParams.get('jobId') || ''))
     if (!job || job.schoolId !== user.school_id) { json(res, 404, { error: 'generation_job_not_found' }); return true }
-    json(res, 200, { ok: true, jobId: job.id, total: job.total, processed: job.processed, created: job.created, skipped: job.skipped, failed: job.failed, status: job.status, defaultPassword: DEFAULT_STUDENT_PASSWORD })
+    json(res, 200, { ok: true, jobId: job.id, total: job.total, processed: job.processed, created: job.created, skipped: job.skipped, failed: job.failed, status: job.status, defaultPassword: 'كلمة فريدة لكل حساب' })
     return true
   }
 
@@ -437,7 +440,7 @@ export async function handleStudentPortalRequest(context) {
     if (!adminOnly()) { json(res, 403, { error: 'forbidden' }); return true }
     const running = [...portfolioGenerationJobs.values()].find(job => job.schoolId === user.school_id && job.status === 'running')
     if (running) {
-      json(res, 200, { ok: true, jobId: running.id, total: running.total, processed: running.processed, created: running.created, skipped: running.skipped, failed: running.failed, status: running.status, defaultPassword: DEFAULT_STUDENT_PASSWORD })
+      json(res, 200, { ok: true, jobId: running.id, total: running.total, processed: running.processed, created: running.created, skipped: running.skipped, failed: running.failed, status: running.status, defaultPassword: 'كلمة فريدة لكل حساب' })
       return true
     }
     const input = await body(req)
@@ -447,7 +450,7 @@ export async function handleStudentPortalRequest(context) {
     const job = { id: `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`, schoolId: user.school_id, total: selected.length, processed: 0, created: 0, skipped: 0, failed: 0, status: 'running', startedAt: Date.now(), completedAt: null }
     portfolioGenerationJobs.set(job.id, job)
     void runStudentAccountGeneration(job, selected, authPool, passwordHash)
-    json(res, 200, { ok: true, jobId: job.id, total: job.total, processed: 0, created: 0, skipped: 0, failed: 0, status: job.status, defaultPassword: DEFAULT_STUDENT_PASSWORD })
+    json(res, 200, { ok: true, jobId: job.id, total: job.total, processed: 0, created: 0, skipped: 0, failed: 0, status: job.status, defaultPassword: 'كلمة فريدة لكل حساب' })
     return true
   }
 
@@ -456,13 +459,15 @@ export async function handleStudentPortalRequest(context) {
     const input = await body(req)
     const studentId = clean(input.studentId, 100)
     if (!studentId) { json(res, 400, { error: 'invalid_student' }); return true }
-    const hash = passwordHash(DEFAULT_STUDENT_PASSWORD)
-    const changed = await authPool.query(`UPDATE student_login_accounts SET password_hash=$1,active=true,must_change_password=true,updated_at=now()
-      WHERE school_id=$2 AND student_id=$3 RETURNING user_id`, [hash, user.school_id, studentId])
+    const temporaryPassword = newTemporaryPassword()
+    const hash = passwordHash(temporaryPassword)
+    const encrypted = encryptTemporaryPassword(temporaryPassword)
+    const changed = await authPool.query(`UPDATE student_login_accounts SET password_hash=$1,temporary_password_encrypted=$2,active=true,must_change_password=true,updated_at=now()
+      WHERE school_id=$3 AND student_id=$4 RETURNING user_id`, [hash, encrypted, user.school_id, studentId])
     if (!changed.rowCount) { json(res, 404, { error: 'student_account_not_found' }); return true }
     await authPool.query('UPDATE users SET password_hash=$1 WHERE id=$2', [hash, changed.rows[0].user_id])
     await authPool.query('DELETE FROM sessions WHERE user_id=$1 AND school_id=$2', [changed.rows[0].user_id, user.school_id])
-    json(res, 200, { ok: true, temporaryPassword: DEFAULT_STUDENT_PASSWORD })
+    json(res, 200, { ok: true, temporaryPassword })
     return true
   }
 
@@ -770,9 +775,9 @@ export async function handleStudentPortalRequest(context) {
     if (!studentOnly()) { json(res, 403, { error: 'forbidden' }); return true }
     const input = await body(req)
     const password = String(input.password || '')
-    if (password.length < 8 || password.length > 200) { json(res, 400, { error: 'invalid_student_password' }); return true }
+    if (password.length < 12 || password.length > 200) { json(res, 400, { error: 'invalid_student_password' }); return true }
     const hash = passwordHash(password)
-    const changed = await authPool.query(`UPDATE student_login_accounts SET password_hash=$1,must_change_password=false,updated_at=now()
+    const changed = await authPool.query(`UPDATE student_login_accounts SET password_hash=$1,temporary_password_encrypted=NULL,must_change_password=false,updated_at=now()
       WHERE school_id=$2 AND student_id=$3 RETURNING user_id`, [hash, user.school_id, user.student_id])
     if (!changed.rowCount) { json(res, 404, { error: 'student_account_not_found' }); return true }
     await authPool.query('UPDATE users SET password_hash=$1 WHERE id=$2', [hash, changed.rows[0].user_id])

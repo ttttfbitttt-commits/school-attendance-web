@@ -8,7 +8,6 @@ const ACCOUNTS_PER_PAGE = 50
 export function StudentAdminCenter() {
   const [tab, setTab] = useState<'accounts' | 'portfolio'>('accounts')
   const [students, setStudents] = useState<StudentPortalAccount[]>([])
-  const [defaultPassword, setDefaultPassword] = useState('12345678')
   const [busy, setBusy] = useState('')
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
@@ -19,7 +18,6 @@ export function StudentAdminCenter() {
   const refreshOverview = async () => {
     const result = await api.studentAdminOverview()
     setStudents(result.students)
-    setDefaultPassword(result.defaultPassword)
   }
   const load = async () => {
     setBusy('load'); setError('')
@@ -34,13 +32,12 @@ export function StudentAdminCenter() {
         await new Promise(resolve => window.setTimeout(resolve, 650))
         const result = await api.studentAccountGenerationProgress(jobId)
         setGeneration(result)
-        setDefaultPassword(result.defaultPassword)
         if (result.status === 'running') continue
         await refreshOverview()
         setNotice(result.failed
           ? `اكتمل إنشاء الحسابات مع تعذر إنشاء ${result.failed} حساب. تم إنشاء ${result.created} حساب وتجاوز ${result.skipped} حساب موجود.`
           : result.created
-            ? `اكتمل إنشاء ${result.created} حساب طالب. كلمة المرور المؤقتة الموحدة: ${result.defaultPassword}`
+            ? `اكتمل إنشاء ${result.created} حساب طالب. لكل حساب كلمة مرور مؤقتة فريدة تظهر في سجل الحسابات.`
             : 'اكتملت العملية؛ لا توجد حسابات جديدة لأن الحسابات المؤهلة موجودة بالفعل.')
         setBusy('')
         return
@@ -55,7 +52,6 @@ export function StudentAdminCenter() {
     try {
       const result = await api.startStudentAccountGeneration()
       setGeneration(result)
-      setDefaultPassword(result.defaultPassword)
       void followGeneration(result.jobId)
     } catch { setError('تعذر بدء إنشاء حسابات الطلاب. تأكد أن أرقام الهوية رقمية ومكتملة.'); setBusy('') }
   }
@@ -100,12 +96,12 @@ export function StudentAdminCenter() {
     <div className="teacher-admin-tabs student-admin-tabs"><button type="button" className={tab === 'accounts' ? 'active' : ''} onClick={() => setTab('accounts')}><KeyRound size={17} /> حسابات الطلاب</button><button type="button" className={tab === 'portfolio' ? 'active' : ''} onClick={() => setTab('portfolio')}><FolderOpen size={17} /> ملف الإنجاز</button></div>
     {tab === 'portfolio' ? <StudentPortfolioBoard scope="school" /> : <>
       <div className="student-account-summary"><article><Users size={19} /><span>الطلاب</span><b>{students.length}</b></article><article><ShieldCheck size={19} /><span>مؤهلون للحساب</span><b>{eligible}</b></article><article><KeyRound size={19} /><span>حسابات منشأة</span><b>{created}</b></article></div>
-      <section className="teacher-admin-card student-account-tools"><div><strong>إنشاء الحسابات دفعة واحدة</strong><p>تُنشأ الحسابات للطلاب الذين يحملون رقم هوية رقميًا، وكلمة المرور المؤقتة الموحدة هي <b dir="ltr">{defaultPassword}</b>.</p></div><div><button type="button" className="outline-button" onClick={() => void load()} disabled={busy !== ''}><RefreshCw size={16} /> تحديث</button><button type="button" className="primary-button" onClick={() => void generate()} disabled={busy !== ''}><KeyRound size={16} /> {busy === 'generate' ? 'جارٍ الإنشاء…' : 'توليد حسابات الطلاب'}</button></div></section>
+      <section className="teacher-admin-card student-account-tools"><div><strong>إنشاء الحسابات دفعة واحدة</strong><p>ينشأ لكل طالب مؤهل رقم هوية كلمة مرور مؤقتة فريدة، وتحفظ في هذا السجل حتى يغيّرها الطالب.</p></div><div><button type="button" className="outline-button" onClick={() => void load()} disabled={busy !== ''}><RefreshCw size={16} /> تحديث</button><button type="button" className="primary-button" onClick={() => void generate()} disabled={busy !== ''}><KeyRound size={16} /> {busy === 'generate' ? 'جارٍ الإنشاء…' : 'توليد حسابات الطلاب'}</button></div></section>
       {generation && <section className={`student-account-progress ${generation.status}`} aria-live="polite"><div><strong>{generation.status === 'running' ? 'جارٍ إنشاء حسابات الطلاب' : generation.status === 'failed' ? 'توقفت عملية إنشاء الحسابات' : 'اكتمل إنشاء حسابات الطلاب'}</strong><span><b dir="ltr">{generation.processed}</b> من <b dir="ltr">{generation.total}</b> · <b dir="ltr">{progress}%</b></span></div><div className="student-account-progress-track"><i style={{ width: `${progress}%` }} /></div><small>تم إنشاء <b dir="ltr">{generation.created}</b> · موجود مسبقًا <b dir="ltr">{generation.skipped}</b>{generation.failed ? <> · تعذر <b dir="ltr">{generation.failed}</b></> : null}</small></section>}
       {notice && <p className="student-portal-notice success">{notice}</p>}{error && <p className="student-portal-notice error">{error}</p>}
       <input className="student-account-search" value={search} onChange={event => { setSearch(event.target.value); setPage(1) }} placeholder="ابحث باسم الطالب أو رقم الهوية أو الفصل" />
       <div className="teacher-account-list student-account-list">{visibleStudents.map(student => <article key={student.studentId}>
-        <div className="teacher-account-avatar">{student.name.charAt(0)}</div><div><strong>{student.name}</strong><span>{student.grade} · الفصل {student.classroom}</span><small dir="ltr">{student.identityNumber || 'لا يوجد رقم هوية رقمي'}</small></div>
+        <div className="teacher-account-avatar">{student.name.charAt(0)}</div><div><strong>{student.name}</strong><span>{student.grade} · الفصل {student.classroom}</span><small dir="ltr">{student.identityNumber || 'لا يوجد رقم هوية رقمي'}</small>{student.temporaryPassword && <small>كلمة المرور المؤقتة: <bdi>{student.temporaryPassword}</bdi></small>}</div>
         <span className={`teacher-account-badge ${student.accountCreated && student.accountActive ? 'ready' : ''}`}>{!student.eligible ? 'رقم الهوية غير صالح' : !student.accountCreated ? 'غير منشأ' : student.accountActive ? student.mustChangePassword ? 'بانتظار تغيير المرور' : 'نشط' : 'موقوف'}</span>
         {student.accountCreated && <div className="teacher-account-actions"><button type="button" onClick={() => void reset(student)} disabled={busy !== ''}><RefreshCw size={14} /> إعادة ضبط</button><button type="button" onClick={() => void changeStatus(student)} disabled={busy !== ''}><Power size={14} /> {student.accountActive ? 'إيقاف' : 'تفعيل'}</button><button type="button" className={student.attendanceCooperationAccess ? 'student-cooperation-access enabled' : 'student-cooperation-access'} aria-pressed={student.attendanceCooperationAccess} onClick={() => void changeAttendanceCooperation(student)} disabled={busy !== ''}><Camera size={14} /> {student.attendanceCooperationAccess ? 'إلغاء صلاحية التحضير' : 'صلاحية التحضير'}</button></div>}
       </article>)}</div>

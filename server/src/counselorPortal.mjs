@@ -1,4 +1,4 @@
-const DEFAULT_COUNSELOR_PASSWORD = '12345678'
+import { decryptTemporaryPassword, encryptTemporaryPassword, newTemporaryPassword } from './credentialSecurity.mjs'
 
 const clean = (value, max = 200) => String(value ?? '').replace(/[\r\n\t]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max)
 const identityNumber = value => String(value ?? '').replace(/\s/g, '').replace(/[^0-9]/g, '')
@@ -30,6 +30,7 @@ export async function migrateCounselorPortal(adminPool) {
       user_id uuid NOT NULL REFERENCES users(id) ON DELETE CASCADE,
       identity_number text NOT NULL,
       password_hash text NOT NULL,
+      temporary_password_encrypted text,
       active boolean NOT NULL DEFAULT true,
       must_change_password boolean NOT NULL DEFAULT true,
       created_at timestamptz NOT NULL DEFAULT now(),
@@ -40,6 +41,7 @@ export async function migrateCounselorPortal(adminPool) {
       FOREIGN KEY (school_id, counselor_id) REFERENCES student_counselors(school_id, id) ON DELETE CASCADE
     );
     CREATE INDEX IF NOT EXISTS counselor_login_accounts_identity ON counselor_login_accounts(identity_number) WHERE active=true;
+    ALTER TABLE counselor_login_accounts ADD COLUMN IF NOT EXISTS temporary_password_encrypted text;
 
     CREATE TABLE IF NOT EXISTS student_counselor_grade_assignments (
       school_id uuid NOT NULL REFERENCES schools(id) ON DELETE CASCADE,
@@ -108,12 +110,12 @@ async function overview(user, scoped, authPool) {
     const grades = [...(await gradeOptions(client, user.school_id)).values()]
     return { counselors, grades }
   })
-  const accounts = await authPool.query(`SELECT counselor_id AS "counselorId",active AS "accountActive",must_change_password AS "mustChangePassword"
+  const accounts = await authPool.query(`SELECT counselor_id AS "counselorId",active AS "accountActive",must_change_password AS "mustChangePassword",temporary_password_encrypted AS encrypted
     FROM counselor_login_accounts WHERE school_id=$1`, [user.school_id])
   const byCounselor = new Map(accounts.rows.map(row => [row.counselorId, row]))
-  return { defaultPassword: DEFAULT_COUNSELOR_PASSWORD, grades: data.grades, counselors: data.counselors.map(counselor => {
+  return { defaultPassword: 'كلمة فريدة لكل حساب', grades: data.grades, counselors: data.counselors.map(counselor => {
     const account = byCounselor.get(counselor.counselorId)
-    return { ...counselor, active: Boolean(counselor.active), accountCreated: Boolean(account), accountActive: Boolean(account?.accountActive), mustChangePassword: Boolean(account?.mustChangePassword) }
+    return { ...counselor, active: Boolean(counselor.active), accountCreated: Boolean(account), accountActive: Boolean(account?.accountActive), mustChangePassword: Boolean(account?.mustChangePassword), temporaryPassword: decryptTemporaryPassword(account?.encrypted) }
   }) }
 }
 
@@ -203,7 +205,9 @@ export async function handleCounselorPortalRequest(context) {
     const counselor = await scoped(user.school_id, async client => (await client.query(`SELECT id,full_name,identity_number,active FROM student_counselors
       WHERE school_id=$1 AND id=$2`, [user.school_id, counselorId])).rows[0])
     if (!counselor || !counselor.active) { json(res, 404, { error: 'counselor_not_found' }); return true }
-    const hash = passwordHash(DEFAULT_COUNSELOR_PASSWORD)
+    const temporaryPassword = newTemporaryPassword()
+    const hash = passwordHash(temporaryPassword)
+    const encrypted = encryptTemporaryPassword(temporaryPassword)
     const existing = await authPool.query(`SELECT user_id FROM counselor_login_accounts WHERE school_id=$1 AND counselor_id=$2`, [user.school_id, counselorId])
     let userId = existing.rows[0]?.user_id
     if (!userId) {
@@ -212,15 +216,15 @@ export async function handleCounselorPortalRequest(context) {
       userId = savedUser.rows[0].id
       await authPool.query(`INSERT INTO memberships(school_id,user_id,role) VALUES($1,$2,'counselor')
         ON CONFLICT(school_id,user_id) DO UPDATE SET role='counselor'`, [user.school_id, userId])
-      await authPool.query(`INSERT INTO counselor_login_accounts(school_id,counselor_id,user_id,identity_number,password_hash,active,must_change_password)
-        VALUES($1,$2,$3,$4,$5,true,true)`, [user.school_id, counselorId, userId, counselor.identity_number, hash])
+      await authPool.query(`INSERT INTO counselor_login_accounts(school_id,counselor_id,user_id,identity_number,password_hash,temporary_password_encrypted,active,must_change_password)
+        VALUES($1,$2,$3,$4,$5,$6,true,true)`, [user.school_id, counselorId, userId, counselor.identity_number, hash, encrypted])
     } else {
-      await authPool.query(`UPDATE counselor_login_accounts SET password_hash=$1,active=true,must_change_password=true,updated_at=now()
-        WHERE school_id=$2 AND counselor_id=$3`, [hash, user.school_id, counselorId])
+      await authPool.query(`UPDATE counselor_login_accounts SET password_hash=$1,temporary_password_encrypted=$2,active=true,must_change_password=true,updated_at=now()
+        WHERE school_id=$3 AND counselor_id=$4`, [hash, encrypted, user.school_id, counselorId])
       await authPool.query('UPDATE users SET password_hash=$1,display_name=$2 WHERE id=$3', [hash, counselor.full_name, userId])
       await authPool.query('DELETE FROM sessions WHERE user_id=$1 AND school_id=$2', [userId, user.school_id])
     }
-    json(res, 200, { ok: true, temporaryPassword: DEFAULT_COUNSELOR_PASSWORD })
+    json(res, 200, { ok: true, temporaryPassword })
     return true
   }
 
@@ -228,13 +232,15 @@ export async function handleCounselorPortalRequest(context) {
     if (!adminOnly()) { json(res, 403, { error: 'forbidden' }); return true }
     const counselorId = String((await body(req)).counselorId || '')
     if (!validUuid(counselorId)) { json(res, 400, { error: 'invalid_counselor' }); return true }
-    const hash = passwordHash(DEFAULT_COUNSELOR_PASSWORD)
-    const changed = await authPool.query(`UPDATE counselor_login_accounts SET password_hash=$1,active=true,must_change_password=true,updated_at=now()
-      WHERE school_id=$2 AND counselor_id=$3 RETURNING user_id`, [hash, user.school_id, counselorId])
+    const temporaryPassword = newTemporaryPassword()
+    const hash = passwordHash(temporaryPassword)
+    const encrypted = encryptTemporaryPassword(temporaryPassword)
+    const changed = await authPool.query(`UPDATE counselor_login_accounts SET password_hash=$1,temporary_password_encrypted=$2,active=true,must_change_password=true,updated_at=now()
+      WHERE school_id=$3 AND counselor_id=$4 RETURNING user_id`, [hash, encrypted, user.school_id, counselorId])
     if (!changed.rowCount) { json(res, 404, { error: 'counselor_account_not_found' }); return true }
     await authPool.query('UPDATE users SET password_hash=$1 WHERE id=$2', [hash, changed.rows[0].user_id])
     await authPool.query('DELETE FROM sessions WHERE user_id=$1 AND school_id=$2', [changed.rows[0].user_id, user.school_id])
-    json(res, 200, { ok: true, temporaryPassword: DEFAULT_COUNSELOR_PASSWORD })
+    json(res, 200, { ok: true, temporaryPassword })
     return true
   }
 
@@ -276,9 +282,9 @@ export async function handleCounselorPortalRequest(context) {
   if (req.method === 'POST' && url.pathname === '/api/counselor-portal/counselor/password') {
     if (!counselorOnly()) { json(res, 403, { error: 'forbidden' }); return true }
     const password = String((await body(req)).password || '')
-    if (password.length < 8 || password.length > 200) { json(res, 400, { error: 'invalid_counselor_password' }); return true }
+    if (password.length < 12 || password.length > 200) { json(res, 400, { error: 'invalid_counselor_password' }); return true }
     const hash = passwordHash(password)
-    const changed = await authPool.query(`UPDATE counselor_login_accounts SET password_hash=$1,must_change_password=false,updated_at=now()
+    const changed = await authPool.query(`UPDATE counselor_login_accounts SET password_hash=$1,temporary_password_encrypted=NULL,must_change_password=false,updated_at=now()
       WHERE school_id=$2 AND counselor_id=$3 RETURNING user_id`, [hash, user.school_id, user.counselor_id])
     if (!changed.rowCount) { json(res, 404, { error: 'counselor_account_not_found' }); return true }
     await authPool.query('UPDATE users SET password_hash=$1 WHERE id=$2', [hash, changed.rows[0].user_id])

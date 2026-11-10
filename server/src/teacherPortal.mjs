@@ -767,7 +767,7 @@ export async function handleTeacherPortalRequest(context) {
     if (!teacherOnly()) { json(res, 403, { error: 'forbidden' }); return true }
     const input = await body(req)
     const password = String(input.password || '')
-    if (password.length < 8 || password.length > 200) { json(res, 400, { error: 'invalid_teacher_password' }); return true }
+    if (password.length < 12 || password.length > 200) { json(res, 400, { error: 'invalid_teacher_password' }); return true }
     const hash = passwordHash(password)
     await authPool.query(`UPDATE teacher_login_accounts SET password_hash=$1,must_change_password=false,temporary_password_encrypted=NULL,updated_at=now()
       WHERE school_id=$2 AND teacher_id=$3 AND user_id=$4 AND active=true`, [hash, user.school_id, user.teacher_id, user.user_id])
