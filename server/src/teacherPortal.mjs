@@ -348,7 +348,7 @@ export function sendEvidenceImage(res, image) {
 }
 
 async function teacherEvidenceOptions(client, schoolId, teacherId) {
-  const [classes, teachers, vicePrincipals] = await Promise.all([
+  const [classes, teachers, vicePrincipals, activityLeaders, school] = await Promise.all([
     client.query(`SELECT DISTINCT m.grade_value AS grade,m.classroom_value AS classroom
       FROM lesson_schedule_assignments a
       JOIN lesson_schedule_imports imported ON imported.id=a.import_id AND imported.school_id=a.school_id AND imported.is_active=true
@@ -359,6 +359,9 @@ async function teacherEvidenceOptions(client, schoolId, teacherId) {
       WHERE school_id=$1 AND active=true AND id<>$2 ORDER BY full_name`, [schoolId, teacherId]),
     client.query(`SELECT id AS "vicePrincipalId",full_name AS name FROM school_vice_principals
       WHERE school_id=$1 AND active=true ORDER BY full_name`, [schoolId]),
+    client.query(`SELECT id AS "activityLeaderId",full_name AS name FROM school_activity_leaders
+      WHERE school_id=$1 AND active=true ORDER BY full_name`, [schoolId]),
+    client.query(`SELECT principal_name AS "principalName" FROM schools WHERE id=$1`, [schoolId]),
   ])
   const grades = new Map()
   for (const row of classes.rows) {
@@ -369,6 +372,8 @@ async function teacherEvidenceOptions(client, schoolId, teacherId) {
     classes: [...grades.entries()].map(([grade, classrooms]) => ({ grade, classrooms: [...new Set(classrooms)].sort(compareSchoolClassroom) })).sort((left, right) => compareSchoolGrade(left.grade, right.grade)),
     teachers: teachers.rows,
     vicePrincipals: vicePrincipals.rows,
+    activityLeaders: activityLeaders.rows,
+    principalName: school.rows[0]?.principalName || '',
   }
 }
 
