@@ -574,7 +574,7 @@ export async function handlePlatformRequest({
       json(res, 503, { error: 'platform_login_not_configured' })
       return true
     }
-    const retryAfter = loginRateLimited(req, 'platform', username)
+    const retryAfter = await loginRateLimited(req, 'platform', username)
     if (retryAfter) {
       loginThrottleResponse(res, retryAfter)
       return true
@@ -582,11 +582,11 @@ export async function handlePlatformRequest({
     const passwordMatches = platformPasswordMatches(password.slice(0, 200), credentials.password_hash)
     if (username.length > 128 || password.length > 200 ||
         username.toLowerCase() !== credentials.username.toLowerCase() || !passwordMatches) {
-      recordFailedLogin(req, 'platform', username)
+      await recordFailedLogin(req, 'platform', username)
       json(res, 401, { error: 'invalid_login' })
       return true
     }
-    clearLoginAttempts(req, 'platform', username)
+    await clearLoginAttempts(req, 'platform', username)
     const token = crypto.randomBytes(32).toString('base64url')
     await adminPool.query('DELETE FROM platform_sessions WHERE expires_at <= now()')
     await adminPool.query(`INSERT INTO platform_sessions(token_hash,expires_at)
