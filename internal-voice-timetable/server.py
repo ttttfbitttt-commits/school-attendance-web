@@ -399,7 +399,7 @@ class Handler(SimpleHTTPRequestHandler):
                 self.send_response(303); self.send_header('Location','/?copilot=error'); self.send_header('Cache-Control','no-store'); self.end_headers(); return
         if path=='/api/project': return self.reply(read())
         if path.startswith('/api/jobs/'):
-            return self.reply(jobs.get(path.rsplit('/',1)[1],{'status':'NOT_FOUND'}))
+            return self.reply(jobs.get((request_user_id.get() or 'local',path.rsplit('/',1)[1]),{'status':'NOT_FOUND'}))
         if path=='/api/health': return self.reply({'ok':True})
         if path=='/api/templates':
             secondary=[{'القرآن الكريم وتفسيره':4,'الرياضيات':5,'اللغة الإنجليزية':5,'الكيمياء':3,'الأحياء':3,'التقنية الرقمية':3,'الكفايات اللغوية':4,'التفكير الناقد':3,'التربية الصحية والبدنية':2},{'الرياضيات':5,'اللغة الإنجليزية':5,'الكيمياء':5,'الأحياء':4,'التاريخ':3,'الكفايات اللغوية':4,'الفيزياء':4,'النشاط':2},{'الرياضيات':4,'اللغة الإنجليزية':4,'الكيمياء':3,'علوم الأرض والفضاء':3,'التقنية الرقمية':2,'المجال الاختياري':5,'الفيزياء':5,'التربية الصحية والبدنية':3,'البحث ومصادر المعلومات':2,'النشاط':1}]
@@ -715,13 +715,13 @@ class Handler(SimpleHTTPRequestHandler):
             if path in ['/api/solve','/api/swaps']:
                 data=body['project']; errors=validate(data,manual_edit=path=='/api/swaps')
                 if errors: return self.reply({'errors':errors},422)
-                jid=uuid.uuid4().hex; jobs[jid]={'status':'RUNNING'}
+                jid=uuid.uuid4().hex; job_key=(request_user_id.get() or 'local',jid); jobs[job_key]={'status':'RUNNING'}
                 cache_key=None
                 if path=='/api/swaps':
-                    cache_key=json.dumps({'move':body['move'],'placements':data.get('placements',[])},sort_keys=True,ensure_ascii=False)
+                    cache_key=json.dumps({'tenant':job_key[0],'move':body['move'],'project':data},sort_keys=True,ensure_ascii=False)
                     cached=swap_cache.get(cache_key)
                     if cached is not None:
-                        jobs[jid]=copy.deepcopy(cached)
+                        jobs[job_key]=copy.deepcopy(cached)
                         return self.reply({'jobId':jid})
                 def run():
                     try:
@@ -730,7 +730,7 @@ class Handler(SimpleHTTPRequestHandler):
                             result=swap_options(data,body['move'],seconds=budget,manual_edit=True)
                             if len(swap_cache)>=100: swap_cache.clear()
                             swap_cache[cache_key]=copy.deepcopy(result)
-                            jobs[jid]=result
+                            jobs[job_key]=result
                         else:
                             budget=min(120,max(1,float(body.get('seconds',20))))
                             allow_exceptions=bool(body.get('allowExceptions'))
@@ -739,8 +739,8 @@ class Handler(SimpleHTTPRequestHandler):
                                 spent=result.get('elapsed',0)
                                 result=solve(data,seconds=max(.1,budget-spent),first_feasible=not allow_exceptions,relax_soft=allow_exceptions)
                                 result['elapsed']=round(result.get('elapsed',0)+spent,2)
-                            jobs[jid]=result
-                    except Exception: jobs[jid]={'status':'ERROR','errors':['تعذر تشغيل محرك الجدولة.']}
+                            jobs[job_key]=result
+                    except Exception: jobs[job_key]={'status':'ERROR','errors':['تعذر تشغيل محرك الجدولة.']}
                 threading.Thread(target=run,daemon=True).start(); return self.reply({'jobId':jid})
             return self.reply({'errors':['مسار غير معروف']},404)
         except Exception:
