@@ -819,6 +819,7 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
       <div className="teacher-sidebar-brand"><BookOpenCheck size={24} /><div><strong>بوابة المعلم</strong><small>{dashboard?.teacher.name || account.displayName}</small></div><button type="button" className="teacher-sidebar-close" onClick={() => setMobileNavOpen(false)} aria-label="إغلاق القائمة"><X size={19} /></button></div>
       <nav className="teacher-sidebar-nav" aria-label="أقسام بوابة المعلم">
         <button type="button" className={activeTab === 'home' ? 'active' : ''} onClick={() => navigate('home')}><LayoutDashboard size={18} /> الرئيسية</button>
+        <button type="button" className={activeTab === 'password' ? 'active' : ''} onClick={() => navigate('password')}><KeyRound size={18} /> تغيير كلمة المرور</button>
         <button type="button" className={activeTab === 'schedule' ? 'active' : ''} onClick={() => navigate('schedule')}><CalendarDays size={18} /> جدولي</button>
         <button type="button" className={activeTab === 'standby' ? 'active' : ''} onClick={() => navigate('standby')}><CalendarDays size={18} /> حصص الانتظار{dashboard?.standbySchedule?.length ? <span>اليوم</span> : null}</button>
         {cooperationStatus?.available && <button type="button" className={`teacher-cooperation-nav ${activeTab === 'cooperation' ? 'active' : ''}`} onClick={() => navigate('cooperation')}><Handshake size={18} /> تعاون المعلم<span>متاح الآن</span></button>}

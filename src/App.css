@@ -5496,7 +5496,7 @@ tbody td {
   .teacher-portal { display:block; width:100%; min-height:100vh; padding:calc(62px + env(safe-area-inset-top)) 12px calc(24px + env(safe-area-inset-bottom)); overflow-x:hidden; }
   .teacher-workspace { width:100%; min-width:0; }
   .teacher-mobile-nav-button { display:grid; place-items:center; position:fixed; z-index:60; top:calc(10px + env(safe-area-inset-top)); right:12px; width:42px; height:42px; }
-  .teacher-sidebar { position:fixed; z-index:80; top:0; right:0; bottom:0; width:min(300px,88vw); min-height:0; border-radius:0 0 0 16px; padding:calc(18px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom)); transform:translateX(105%); transition:transform .2s ease; }
+  .teacher-sidebar { position:fixed; z-index:80; top:0; right:0; bottom:0; width:min(300px,88vw); min-height:0; max-height:100dvh; overflow-y:auto; overscroll-behavior:contain; border-radius:0 0 0 16px; padding:calc(18px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom)); transform:translateX(105%); transition:transform .2s ease; }
   .teacher-sidebar.open { transform:translateX(0); }
   .teacher-sidebar-close { display:grid; place-items:center; margin-right:auto; width:36px; height:36px; }
   .teacher-sidebar-backdrop { display:block; position:fixed; z-index:70; inset:0; background:rgba(15,35,52,.38); }
