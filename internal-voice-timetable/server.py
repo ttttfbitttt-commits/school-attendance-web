@@ -300,7 +300,10 @@ def make_print_html(project, kind, paper):
     return f'''<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><style>
 @page{{size:{size};margin:4mm}} *{{box-sizing:border-box}} html,body{{margin:0;padding:0;color:#102c37;font-family:Arial,"Tahoma",sans-serif;print-color-adjust:exact;-webkit-print-color-adjust:exact}} h1{{font-size:12pt;text-align:center;margin:0 0 1mm}} .meta{{text-align:center;font-size:7pt;margin-bottom:2mm}} table{{border-collapse:collapse;table-layout:fixed;width:100%}} th,td{{border:.18mm solid #59787a;text-align:center;vertical-align:middle;height:5.8mm;padding:.3mm;font-size:{font};overflow:hidden}} th{{background:#dceeea;font-weight:700}} .dayEnd{{background:#f0f2f3!important}} td b,td small{{display:block;line-height:1.1;white-space:nowrap;overflow:hidden;text-overflow:clip}} td small{{font-size:.88em;color:#375861;margin-top:.25mm}} .lessonTitle{{font-weight:700;color:#102c37;line-height:1.15}} .lessonDetail{{font-size:7pt;color:#375861;line-height:1.15}} .owner{{width:17mm;white-space:nowrap}} .general th{{height:5mm}} .printFooter{{display:flex;justify-content:space-between;direction:rtl;margin-top:3mm;padding-top:1.5mm;border-top:.18mm solid #59787a;font-size:7pt}} .printFooter b{{font-weight:700}} .individual{{break-after:page;page-break-after:always}} .individual:last-child{{break-after:auto;page-break-after:auto}} .individual h2{{font-size:12pt;text-align:center;margin:0 0 3mm}} .individual td,.individual th{{height:18mm;font-size:8.5pt}} </style></head><body><h1>{h(title)}</h1><div class="meta">{school} — الفصل الدراسي {term}</div>{body}{footer}</body></html>'''
 
-def render_pdf(project, kind, paper):
+from pdf_cache import PdfCache
+absence_pdf_cache=PdfCache()
+
+def _render_pdf_html(markup):
     candidates=[
         os.environ.get('CHROME_BIN',''),
         str(Path(os.environ.get('PROGRAMFILES',r'C:\\Program Files'))/'Google/Chrome/Application/chrome.exe'),
@@ -311,10 +314,17 @@ def render_pdf(project, kind, paper):
     if chrome is None: raise RuntimeError('chrome')
     with tempfile.TemporaryDirectory(prefix='nasq-print-') as folder:
         folder=Path(folder); source=folder/'print.html'; target=folder/'print.pdf'
-        source.write_text(make_print_html(project,kind,paper),encoding='utf-8')
+        source.write_text(markup,encoding='utf-8')
         result=subprocess.run([str(chrome),'--headless','--no-sandbox','--disable-gpu','--disable-dev-shm-usage','--no-pdf-header-footer',f'--print-to-pdf={target}',source.as_uri()],capture_output=True,timeout=45)
         if result.returncode or not target.exists() or target.stat().st_size<1000: raise RuntimeError('pdf')
         return target.read_bytes()
+
+
+def render_pdf(project, kind, paper):
+    markup=make_print_html(project,kind,paper)
+    if kind=='absence':
+        return absence_pdf_cache.get_or_render(request_user_id.get() or 'local',markup,lambda: _render_pdf_html(markup))
+    return _render_pdf_html(markup)
 
 class Handler(SimpleHTTPRequestHandler):
     def __init__(self,*args,**kwargs): super().__init__(*args,directory=str(ROOT/'web'),**kwargs)
