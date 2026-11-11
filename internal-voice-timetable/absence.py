@@ -3,7 +3,7 @@ import copy, datetime, uuid, html, subprocess, os, base64
 from pathlib import Path
 from functools import lru_cache
 from collections import Counter, defaultdict
-from standby import context, signature
+from standby import context, signature, approved_signature_matches
 WEEK=['الاثنين','الثلاثاء','الأربعاء','الخميس','الجمعة','السبت','الأحد']
 
 @lru_cache(maxsize=1)
@@ -190,7 +190,8 @@ def distribute(project, date_text, selected, existing=None):
         if not imported_rows or any(row.get('teacherId') not in valid_teachers or row.get('slot') not in valid_slots for row in imported_rows):
             raise ValueError('بيانات جدول المنتظرين المستورد غير مكتملة. أعد استيراد الجدول الكامل من الجدول الذكي.')
         standby['signature']=signature(project)
-    if standby.get('signature')!=signature(project): raise ValueError('تغيّر الجدول الدراسي. أعد إنشاء جدول الانتظار واعتماده أولًا.')
+    if not approved_signature_matches(project,standby.get('signature')): raise ValueError('تغيّر الجدول الدراسي. أعد إنشاء جدول الانتظار واعتماده أولًا.')
+    standby['signature']=signature(project)
     absent=set(selected)|set((existing or {}).get('teacherIds',[]))
     absent &= teachers.keys()
     busy,_=context(project);courses={c['id']:c for c in project['courses']};classes={c['id']:c for c in project['classes']}

@@ -1,11 +1,24 @@
-import unittest
-from standby import signature
+import copy, unittest
+from standby import signature, legacy_signature
 from absence import distribute,official_html,cancel_absence,reconcile_missing_emergency_assignments,_emergency_choice
 class AbsenceTests(unittest.TestCase):
     def school(self):
         p={'days':[{'name':'الأحد'}],'slots':[{'day':0,'period':0,'start':'07:00','end':'07:45'}],'teachers':[{'id':t,'name':t,'blocked':[]} for t in ['a','b','c','d']], 'courses':[{'id':'x','teacherId':'a','classId':'one','subject':'رياضيات'},{'id':'y','teacherId':'b','classId':'two','subject':'علوم'}], 'classes':[{'id':'one','name':'أول'},{'id':'two','name':'ثان'}], 'placements':[{'courseId':'x','slot':0},{'courseId':'y','slot':0}]}
         p['standby']={'assignments':[{'teacherId':'b','slot':0,'rank':1},{'teacherId':'c','slot':0,'rank':2},{'teacherId':'d','slot':0,'rank':3}], 'signature':signature(p)}
         return p
+    def test_metadata_edits_do_not_invalidate_approved_schedule(self):
+        p=self.school(); p['teachers'][2]['phone']='0500000000'; p['courses'][0]['subject']='مادة محدثة'
+        self.assertEqual(distribute(p,'2026-10-25',['a'])['entries'][0]['replacementId'],'c')
+    def test_old_signature_recovers_only_from_verified_matching_snapshot(self):
+        p=self.school(); p['standby']['signature']=legacy_signature(p)
+        snapshot=copy.deepcopy(p); p['savedSchedules']=[{'snapshot':snapshot}]
+        p['teachers'][2]['phone']='0500000000'
+        self.assertTrue(distribute(p,'2026-10-25',['a'])['entries'])
+    def test_real_schedule_change_remains_blocked(self):
+        p=self.school(); p['standby']['signature']=legacy_signature(p)
+        snapshot=copy.deepcopy(p); p['savedSchedules']=[{'snapshot':snapshot}]
+        p['teachers'][2]['blocked']=[0]
+        with self.assertRaisesRegex(ValueError,'تغيّر الجدول'): distribute(p,'2026-10-25',['a'])
     def test_absent_replacements_excluded_and_no_simultaneous_double(self):
         r=distribute(self.school(),'2026-10-25',['a','b'])
         self.assertEqual({e['replacementId'] for e in r['entries']},{'c','d'})

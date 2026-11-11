@@ -77,7 +77,31 @@ def generate(p, config):
     quotas={t['id']:(0 if t['id'] in excluded else max(0,target-loads[t['id']])) for t in p['teachers']}
     return {'config':config,'assignments':rows,'quotas':quotas,'signature':signature(p),'ruleVersion':2}
 
-def signature(p):
+def legacy_signature(p):
     import json,hashlib
     data={k:p.get(k) for k in ['placements','slots','teachers','courses']}
     return hashlib.sha256(json.dumps(data,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
+
+def signature(p):
+    """Fingerprint scheduling inputs, excluding names and other descriptive metadata."""
+    import json,hashlib
+    data={
+        'placements': sorted((str(v.get('courseId','')),v.get('slot')) for v in p.get('placements',[])),
+        'slots': [{k:v.get(k) for k in ('day','period','start','end')} for v in p.get('slots',[])],
+        'teachers': sorted((str(t.get('id','')),sorted(t.get('blocked',[]))) for t in p.get('teachers',[])),
+        'courses': sorted((str(c.get('id','')),str(c.get('teacherId','')),str(c.get('classId',''))) for c in p.get('courses',[])),
+    }
+    return 'v2:'+hashlib.sha256(json.dumps(data,sort_keys=True,ensure_ascii=False).encode()).hexdigest()
+
+def approved_signature_matches(p, stored):
+    if stored in (signature(p),legacy_signature(p)):
+        return True
+    # Old fingerprints included descriptive fields. Recover only if an intact
+    # approved snapshot proves that the scheduling inputs themselves are equal.
+    for item in p.get('savedSchedules',[]):
+        snapshot=item.get('snapshot',{})
+        if snapshot.get('standby',{}).get('signature') != stored:
+            continue
+        if stored in (signature(snapshot),legacy_signature(snapshot)) and signature(snapshot)==signature(p):
+            return True
+    return False
