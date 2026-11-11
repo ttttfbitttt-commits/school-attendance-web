@@ -1,3 +1,4 @@
+import { processTeacherSignature } from './teacherSignature.mjs'
 import sharp from 'sharp'
 import { readFileSync } from 'node:fs'
 import { decryptTemporaryPassword, encryptTemporaryPassword, newTemporaryPassword } from './credentialSecurity.mjs'
@@ -69,43 +70,6 @@ function portfolioSlots(files = [], corrections = []) {
   })
 }
 
-async function processTeacherSignature(value) {
-  const match = /^data:image\/(?:png|jpeg|webp);base64,([A-Za-z0-9+/=]+)$/.exec(String(value || ''))
-  if (!match || match[1].length > 1_800_000) return null
-  const input = Buffer.from(match[1], 'base64')
-  try {
-    const { data, info } = await sharp(input, { limitInputPixels: 25_000_000 }).rotate().ensureAlpha().raw().toBuffer({ resolveWithObject: true })
-    let left = info.width
-    let top = info.height
-    let right = -1
-    let bottom = -1
-    for (let y = 0; y < info.height; y += 1) {
-      for (let x = 0; x < info.width; x += 1) {
-        const offset = (y * info.width + x) * info.channels
-        const darkness = 255 - (data[offset] + data[offset + 1] + data[offset + 2]) / 3
-        const alpha = Math.round(data[offset + 3] * Math.max(0, Math.min(1, (darkness - 38) / 50)))
-        data[offset + 3] = alpha
-        if (alpha > 96) {
-          left = Math.min(left, x)
-          top = Math.min(top, y)
-          right = Math.max(right, x)
-          bottom = Math.max(bottom, y)
-        }
-      }
-    }
-    if (right < left || bottom < top) return null
-    const signature = await sharp(data, { raw: info })
-      .extract({ left, top, width: right - left + 1, height: bottom - top + 1 })
-      .resize({ width: 1600, height: 800, fit: 'inside', withoutEnlargement: true })
-      .png({ compressionLevel: 9 })
-      .toBuffer()
-    if (signature.length > 1_200_000) return null
-    return `data:image/png;base64,${signature.toString('base64')}`
-  } catch (error) {
-    if (error instanceof Error) return null
-    throw error
-  }
-}
 
 function portfolioFile(value, fileName) {
   const data = String(value || '')
@@ -538,6 +502,15 @@ export async function handleStudentPortalRequest(context) {
     return true
   }
 
+  if (req.method === 'POST' && url.pathname === '/api/student-portal/teacher/portfolio/prepare-signature') {
+    if (!teacherOnly()) { json(res, 403, { error: 'forbidden' }); return true }
+    const input = await body(req)
+    const signatureData = await processTeacherSignature(input.signatureData)
+    if (!signatureData) { json(res, 400, { error: 'invalid_teacher_signature_image' }); return true }
+    json(res, 200, { signatureData })
+    return true
+  }
+
   if (url.pathname === '/api/student-portal/teacher/portfolio/correction-settings') {
     if (!teacherOnly()) { json(res, 403, { error: 'forbidden' }); return true }
     if (req.method === 'GET') {
@@ -549,24 +522,7 @@ export async function handleStudentPortalRequest(context) {
       } else if (!settings.signatureData) {
         settings = { ...settings, signatureData: defaultSignature, signatureIsDefault: true }
       } else {
-        let signatureData
-        try {
-          signatureData = await processTeacherSignature(settings.signatureData)
-        } catch {
-          json(res, 500, { error: 'teacher_signature_processing_failed' })
-          return true
-        }
-        if (!signatureData) {
-          json(res, 500, { error: 'teacher_signature_processing_failed' })
-          return true
-        }
-        if (signatureData !== settings.signatureData) {
-          settings = await scoped(user.school_id, async client => (await client.query(`UPDATE teacher_portfolio_correction_settings
-            SET signature_data=$3,updated_at=now() WHERE school_id=$1 AND teacher_id=$2::uuid
-            RETURNING signature_mode AS "signatureMode",signature_data AS "signatureData",correction_color AS "correctionColor"`,
-          [user.school_id, user.teacher_id, signatureData])).rows[0])
-        }
-        settings = { ...settings, signatureData: signatureData || defaultSignature, signatureIsDefault: false }
+        settings = { ...settings, signatureIsDefault: false }
       }
       json(res, 200, settings || { signatureMode: 'uploaded', signatureData: defaultSignature, signatureIsDefault: true, correctionColor: DEFAULT_PORTFOLIO_CORRECTION_COLOR })
       return true

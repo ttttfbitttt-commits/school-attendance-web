@@ -452,6 +452,7 @@ export const api = {
   activityLeaderPortfolioEntries: (assignmentId: string) => request<StudentPortfolioEntries>(`/student-portal/activity-leader/portfolio/entries?assignmentId=${encodeURIComponent(assignmentId)}`),
   teacherPortfolioGroups: () => request<{ groups: StudentPortfolioGroup[] }>('/student-portal/teacher/portfolio/groups'),
   teacherPortfolioEntries: (assignmentId: string) => request<StudentPortfolioEntries>(`/student-portal/teacher/portfolio/entries?assignmentId=${encodeURIComponent(assignmentId)}`),
+  prepareTeacherSignature: (signatureData: string) => request<{ signatureData: string }>('/student-portal/teacher/portfolio/prepare-signature', { method: 'POST', body: JSON.stringify({ signatureData }) }),
   teacherPortfolioCorrectionSettings: () => request<TeacherPortfolioCorrectionSettings>('/student-portal/teacher/portfolio/correction-settings'),
   saveTeacherPortfolioCorrectionSettings: (settings: TeacherPortfolioCorrectionSettings) => request<TeacherPortfolioCorrectionSettings>('/student-portal/teacher/portfolio/correction-settings', { method: 'PUT', body: JSON.stringify({ ...settings, signatureData: settings.signatureIsDefault ? '' : settings.signatureData }) }),
   correctTeacherPortfolioFiles: (assignmentId: string, input: { note: string; studentId?: string; slotNumber?: number; assignmentIds?: string[] }) => request<{ corrections: StudentPortfolioCorrection[] }>('/student-portal/teacher/portfolio/corrections', { method: 'POST', body: JSON.stringify({ assignmentId, ...input }) }),

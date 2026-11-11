@@ -18,34 +18,8 @@ async function prepareSignatureImage(file: File) {
   if (!context) throw new Error('تعذر تجهيز صورة التوقيع.')
   context.drawImage(image, 0, 0, canvas.width, canvas.height)
   image.close()
-  const imageData = context.getImageData(0, 0, canvas.width, canvas.height)
-  let left = canvas.width
-  let top = canvas.height
-  let right = -1
-  let bottom = -1
-  for (let y = 0; y < canvas.height; y += 1) {
-    for (let x = 0; x < canvas.width; x += 1) {
-      const offset = (y * canvas.width + x) * 4
-      const darkness = 255 - (imageData.data[offset] + imageData.data[offset + 1] + imageData.data[offset + 2]) / 3
-      const alpha = Math.round(imageData.data[offset + 3] * Math.max(0, Math.min(1, (darkness - 38) / 50)))
-      imageData.data[offset + 3] = alpha
-      if (alpha > 16) {
-        left = Math.min(left, x)
-        top = Math.min(top, y)
-        right = Math.max(right, x)
-        bottom = Math.max(bottom, y)
-      }
-    }
-  }
-  if (right < left || bottom < top) throw new Error('لم يتم العثور على توقيع واضح في الصورة.')
-  const trimmed = document.createElement('canvas')
-  trimmed.width = right - left + 1
-  trimmed.height = bottom - top + 1
-  const trimmedContext = trimmed.getContext('2d')
-  if (!trimmedContext) throw new Error('تعذر تجهيز صورة التوقيع.')
-  context.putImageData(imageData, 0, 0)
-  trimmedContext.drawImage(canvas, left, top, trimmed.width, trimmed.height, 0, 0, trimmed.width, trimmed.height)
-  const blob = await new Promise<Blob>((resolve, reject) => trimmed.toBlob(value => value ? resolve(value) : reject(new Error('تعذر تجهيز صورة التوقيع.')), 'image/png'))
+  let blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob(value => value ? resolve(value) : reject(new Error('تعذر تجهيز الصورة.')), 'image/png'))
+  if (blob.size > 1_300_000) blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob(value => value ? resolve(value) : reject(new Error('تعذر تجهيز الصورة.')), 'image/jpeg', 0.85))
   return new Promise<string>((resolve, reject) => {
     const reader = new FileReader()
     reader.onerror = () => reject(reader.error || new Error('تعذر قراءة صورة التوقيع.'))
@@ -191,11 +165,12 @@ export function StudentPortfolioBoard({ scope = 'school', schoolName = 'المد
     setReadingSignature(true)
     setCorrectionMessage('')
     try {
-      const signatureData = await prepareSignatureImage(file)
+      const original = await prepareSignatureImage(file)
+      const { signatureData } = await api.prepareTeacherSignature(original)
       setCorrectionSettings(current => ({ ...current, signatureMode: 'uploaded', signatureData, signatureIsDefault: false }))
-      setCorrectionMessage('تم تفريغ الخلفية البيضاء وقص الهوامش. احفظ الإعدادات لتثبيت التوقيع.')
+      setCorrectionMessage('تم تجهيز التوقيع. راجع المعاينة ثم احفظ الإعدادات.')
     } catch {
-      setCorrectionMessage('تعذر تجهيز الصورة. اختر صورة PNG أو JPG أو WebP واضحة للتوقيع.')
+      setCorrectionMessage('تعذر استخراج توقيع واضح. صوّر التوقيع وحده على ورقة مضاءة بوضوح، دون ظلال، ثم حاول مجددًا.')
     } finally { setReadingSignature(false) }
   }
 
@@ -319,7 +294,7 @@ export function StudentPortfolioBoard({ scope = 'school', schoolName = 'المد
           </div>
           {correctionSettings.signatureMode === 'uploaded' ? <div className="portfolio-signature-upload">
             <label className="outline-button"><Upload size={16} />{readingSignature ? 'جارٍ تجهيز الصورة…' : 'رفع صورة التوقيع'}<input type="file" accept="image/png,image/jpeg,image/webp" disabled={!correctionSettingsReady || readingSignature} onChange={event => { void updateSignatureImage(event.target.files?.[0]); event.currentTarget.value = '' }} /></label>
-            {correctionSettings.signatureData ? <img src={correctionSettings.signatureData} alt="معاينة التوقيع" /> : <span>ارفع توقيعاً على ورقة بيضاء. ستُزال الخلفية وتُقص الحواف تلقائياً.</span>}
+            {correctionSettings.signatureData ? <img src={correctionSettings.signatureData} alt="معاينة التوقيع" /> : <span>صوّر التوقيع وحده على ورقة بيضاء بإضاءة جيدة ودون ظلال، وراجع النتيجة قبل الحفظ.</span>}
           </div> : <p className="portfolio-signature-help">تظهر زخرفة عامة مشتركة لا تمثل توقيع شخص بعينه. يمكنك رفع توقيعك الحقيقي ليحل محلها.</p>}
           <div className="portfolio-correction-note"><label htmlFor="portfolio-correction-note">عبارة التصحيح (اختيارية)</label><textarea id="portfolio-correction-note" disabled={!correctionSettingsReady} value={correctionNote} maxLength={160} onChange={event => setCorrectionNote(event.target.value)} placeholder="مثال: أحسنت، بارك الله فيك" /></div>
           <div className="portfolio-correction-settings-actions"><button type="button" className="outline-button" onClick={() => void saveCorrectionSettings()} disabled={!correctionSettingsReady || savingCorrectionSettings || readingSignature}><Save size={16} />{savingCorrectionSettings ? 'جارٍ الحفظ…' : 'حفظ الإعدادات'}</button></div>
