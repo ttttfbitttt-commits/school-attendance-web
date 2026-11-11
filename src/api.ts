@@ -457,6 +457,7 @@ export const api = {
   saveTeacherPortfolioCorrectionSettings: (settings: TeacherPortfolioCorrectionSettings) => request<TeacherPortfolioCorrectionSettings>('/student-portal/teacher/portfolio/correction-settings', { method: 'PUT', body: JSON.stringify({ ...settings, signatureData: settings.signatureIsDefault ? '' : settings.signatureData }) }),
   correctTeacherPortfolioFiles: (assignmentId: string, input: { note: string; studentId?: string; slotNumber?: number; assignmentIds?: string[] }) => request<{ corrections: StudentPortfolioCorrection[] }>('/student-portal/teacher/portfolio/corrections', { method: 'POST', body: JSON.stringify({ assignmentId, ...input }) }),
   cancelTeacherPortfolioCorrections: (assignmentId: string, input: { studentId?: string; slotNumber?: number; assignmentIds?: string[] }) => request<{ cleared: number }>('/student-portal/teacher/portfolio/corrections/cancel', { method: 'POST', body: JSON.stringify({ assignmentId, ...input }) }),
+  studentTodayAttendance: () => request<{ date: string; status: 'present' | 'late' | null; time: string | null }>('/student-portal/student/today-attendance'),
   studentPortalDashboard: () => request<StudentPortalDashboard>('/student-portal/student/dashboard'),
   studentCooperationStatus: () => request<StudentCooperationStatus>('/student-portal/student/cooperation/status'),
   scanStudentCooperation: (code: string) => request<StudentCooperationScan>('/student-portal/student/cooperation/scan', { method: 'POST', body: JSON.stringify({ code }) }),

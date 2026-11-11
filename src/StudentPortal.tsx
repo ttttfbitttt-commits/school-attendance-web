@@ -90,6 +90,8 @@ export function StudentPortal({ account, onLogout }: { account: Account; onLogou
   const [activeTab, setActiveTab] = useState<StudentTab>('home')
   const [menuOpen, setMenuOpen] = useState(false)
   const [qr, setQr] = useState('')
+  const [attendance, setAttendance] = useState<{ date: string; status: 'present' | 'late' | null; time: string | null } | null>(null)
+  const [attendanceError, setAttendanceError] = useState(false)
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [busy, setBusy] = useState('dashboard')
@@ -107,6 +109,17 @@ export function StudentPortal({ account, onLogout }: { account: Account; onLogou
     finally { setBusy('') }
   }
   useEffect(() => { void load() }, [])
+  useEffect(() => {
+    if (activeTab !== 'home') return
+    let active = true
+    const refresh = () => { void api.studentTodayAttendance().then(value => { if (active) { setAttendance(value); setAttendanceError(false) } }).catch(() => { if (active) setAttendanceError(true) }) }
+    const onVisible = () => { if (document.visibilityState === 'visible') refresh() }
+    refresh()
+    const timer = window.setInterval(() => { if (document.visibilityState === 'visible') refresh() }, 10000)
+    document.addEventListener('visibilitychange', onVisible)
+    return () => { active = false; window.clearInterval(timer); document.removeEventListener('visibilitychange', onVisible) }
+  }, [activeTab])
+
   useEffect(() => {
     if (!dashboard?.student.qrValue) return
     void QRCode.toDataURL(dashboard.student.qrValue, { width: 300, margin: 1, errorCorrectionLevel: 'M', color: { dark: '#0b3a68', light: '#ffffff' } }).then(setQr).catch(() => setQr(''))
@@ -224,7 +237,7 @@ export function StudentPortal({ account, onLogout }: { account: Account; onLogou
       {dashboard?.mustChangePassword && <section className="student-password-required"><KeyRound size={22} /><div><strong>كلمة المرور المؤقتة تحتاج إلى تغيير</strong><span>غيّرها من تبويب كلمة المرور قبل رفع صور ملف الإنجاز أو فتح الجدول.</span></div><button type="button" onClick={() => switchTab('password')}>تغييرها الآن</button></section>}
       {notice && <p className="student-portal-notice success">{notice}</p>}{error && <p className="student-portal-notice error">{error}</p>}
       {busy === 'dashboard' ? <p className="teacher-empty">جارٍ تحميل بياناتك…</p> : <>
-        {activeTab === 'home' && dashboard && <section className="student-home-grid"><article className="student-profile-card"><div className="student-profile-icon"><UserRound size={25} /></div><span>بيانات الطالب</span><h2>{dashboard.student.name}</h2><p>{dashboard.student.grade} · الفصل {dashboard.student.classroom}</p><dl><div><dt>رقم الهوية</dt><dd dir="ltr">{dashboard.student.identityNumber}</dd></div>{dashboard.student.phone && <div><dt>رقم الجوال</dt><dd dir="ltr">{dashboard.student.phone}</dd></div>}</dl></article><article className="student-qr-card"><div><QrCode size={24} /><span>باركود الطالب</span><h2>بطاقة التحضير</h2><p>اعرض هذا الرمز عند الحاجة إلى التحقق من حضورك.</p></div>{qr ? <img src={qr} alt="باركود الطالب" /> : <div className="student-qr-placeholder">جارٍ إنشاء الباركود…</div>}</article></section>}
+        {activeTab === 'home' && dashboard && <section className="student-home-grid"><article className="student-qr-card"><div><QrCode size={24} /><span>باركود الطالب</span><h2>بطاقة التحضير</h2><p>اعرض هذا الرمز عند الحاجة إلى التحقق من حضورك.</p><div className={`student-today-attendance ${attendance?.status || 'pending'}`} role="status" aria-live="polite"><span>حالة الحضور اليوم</span><strong>{attendanceError ? 'تعذر تحديث الحالة' : !attendance ? 'جارٍ التحقق…' : attendance.status === 'present' ? 'حاضر' : attendance.status === 'late' ? 'متأخر' : 'لم يُسجّل الحضور بعد'}</strong>{!attendanceError && attendance?.status && attendance.time && <small>وقت تسجيل الحضور: <bdi dir="ltr">{attendance.time}</bdi></small>}</div></div>{qr ? <img src={qr} alt="باركود الطالب" /> : <div className="student-qr-placeholder">جارٍ إنشاء الباركود…</div>}</article><article className="student-profile-card"><div className="student-profile-icon"><UserRound size={25} /></div><span>بيانات الطالب</span><h2>{dashboard.student.name}</h2><p>{dashboard.student.grade} · الفصل {dashboard.student.classroom}</p><dl><div><dt>رقم الهوية</dt><dd dir="ltr">{dashboard.student.identityNumber}</dd></div>{dashboard.student.phone && <div><dt>رقم الجوال</dt><dd dir="ltr">{dashboard.student.phone}</dd></div>}</dl></article></section>}
         {activeTab === 'books' && <Textbooks />}
         {activeTab === 'password' && <section className="student-password-card"><div><KeyRound size={23} /><div><span>حماية الحساب</span><h2>تغيير كلمة المرور</h2><p>استخدم كلمة مرور لا تقل عن 8 أحرف ولا تشاركها مع أي شخص.</p></div></div><label>كلمة المرور الجديدة<input type="password" autoComplete="new-password" value={password} onChange={event => setPassword(event.target.value)} /></label><label>تأكيد كلمة المرور<input type="password" autoComplete="new-password" value={confirmPassword} onChange={event => setConfirmPassword(event.target.value)} /></label><button type="button" className="primary-button" onClick={() => void changePassword()} disabled={busy === 'password'}>{busy === 'password' ? 'جارٍ الحفظ…' : 'حفظ كلمة المرور'}</button></section>}
         {activeTab === 'portfolio' && dashboard && (

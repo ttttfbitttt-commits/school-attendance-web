@@ -701,6 +701,15 @@ export async function handleStudentPortalRequest(context) {
     return true
   }
 
+  if (req.method === 'GET' && url.pathname === '/api/student-portal/student/today-attendance') {
+    if (!studentOnly()) { json(res, 403, { error: 'forbidden' }); return true }
+    const date = riyadhClock().date
+    const record = await scoped(user.school_id, async client => (await client.query(`SELECT status,to_char(recorded_at AT TIME ZONE 'Asia/Riyadh','HH24:MI') AS time
+      FROM attendance_logs WHERE school_id=$1 AND student_id=$2 AND attendance_date=$3 AND status IN ('present','late') LIMIT 1`, [user.school_id, user.student_id, date])).rows[0] || null)
+    json(res, 200, { date, status: record?.status || null, time: record?.time || null })
+    return true
+  }
+
   if (req.method === 'GET' && url.pathname === '/api/student-portal/student/dashboard') {
     if (!studentOnly()) { json(res, 403, { error: 'forbidden' }); return true }
     const result = await scoped(user.school_id, async client => {
