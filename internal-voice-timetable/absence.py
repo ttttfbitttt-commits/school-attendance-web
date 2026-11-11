@@ -372,11 +372,9 @@ def _legacy_official_html(project,record):
     h=lambda value:html.escape(str(value or ''))
     school=project.get('school',{});sections=[]
     administration=h(school.get('educationAdministration') or '')
-    office=h(school.get('educationOffice') or '')
     school_name=h(school.get('name') or 'اسم المدرسة')
     administration_line=f'الإدارة العامة للتعليم بمنطقة {administration}' if administration else 'الإدارة العامة للتعليم بمنطقة'
-    office_line=f'مكتب التعليم {office}' if office else 'مكتب التعليم'
-    identity_header=f'''<div class="identityTopBand"></div><header class="identityHeader"><div class="ministryBrand"><img class="ministryLogo" src="{ministry_logo_data_uri()}" alt="وزارة التعليم"></div><div class="identityDetails"><b>{administration_line}</b><span>{office_line}</span></div></header><div class="schoolNamePlate">مدرسة {school_name}</div>'''
+    identity_header=f'''<div class="identityTopBand"></div><header class="identityHeader"><div class="ministryBrand"><img class="ministryLogo" src="{ministry_logo_data_uri()}" alt="وزارة التعليم"></div><div class="identityDetails"><b>{administration_line}</b></div></header><div class="schoolNamePlate">مدرسة {school_name}</div>'''
     for teacher in record['teachers']:
         entries=sorted((e for e in record['entries'] if e['absentId']==teacher['id']),key=lambda e:e['period'])
         rows=[]
@@ -398,11 +396,9 @@ def official_html(project, record):
     h = lambda value: html.escape(str(value or ''))
     school = project.get('school', {})
     administration = h(school.get('educationAdministration') or '')
-    office = h(school.get('educationOffice') or '')
     school_name = h(school.get('name') or 'اسم المدرسة')
     administration_line = f'الإدارة العامة للتعليم بمنطقة {administration}' if administration else 'الإدارة العامة للتعليم بمنطقة'
-    office_line = f'مكتب التعليم {office}' if office else 'مكتب التعليم'
-    report_header = f'''<div class="identityTopBand"></div><header class="identityHeader"><div class="ministryBrand"><img class="ministryLogo" src="{ministry_logo_data_uri()}" alt="وزارة التعليم"></div><div class="identityDetails"><b>{administration_line}</b><span>{office_line}</span></div></header><div class="schoolNamePlate">مدرسة {school_name}</div><div class="formTitle"><b>نموذج رقم (٧)</b><h1>سجل توزيع حصص الانتظار</h1><span>رمز النموذج: (و.ت.ع.ن-٠١-٠١)</span></div><div class="schoolMeta">العام الدراسي: {h(school.get("year"))} هـ &nbsp; الفصل الدراسي: {h(school.get("term"))} &nbsp; المرحلة: {h(school.get("stage"))}</div>'''
+    report_header = f'''<div class="identityTopBand"></div><header class="identityHeader"><div class="ministryBrand"><img class="ministryLogo" src="{ministry_logo_data_uri()}" alt="وزارة التعليم"></div><div class="identityDetails"><b>{administration_line}</b></div></header><div class="schoolNamePlate">مدرسة {school_name}</div><div class="formTitle"><b>نموذج رقم (٧)</b><h1>سجل توزيع حصص الانتظار</h1><span>رمز النموذج: (و.ت.ع.ن-٠١-٠١)</span></div><div class="schoolMeta">العام الدراسي: {h(school.get("year"))} هـ &nbsp; الفصل الدراسي: {h(school.get("term"))} &nbsp; المرحلة: {h(school.get("stage"))}</div>'''
     sections = []
     for teacher in record.get('teachers', []):
         entries = sorted((entry for entry in record.get('entries', []) if entry.get('absentId') == teacher.get('id')), key=lambda entry: entry.get('period', 0))

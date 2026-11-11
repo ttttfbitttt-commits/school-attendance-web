@@ -19,6 +19,14 @@ class AbsenceTests(unittest.TestCase):
         snapshot=copy.deepcopy(p); p['savedSchedules']=[{'snapshot':snapshot}]
         p['teachers'][2]['blocked']=[0]
         with self.assertRaisesRegex(ValueError,'تغيّر الجدول'): distribute(p,'2026-10-25',['a'])
+    def test_report_header_omits_education_office(self):
+        p=self.school();p['school']={'name':'مدرسة الاختبار','educationAdministration':'جدة','educationOffice':'الحمدانية'}
+        record=distribute(p,'2026-10-25',['a'])
+        markup=official_html(p,record)
+        self.assertNotIn('مكتب التعليم',markup)
+        self.assertNotIn('الحمدانية',markup)
+        self.assertIn('الإدارة العامة للتعليم بمنطقة جدة',markup)
+        self.assertIn('مدرسة الاختبار',markup)
     def test_absent_replacements_excluded_and_no_simultaneous_double(self):
         r=distribute(self.school(),'2026-10-25',['a','b'])
         self.assertEqual({e['replacementId'] for e in r['entries']},{'c','d'})
