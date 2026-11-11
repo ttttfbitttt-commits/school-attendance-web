@@ -1,3 +1,4 @@
+import { Textbooks } from './Textbooks'
 import { useEffect, useState } from 'react'
 import { BarChart3, BookOpenCheck, CalendarDays, Check, Copy, FileSpreadsheet, FileText, FolderOpen, Handshake, KeyRound, LayoutDashboard, LogOut, Menu, Plus, Printer, Save, Send, Trash2, UserRound, X } from 'lucide-react'
 import { api, type Account, type NoorSheetMapping, type NoorSheetMappingSource, type TeacherAssessmentPeriod, type TeacherCooperationStatus, type TeacherComprehensiveReport, type TeacherComprehensiveReportOption, type TeacherComprehensiveReportType, type TeacherLesson, type TeacherLessonReport, type TeacherNote, type TeacherPortalDashboard, type TeacherPortalScheduleItem, type TeacherSheetColumn, type TeacherSheetConfig, type TeacherSheetOpenType, type TeacherSheetSubject, type TeacherSheetType } from './api'
@@ -35,7 +36,7 @@ const displaySheetValue = (value: string | number | boolean | undefined, type?: 
 
 type TeacherAttendanceStatus = 'present' | 'absent' | 'late' | 'excused'
 type StudentState = { status: TeacherAttendanceStatus; note: TeacherNote | ''; sheetValues: Record<string, string | number | boolean> }
-type TeacherTab = 'home' | 'schedule' | 'standby' | 'cooperation' | 'referrals' | 'circulars' | 'sheets' | 'portfolio' | 'evidence' | 'reports' | 'password'
+type TeacherTab = 'books' | 'home' | 'schedule' | 'standby' | 'cooperation' | 'referrals' | 'circulars' | 'sheets' | 'portfolio' | 'evidence' | 'reports' | 'password'
 type RenderSheetColumn = TeacherSheetColumn & { key: string; sheetType: TeacherSheetType }
 const getSheetColumns = (lesson: TeacherLesson): RenderSheetColumn[] => lesson.sheetConfigs.flatMap(config => config.columns.map(column => ({ ...column, key: `${config.sheetType}:${column.id}`, sheetType: config.sheetType })))
 const attendanceStatusLabel = (status: TeacherAttendanceStatus) => status === 'present' ? 'حاضر' : status === 'late' ? 'تأخر عن الحصة' : status === 'excused' ? 'مستأذن' : 'غائب'
@@ -821,6 +822,7 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
         <button type="button" className={activeTab === 'home' ? 'active' : ''} onClick={() => navigate('home')}><LayoutDashboard size={18} /> الرئيسية</button>
         <button type="button" className={activeTab === 'password' ? 'active' : ''} onClick={() => navigate('password')}><KeyRound size={18} /> تغيير كلمة المرور</button>
         <button type="button" className={activeTab === 'schedule' ? 'active' : ''} onClick={() => navigate('schedule')}><CalendarDays size={18} /> جدولي</button>
+        <button type="button" className={activeTab === 'books' ? 'active' : ''} onClick={() => navigate('books')}><BookOpenCheck size={18} /> الكتب الدراسية</button>
         <button type="button" className={activeTab === 'standby' ? 'active' : ''} onClick={() => navigate('standby')}><CalendarDays size={18} /> حصص الانتظار{dashboard?.standbySchedule?.length ? <span>اليوم</span> : null}</button>
         {cooperationStatus?.available && <button type="button" className={`teacher-cooperation-nav ${activeTab === 'cooperation' ? 'active' : ''}`} onClick={() => navigate('cooperation')}><Handshake size={18} /> تعاون المعلم<span>متاح الآن</span></button>}
         <button type="button" className={activeTab === 'referrals' ? 'active' : ''} onClick={() => navigate('referrals')}><Send size={18} /> إحالة طالب</button>
@@ -829,7 +831,6 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
         <button type="button" className={activeTab === 'portfolio' ? 'active' : ''} onClick={() => navigate('portfolio')}><FolderOpen size={18} /> ملف الإنجاز</button>
         <button type="button" className={activeTab === 'evidence' ? 'active' : ''} onClick={() => navigate('evidence')}><BookOpenCheck size={18} /> شواهد {dashboard?.activityEvidenceCount ? <span>هام</span> : null}</button>
         <button type="button" className={activeTab === 'reports' ? 'active' : ''} onClick={() => navigate('reports')}><BarChart3 size={18} /> التقارير</button>
-        <button type="button" className={activeTab === 'password' ? 'active' : ''} onClick={() => navigate('password')}><KeyRound size={18} /> كلمة المرور</button>
       </nav>
       <button type="button" className="teacher-sidebar-logout" onClick={onLogout}><LogOut size={18} /> تسجيل الخروج</button>
     </aside>
@@ -843,6 +844,8 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
       <div><UserRound size={27} /><div><strong>{dashboard?.teacher.name || account.displayName}</strong><small>يعرض هذا الحساب جدولك وطلاب فصولك فقط.</small></div></div>
       {activeTab === 'cooperation' ? <div className="teacher-cooperation-date"><span>تعاون اليوم</span><strong>{formatHijriDate(cooperationStatus?.date || today())}</strong></div> : <HijriDatePicker label="التاريخ الهجري" value={date} max={today()} onChange={value => { setDate(value); setLesson(null); setSelected(null) }} />}
     </section>
+
+    {activeTab === 'books' && <Textbooks />}
 
     {activeTab === 'password' && <section className="teacher-security-card">
       <div><KeyRound size={22} /><div><h2>تغيير كلمة المرور</h2></div></div>

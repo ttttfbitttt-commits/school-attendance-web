@@ -1,3 +1,4 @@
+import { Textbooks } from './Textbooks'
 import { useEffect, useMemo, useState } from 'react'
 import * as QRCode from 'qrcode'
 import { BookOpenCheck, CalendarDays, Camera, FileText, Home, KeyRound, LogOut, Menu, Printer, QrCode, UserRound, X } from 'lucide-react'
@@ -6,7 +7,7 @@ import { StudentCooperationPanel } from './StudentCooperation'
 import { PortfolioFilePreview, type PortfolioPreviewFile } from './PortfolioFilePreview'
 import { savePortfolioImagesPdf, saveStudentPortfolioPdf } from './portfolioPdf'
 
-type StudentTab = 'home' | 'portfolio' | 'schedule' | 'cooperation' | 'password'
+type StudentTab = 'books' | 'home' | 'portfolio' | 'schedule' | 'cooperation' | 'password'
 const days = ['', 'الأحد', 'الاثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت']
 const portfolioImageTypes = new Set(['image/png', 'image/jpeg', 'image/webp'])
 const MAX_PORTFOLIO_SOURCE_BYTES = 12_000_000
@@ -216,7 +217,7 @@ export function StudentPortal({ account, onLogout }: { account: Account; onLogou
   return <main className="student-portal" dir="rtl">
     <button type="button" className="student-mobile-menu" onClick={() => setMenuOpen(true)} aria-label="فتح قائمة بوابة الطالب"><Menu size={20} /></button>
     <aside className={`student-sidebar ${menuOpen ? 'open' : ''}`}><div className="student-brand"><BookOpenCheck size={25} /><div><strong>بوابة الطالب</strong><small>{dashboard?.student.name || account.displayName}</small></div><button type="button" onClick={() => setMenuOpen(false)}><X size={19} /></button></div>
-      <nav><button type="button" className={activeTab === 'home' ? 'active' : ''} onClick={() => switchTab('home')}><Home size={18} /> الرئيسية</button><button type="button" className={activeTab === 'portfolio' ? 'active' : ''} onClick={() => switchTab('portfolio')}><BookOpenCheck size={18} /> ملف إنجازي</button><button type="button" className={activeTab === 'schedule' ? 'active' : ''} onClick={() => switchTab('schedule')}><CalendarDays size={18} /> جدولي</button>{dashboard?.attendanceCooperation.available && <button type="button" className={activeTab === 'cooperation' ? 'active' : ''} onClick={() => switchTab('cooperation')}><Camera size={18} /> تعاون الطالب</button>}<button type="button" className={activeTab === 'password' ? 'active' : ''} onClick={() => switchTab('password')}><KeyRound size={18} /> كلمة المرور</button></nav><button type="button" className="student-logout" onClick={onLogout}><LogOut size={18} /> تسجيل الخروج</button>
+      <nav><button type="button" className={activeTab === 'home' ? 'active' : ''} onClick={() => switchTab('home')}><Home size={18} /> الرئيسية</button><button type="button" className={activeTab === 'portfolio' ? 'active' : ''} onClick={() => switchTab('portfolio')}><BookOpenCheck size={18} /> ملف إنجازي</button><button type="button" className={activeTab === 'schedule' ? 'active' : ''} onClick={() => switchTab('schedule')}><CalendarDays size={18} /> جدولي</button><button type="button" className={activeTab === 'books' ? 'active' : ''} onClick={() => switchTab('books')}><BookOpenCheck size={18} /> الكتب الدراسية</button>{dashboard?.attendanceCooperation.available && <button type="button" className={activeTab === 'cooperation' ? 'active' : ''} onClick={() => switchTab('cooperation')}><Camera size={18} /> تعاون الطالب</button>}<button type="button" className={activeTab === 'password' ? 'active' : ''} onClick={() => switchTab('password')}><KeyRound size={18} /> كلمة المرور</button></nav><button type="button" className="student-logout" onClick={onLogout}><LogOut size={18} /> تسجيل الخروج</button>
     </aside>
     {menuOpen && <button type="button" className="student-sidebar-backdrop" onClick={() => setMenuOpen(false)} aria-label="إغلاق القائمة" />}
     <div className="student-workspace"><header className="student-topbar"><div><span>بوابة الطالب</span><h1>{dashboard?.schoolName || 'نظام الحصر'}</h1></div><button type="button" className="outline-button" onClick={() => void load()} disabled={busy !== ''}>تحديث البيانات</button></header>
@@ -224,6 +225,7 @@ export function StudentPortal({ account, onLogout }: { account: Account; onLogou
       {notice && <p className="student-portal-notice success">{notice}</p>}{error && <p className="student-portal-notice error">{error}</p>}
       {busy === 'dashboard' ? <p className="teacher-empty">جارٍ تحميل بياناتك…</p> : <>
         {activeTab === 'home' && dashboard && <section className="student-home-grid"><article className="student-profile-card"><div className="student-profile-icon"><UserRound size={25} /></div><span>بيانات الطالب</span><h2>{dashboard.student.name}</h2><p>{dashboard.student.grade} · الفصل {dashboard.student.classroom}</p><dl><div><dt>رقم الهوية</dt><dd dir="ltr">{dashboard.student.identityNumber}</dd></div>{dashboard.student.phone && <div><dt>رقم الجوال</dt><dd dir="ltr">{dashboard.student.phone}</dd></div>}</dl></article><article className="student-qr-card"><div><QrCode size={24} /><span>باركود الطالب</span><h2>بطاقة التحضير</h2><p>اعرض هذا الرمز عند الحاجة إلى التحقق من حضورك.</p></div>{qr ? <img src={qr} alt="باركود الطالب" /> : <div className="student-qr-placeholder">جارٍ إنشاء الباركود…</div>}</article></section>}
+        {activeTab === 'books' && <Textbooks />}
         {activeTab === 'password' && <section className="student-password-card"><div><KeyRound size={23} /><div><span>حماية الحساب</span><h2>تغيير كلمة المرور</h2><p>استخدم كلمة مرور لا تقل عن 8 أحرف ولا تشاركها مع أي شخص.</p></div></div><label>كلمة المرور الجديدة<input type="password" autoComplete="new-password" value={password} onChange={event => setPassword(event.target.value)} /></label><label>تأكيد كلمة المرور<input type="password" autoComplete="new-password" value={confirmPassword} onChange={event => setConfirmPassword(event.target.value)} /></label><button type="button" className="primary-button" onClick={() => void changePassword()} disabled={busy === 'password'}>{busy === 'password' ? 'جارٍ الحفظ…' : 'حفظ كلمة المرور'}</button></section>}
         {activeTab === 'portfolio' && dashboard && (
           <section className="student-portfolio-page">
