@@ -4,7 +4,7 @@ import css from './resultsAnalyzer/analyzer.css?raw'
 import { brandReportFragment } from './SchoolFeatures'
 import { initResultsAnalyzer } from './resultsAnalyzer/analyzer.js'
 
-async function downloadAnalysis(report: HTMLElement, schoolName: string) {
+async function downloadAnalysis(report: HTMLElement, schoolName: string, region: string) {
   const copy = report.cloneNode(true) as HTMLElement
   copy.querySelector('.official-header .header-right')?.remove()
   copy.querySelector('.report-top')?.remove()
@@ -20,7 +20,7 @@ async function downloadAnalysis(report: HTMLElement, schoolName: string) {
   const part = (selector: string) => copy.querySelector<HTMLElement>(selector)?.outerHTML || ''
   const firstPage = part('.official-header') + part('.summary-banner') + part('.kpi-grid') + sections.slice(0, 2).map(section => section.outerHTML).join('')
   const secondPage = sections.slice(2).map(section => section.outerHTML).join('') + part('.signatures-section') + part('.official-footer')
-  iframe.srcdoc = `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><style>${css} body{background:#fff;margin:0;padding:0;direction:rtl;font-family:Tahoma,Arial,sans-serif}.print-hide{display:none!important}.report{display:block!important;border:0;box-shadow:none;padding:0}.page{width:100%;padding:8px;box-sizing:border-box}.official-header .header-right{display:none}.official-header{grid-template-columns:1fr 1fr}</style></head><body><section class="page">${brandReportFragment(firstPage, schoolName)}</section><section class="page">${brandReportFragment(secondPage, schoolName)}</section></body></html>`
+  iframe.srcdoc = `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><style>${css} body{background:#fff;margin:0;padding:0;direction:rtl;font-family:Tahoma,Arial,sans-serif}.print-hide{display:none!important}.report{display:block!important;border:0;box-shadow:none;padding:0}.page{width:100%;padding:8px;box-sizing:border-box}.official-header .header-right{display:none}.official-header{grid-template-columns:1fr 1fr}</style></head><body><section class="page">${brandReportFragment(firstPage, schoolName, region)}</section><section class="page">${brandReportFragment(secondPage, schoolName, region)}</section></body></html>`
   document.body.append(iframe)
   try {
     await loaded
@@ -31,7 +31,7 @@ async function downloadAnalysis(report: HTMLElement, schoolName: string) {
   } finally { iframe.remove() }
 }
 
-export function ResultsAnalyzer({ schoolName }: { schoolName: string }) {
+export function ResultsAnalyzer({ schoolName, region, semester }: { schoolName: string; region: string; semester: string }) {
   const host = useRef<HTMLDivElement>(null)
   useEffect(() => {
     if (!host.current) return
@@ -48,12 +48,12 @@ export function ResultsAnalyzer({ schoolName }: { schoolName: string }) {
       button.disabled = true
       button.textContent = 'جارٍ تجهيز PDF…'
       const school = root.getElementById('headerSchool')?.textContent?.trim() || schoolName
-      void downloadAnalysis(report, school).catch(error => {
+      void downloadAnalysis(report, school, region).catch(error => {
         console.error('Unable to generate analysis PDF', error)
         window.alert('تعذر تجهيز ملف PDF. أعد المحاولة بعد اكتمال تحميل التقرير.')
       }).finally(() => { button.disabled = false; button.textContent = oldText })
-    }, schoolName)
+    }, schoolName, semester)
     return () => { root.replaceChildren() }
-  }, [schoolName])
+  }, [schoolName, region, semester])
   return <div ref={host} aria-label="محلل نتائج الطلاب" />
 }

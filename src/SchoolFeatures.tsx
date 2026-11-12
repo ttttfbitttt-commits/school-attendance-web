@@ -111,9 +111,9 @@ export function getReportSchoolBrand(schoolName = ''): ReportSchoolBrand {
   return { schoolName, generalEducationAdministration: '', educationOffice: '' }
 }
 
-function reportHeaderValues(schoolName: string) {
+function reportHeaderValues(schoolName: string, regionOverride?: string) {
   const school = getReportSchoolBrand(schoolName)
-  const region = school.generalEducationAdministration
+  const region = (regionOverride === undefined ? school.generalEducationAdministration : regionOverride)
     .trim()
     .replace(/^الإدارة العامة للتعليم(?:\s+بمنطقة)?\s*/, '') || '................'
   return {
@@ -122,8 +122,8 @@ function reportHeaderValues(schoolName: string) {
   }
 }
 
-export function reportInstitutionHeader(schoolName = '') {
-  const { schoolName: name, region } = reportHeaderValues(schoolName)
+export function reportInstitutionHeader(schoolName = '', regionOverride?: string) {
+  const { schoolName: name, region } = reportHeaderValues(schoolName, regionOverride)
   const templateUrl = `${window.location.origin}/moe-school-header.png`
   return `<header class="report-brand-banner"><img class="report-brand-template" src="${templateUrl}" alt="ترويسة وزارة التعليم"><span class="report-brand-region">الإدارة العامة للتعليم بمنطقة: ${escapeHtml(region)}</span><span class="report-brand-school">مدرسة: ${escapeHtml(name)}</span></header>`
 }
@@ -142,8 +142,8 @@ export function reportBrandHeader(title: string, schoolName: string) {
   return `${reportInstitutionHeader(schoolName)}<h1 class="report-brand-title">${escapeHtml(title)}</h1>`
 }
 
-export function brandReportFragment(contents: string, schoolName = '') {
-  return `<style>${reportBrandStyles}</style>${reportInstitutionHeader(schoolName)}${contents}`
+export function brandReportFragment(contents: string, schoolName = '', regionOverride?: string) {
+  return `<style>${reportBrandStyles}</style>${reportInstitutionHeader(schoolName, regionOverride)}${contents}`
 }
 
 export function addReportBrandToDocument(document: Document, schoolName = '') {

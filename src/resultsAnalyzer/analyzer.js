@@ -1,12 +1,16 @@
 import * as pdfjsLib from 'pdfjs-dist/build/pdf.mjs';
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.mjs?url';
 pdfjsLib.GlobalWorkerOptions.workerSrc = `${pdfWorkerUrl}?mime=2`;
-export function initResultsAnalyzer(root, onPrint, defaultSchool) {
+export function initResultsAnalyzer(root, onPrint, defaultSchool, defaultSemester) {
 
 const $ = (id) => root.getElementById(id);
 const upload = $('pdfFile'), uploadPanel = $('uploadPanel'), reviewPanel = $('reviewPanel'), reportPanel = $('reportPanel'), status = $('status');
 let records = [];
 let extractedPages = [];
+const normalizedSemester = String(defaultSemester || '').replace(/[أإآ]/g, 'ا');
+if (normalizedSemester.includes('الاول') || normalizedSemester === 'اول') $('reportSemester').value = 'الفصل الأول';
+else if (normalizedSemester.includes('الثاني') || normalizedSemester === 'ثاني') $('reportSemester').value = 'الفصل الثاني';
+else if (normalizedSemester.includes('الثالث') || normalizedSemester === 'ثالث') $('reportSemester').value = 'الفصل الثالث';
 const band = (n) => n >= 90 ? 'excellent' : n >= 80 ? 'very-good' : n >= 70 ? 'good' : n >= 60 ? 'acceptable' : 'review';
 const bandLabel = (b) => ({ excellent: 'ممتاز', 'very-good': 'جيد جداً', good: 'جيد', acceptable: 'مقبول', review: 'يتطلب مراجعة' })[b];
 
@@ -578,6 +582,7 @@ $('buildReport').addEventListener('click', () => {
   $('reportMeta').textContent = `${school} · ${year}`;
   if ($('headerSchool')) $('headerSchool').textContent = school;
   if ($('headerYear')) $('headerYear').textContent = year || '—';
+  if ($('headerSemester')) $('headerSemester').textContent = $('reportSemester').value || 'غير محدد';
   if ($('headerGrade')) $('headerGrade').textContent = grade;
   if ($('bannerGradeTitle')) $('bannerGradeTitle').textContent = grade;
   if ($('bannerEnrolledCount')) $('bannerEnrolledCount').textContent = students || records.length;

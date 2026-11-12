@@ -2596,7 +2596,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
         )}
 
         {activeNav === 'reports' && <ReportsCenter students={students} schoolName={schoolSettings.schoolName} />}
-        {activeNav === 'resultsAnalyzer' && <ResultsAnalyzer schoolName={schoolSettings.schoolName} />}
+        {activeNav === 'resultsAnalyzer' && <ResultsAnalyzer schoolName={schoolSettings.schoolName} region={schoolSettings.generalEducationAdministration} semester={schoolSettings.semester} />}
 
         {activeNav === 'absenceProcedures' && isSchoolManager && <><AbsenceProcedureGuide role={account.role === 'vice_principal' ? 'vice' : 'school'} />{account.role === 'admin' && <SchoolAbsenceProcedureOverview />}{account.role === 'vice_principal' && <ViceApprovedAbsenceProcedureQueue schoolName={schoolSettings.schoolName} />}</>}
 
