@@ -1,0 +1,202 @@
+    <main class="app-shell">
+      <header class="hero">
+        <div>
+          <p class="eyebrow">إدارة التحصيل الدراسي</p>
+          <h1>محلل نتائج الطلاب</h1>
+          <p class="hero-copy">ارفع إشعار الدرجات، راجع البيانات، ثم أخرج تقريرًا تحليليًا موحّدًا.</p>
+          <div class="hero-badge">تصميم وإعداد الأستاذ تركي العبدالعزيز</div>
+        </div>
+        <div class="hero-mark" aria-hidden="true">تحليل<br />نتائج</div>
+      </header>
+
+      <section class="workflow" aria-label="مراحل العمل">
+        <span class="step active">1. رفع الملف</span>
+        <span class="line"></span>
+        <span class="step">2. مراجعة البيانات</span>
+        <span class="line"></span>
+        <span class="step">3. التقرير</span>
+      </section>
+
+      <section id="uploadPanel" class="upload-panel">
+        <div class="upload-icon">↑</div>
+        <h2>ارفع ملف نتائج بصيغة PDF</h2>
+        <p>ارفع ملفات النتائج الأصلية أو إشعارات الدرجات الفردية، وليس تقرير تحليل مُنشأ مسبقًا.</p>
+        <label class="upload-button" for="pdfFile">اختيار ملف PDF</label>
+        <input id="pdfFile" type="file" accept="application/pdf,.pdf" hidden />
+        <p class="hint">تُعالج الملفات داخل المتصفح. التقارير التحليلية الجاهزة للمعاينة ليست ملفات إدخال.</p>
+      </section>
+
+      <p id="status" class="status" role="status" aria-live="polite"></p>
+
+      <section id="reviewPanel" class="review-panel hidden">
+        <div class="section-heading">
+          <div>
+            <p class="eyebrow">مراجعة الاستخراج</p>
+            <h2>بيانات الملف</h2>
+          </div>
+          <span id="confidence" class="badge">بانتظار المراجعة</span>
+        </div>
+        <div class="fields">
+          <label>نوع النموذج<select id="templateType"><option value="semester">إشعار درجات فصلي</option><option value="primary">شهادة الابتدائي</option><option value="intermediate">شهادة المتوسط</option><option value="secondary">شهادة الثانوية</option><option value="literacy">محو الأمية - مستوى إتقان</option></select></label>
+          <label>الصف / المرحلة<input id="gradeLevel" placeholder="مثال: الثالث المتوسط" /></label>
+          <label>العام الدراسي<input id="schoolYear" placeholder="1447/1446 أو 2025/2026" /></label>
+          <label>اسم المدرسة<input id="schoolName" placeholder="اسم المدرسة" /></label>
+          <label>عدد صفحات الملف<input id="pageCount" type="number" min="1" /></label>
+          <label>عدد الطلاب<input id="studentCount" type="number" min="0" /></label>
+        </div>
+        <div class="warning"><strong>تنبيه:</strong> راجع الحقول والنتائج المستخرجة قبل اعتماد التقرير. المؤشرات مبنية على المعدلات المستخرجة ولا تمثل قرار النجاح الرسمي.</div>
+        <div class="actions"><button id="buildReport" class="primary">إنشاء معاينة التقرير</button><button id="startOver" class="secondary">رفع ملف آخر</button></div>
+      </section>
+
+      <section id="reportPanel" class="report hidden">
+        <div class="report-top print-hide">
+          <div>
+            <p class="eyebrow">تقرير تحليل نتائج الطلاب</p>
+            <h2 id="reportTitle">تحليل نتائج الطلاب</h2>
+            <p id="reportMeta"></p>
+          </div>
+          <div class="report-actions">
+            <button id="printReport" class="primary">تصدير PDF / طباعة</button>
+          </div>
+        </div>
+
+        <!-- الترويسة الرسمية على نمط وزارة التعليم -->
+        <header class="official-header">
+          <div class="header-col header-right">
+            <p>المملكة العربية السعودية</p>
+            <p>وزارة التعليم</p>
+            <p id="headerDept">الإدارة العامة للتعليم</p>
+            <p id="headerSchool" class="bold-line">المدرسة</p>
+          </div>
+          <div class="header-col header-center">
+            <p class="emblem-text">المملكة العربية السعودية</p>
+            <h1 class="report-main-title">تقرير تحليل نتائج الطلاب</h1>
+            <p class="report-sub-title">نظام تشخيص وتحليل ومتابعة أداء الطلاب</p>
+            <p class="report-author-credit">تصميم وإعداد الأستاذ تركي العبدالعزيز</p>
+          </div>
+          <div class="header-col header-left">
+            <p><strong>العام الدراسي:</strong> <span id="headerYear">—</span></p>
+            <p><strong>الفصل الدراسي:</strong> <span id="headerSemester">غير محدد</span></p>
+            <p><strong>الصف:</strong> <span id="headerGrade">غير محدد</span></p>
+            <p><strong>تاريخ التقرير:</strong> <span id="headerDate">—</span></p>
+          </div>
+        </header>
+
+        <!-- الشريط الأزرق: ملخص المؤشرات العامة للدفعة -->
+        <div class="summary-banner">
+          <div class="banner-title">
+            ملخص المؤشرات العامة للدفعة (<span id="bannerGradeTitle">الصف الثالث</span>)
+          </div>
+          <div class="banner-badge">
+            إجمالي المقيدين: <strong id="bannerEnrolledCount">—</strong> طالباً
+          </div>
+        </div>
+
+        <!-- بطاقات المؤشرات الأربعة -->
+        <div class="kpi-grid">
+          <article class="kpi-card">
+            <span class="kpi-label">إجمالي الطلاب المكتملة نتائجهم</span>
+            <strong id="mStudents" class="kpi-val">—</strong>
+          </article>
+          <article class="kpi-card">
+            <span class="kpi-label">نسبة من بلغ معدلهم 60٪ فأكثر</span>
+            <strong id="mPassRate" class="kpi-val">—</strong>
+          </article>
+          <article class="kpi-card">
+            <span class="kpi-label">المعدل العام للدفعة</span>
+            <strong id="mAverage" class="kpi-val">—</strong>
+          </article>
+          <article class="kpi-card">
+            <span class="kpi-label">عدد المعدلات أقل من 70٪</span>
+            <strong id="mReview" class="kpi-val">—</strong>
+          </article>
+        </div>
+
+        <!-- أولاً: توزيع التقديرات العامة للطلاب -->
+        <section class="analysis-section">
+          <div class="section-title-wrap">
+            <span class="title-accent"></span>
+            <h3>أولاً: توزيع التقديرات العامة للطلاب</h3>
+          </div>
+          <div class="distribution-grid">
+            <div class="dist-table-container">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>التقدير العام</th>
+                    <th>المدى النمطي</th>
+                    <th>عدد الطلاب</th>
+                    <th>النسبة المئوية</th>
+                  </tr>
+                </thead>
+                <tbody id="distributionTableBody"></tbody>
+              </table>
+            </div>
+            <div class="dist-chart-container" id="distributionChartBars"></div>
+          </div>
+        </section>
+
+        <!-- ثانياً: التحليل المقارن لمتوسطات درجات المواد الدراسية -->
+        <section class="analysis-section">
+          <div class="section-title-wrap">
+            <span class="title-accent"></span>
+            <h3>ثانياً: التحليل المقارن لمتوسطات درجات المواد الدراسية</h3>
+          </div>
+          <p class="section-subtitle">متوسط التحصيل العام حسب المادة (من 100)</p>
+          <div id="subjects" class="subjects-bars-list"></div>
+        </section>
+
+        <!-- ثالثاً: قائمة الطلاب المتفوقين (الأوائل على الصف) -->
+        <section class="analysis-section page-break-before">
+          <div class="section-title-wrap">
+            <span class="title-accent"></span>
+            <h3>ثالثاً: قائمة الطلاب المتفوقين (الأوائل على الصف)</h3>
+          </div>
+          <div class="table-container">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th style="width: 70px;">الترتيب</th>
+                  <th>اسم الطالب</th>
+                  <th style="width: 110px;">الشعبة / الفصل</th>
+                  <th style="width: 120px;">المعدل</th>
+                  <th style="width: 120px;">التقدير العام</th>
+                </tr>
+              </thead>
+              <tbody id="topStudentsTableBody"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <!-- رابعاً: التشخيص الأكاديمي والتوصيات التربوية -->
+        <section class="analysis-section">
+          <div class="section-title-wrap">
+            <span class="title-accent"></span>
+            <h3>رابعاً: التشخيص الأكاديمي والتوصيات التربوية</h3>
+          </div>
+          <div class="academic-diagnosis-box" id="academicDiagnosisBox"></div>
+        </section>
+
+        <!-- قسم الاعتماد والتوقيع -->
+        <div class="signatures-section">
+          <div class="sig-block">
+            <p class="sig-title">معلم / رائد الصف / المرشد الطلابي</p>
+            <p class="sig-dots">التوقيع: ......................................................</p>
+          </div>
+          <div class="sig-block">
+            <p class="sig-title">مدير المدرسة</p>
+            <p id="sigPrincipalName" class="sig-name"></p>
+            <p class="sig-dots">التوقيع: ......................................................</p>
+            <p class="sig-stamp">الختم الرسمي:</p>
+          </div>
+        </div>
+
+        <!-- تذييل التقرير -->
+        <footer class="official-footer">
+          <span>تقرير تحليل نتائج الطلاب - إعداد وتصميم: أ. تركي العبدالعزيز</span>
+          <span id="footerSchoolInfo"></span>
+        </footer>
+
+        <div id="disclaimer" class="disclaimer print-hide"></div>
+      </section>
+    </main>

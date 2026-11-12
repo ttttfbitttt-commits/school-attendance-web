@@ -1,3 +1,4 @@
+import { ResultsAnalyzer } from './ResultsAnalyzer'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { ChangeEvent, ReactNode } from 'react'
 import * as XLSX from 'xlsx'
@@ -300,7 +301,7 @@ function navGroupFor(tab: string) {
   if (['students', 'studentPortal', 'attendance', 'studentExcuses', 'behavior', 'referrals'].includes(tab)) return 'students'
   if (['teachers', 'administrators', 'counselors', 'vicePrincipals', 'activityLeaders'].includes(tab)) return 'staff'
   if (['lessons', 'absenceProcedures', 'cooperation', 'circulars'].includes(tab)) return 'operations'
-  if (['reports', 'messages'].includes(tab)) return 'communication'
+  if (['reports', 'messages', 'resultsAnalyzer'].includes(tab)) return 'communication'
   if (tab === 'backup') return 'system'
   return ''
 }
@@ -370,7 +371,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
   const [attendanceSearch, setAttendanceSearch] = useState('')
   const [attendanceStudentSearch, setAttendanceStudentSearch] = useState('')
   const [scanInput, setScanInput] = useState('')
-  const [activeNav, setActiveNav] = useState<'dashboard' | 'students' | 'studentPortal' | 'attendance' | 'absenceProcedures' | 'studentExcuses' | 'circulars' | 'cooperation' | 'behavior' | 'lessons' | 'teachers' | 'administrators' | 'counselors' | 'vicePrincipals' | 'activityLeaders' | 'referrals' | 'reports' | 'messages' | 'backup' | 'terms'>('attendance')
+  const [activeNav, setActiveNav] = useState<'dashboard' | 'students' | 'studentPortal' | 'attendance' | 'absenceProcedures' | 'studentExcuses' | 'circulars' | 'cooperation' | 'behavior' | 'lessons' | 'teachers' | 'administrators' | 'counselors' | 'vicePrincipals' | 'activityLeaders' | 'referrals' | 'reports' | 'resultsAnalyzer' | 'messages' | 'backup' | 'terms'>('attendance')
   const [openNavGroup, setOpenNavGroup] = useState(() => navGroupFor('attendance'))
   const [manualAttendanceSelection, setManualAttendanceSelection] = useState<Student[]>([])
   const [manualAttendanceSubmitting, setManualAttendanceSubmitting] = useState(false)
@@ -1860,7 +1861,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
     if (group) setOpenNavGroup(group)
     setIsMobileMenuOpen(false)
   }
-  const pageLabel = activeNav === 'dashboard' ? (account.role === 'vice_principal' ? 'الرئيسية' : 'إعدادات المدرسة') : activeNav === 'attendance' ? 'سجل الحضور' : activeNav === 'absenceProcedures' ? 'إجراءات التعامل مع الغياب' : activeNav === 'studentExcuses' ? 'استئذان الطلاب' : activeNav === 'circulars' ? 'التعاميم' : activeNav === 'cooperation' ? 'المعلم المتعاون' : activeNav === 'behavior' ? 'سجل السلوك' : activeNav === 'lessons' ? 'سير الحصص' : activeNav === 'teachers' ? 'المعلمون' : activeNav === 'administrators' ? 'الإداريون' : activeNav === 'counselors' ? 'الموجّه الطلابي' : activeNav === 'vicePrincipals' ? 'وكلاء المدرسة' : activeNav === 'activityLeaders' ? 'رائد النشاط' : activeNav === 'studentPortal' ? 'بوابة الطلاب' : activeNav === 'referrals' ? 'إحالات الطلاب' : activeNav === 'reports' ? 'التقارير' : activeNav === 'messages' ? 'الرسائل' : activeNav === 'backup' ? 'النسخ الاحتياطي والاستعادة' : activeNav === 'terms' ? 'الفصول والأرشيف' : 'إدارة الطلاب'
+  const pageLabel = activeNav === 'dashboard' ? (account.role === 'vice_principal' ? 'الرئيسية' : 'إعدادات المدرسة') : activeNav === 'attendance' ? 'سجل الحضور' : activeNav === 'absenceProcedures' ? 'إجراءات التعامل مع الغياب' : activeNav === 'studentExcuses' ? 'استئذان الطلاب' : activeNav === 'circulars' ? 'التعاميم' : activeNav === 'cooperation' ? 'المعلم المتعاون' : activeNav === 'behavior' ? 'سجل السلوك' : activeNav === 'lessons' ? 'سير الحصص' : activeNav === 'teachers' ? 'المعلمون' : activeNav === 'administrators' ? 'الإداريون' : activeNav === 'counselors' ? 'الموجّه الطلابي' : activeNav === 'vicePrincipals' ? 'وكلاء المدرسة' : activeNav === 'activityLeaders' ? 'رائد النشاط' : activeNav === 'studentPortal' ? 'بوابة الطلاب' : activeNav === 'referrals' ? 'إحالات الطلاب' : activeNav === 'resultsAnalyzer' ? 'محلل النتائج' : activeNav === 'reports' ? 'التقارير' : activeNav === 'messages' ? 'الرسائل' : activeNav === 'backup' ? 'النسخ الاحتياطي والاستعادة' : activeNav === 'terms' ? 'الفصول والأرشيف' : 'إدارة الطلاب'
   return (
     <div className="app-shell" dir="rtl">
       {passwordChangeRequired && <div className="counselor-dialog-backdrop" role="dialog" aria-modal="true" aria-labelledby="vice-principal-password-title">
@@ -1949,6 +1950,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
           <SidebarGroup title="التواصل والتقارير" open={openNavGroup === 'communication'} onToggle={() => setOpenNavGroup(current => current === 'communication' ? '' : 'communication')}>
             <button className={activeNav === 'messages' ? 'nav-item active' : 'nav-item'} onClick={() => selectNavigation('messages')}><ExternalLink size={18} /><span>الرسائل</span></button>
             <button className={activeNav === 'reports' ? 'nav-item active' : 'nav-item'} onClick={() => selectNavigation('reports')}><FileText size={18} /><span>التقارير</span></button>
+            <button className={activeNav === 'resultsAnalyzer' ? 'nav-item active' : 'nav-item'} onClick={() => selectNavigation('resultsAnalyzer')}><BarChart3 size={18} /><span>محلل النتائج</span></button>
           </SidebarGroup>
 
           {isSchoolManager && <SidebarGroup title="إدارة النظام" open={openNavGroup === 'system'} onToggle={() => setOpenNavGroup(current => current === 'system' ? '' : 'system')}>
@@ -2594,6 +2596,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
         )}
 
         {activeNav === 'reports' && <ReportsCenter students={students} schoolName={schoolSettings.schoolName} />}
+        {activeNav === 'resultsAnalyzer' && <ResultsAnalyzer schoolName={schoolSettings.schoolName} />}
 
         {activeNav === 'absenceProcedures' && isSchoolManager && <><AbsenceProcedureGuide role={account.role === 'vice_principal' ? 'vice' : 'school'} />{account.role === 'admin' && <SchoolAbsenceProcedureOverview />}{account.role === 'vice_principal' && <ViceApprovedAbsenceProcedureQueue schoolName={schoolSettings.schoolName} />}</>}
 
