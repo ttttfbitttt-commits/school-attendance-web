@@ -1,6 +1,6 @@
 import * as pdfjsLib from 'pdfjs-dist/build/pdf.mjs';
 import pdfWorkerUrl from 'pdfjs-dist/build/pdf.worker.mjs?url';
-pdfjsLib.GlobalWorkerOptions.workerSrc = pdfWorkerUrl;
+pdfjsLib.GlobalWorkerOptions.workerSrc = `${pdfWorkerUrl}?mime=2`;
 export function initResultsAnalyzer(root, onPrint, defaultSchool) {
 
 const $ = (id) => root.getElementById(id);
