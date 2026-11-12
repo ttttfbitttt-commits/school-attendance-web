@@ -524,6 +524,7 @@ upload.addEventListener('change', async (event) => {
   if (!file) return;
   status.textContent = 'تجري قراءة جميع صفحات الملف واستخراج المعدلات…';
   try {
+    pdfjsLib.GlobalWorkerOptions.workerSrc = `${pdfWorkerUrl}?mime=2`;
     const document = await pdfjsLib.getDocument({ data: new Uint8Array(await file.arrayBuffer()) }).promise;
     const pageObjects = [];
     const pageTexts = [];
