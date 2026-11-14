@@ -839,7 +839,7 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
     {mobileNavOpen && <button type="button" className="teacher-sidebar-backdrop" onClick={() => setMobileNavOpen(false)} aria-label="إغلاق القائمة" />}
     <div className="teacher-workspace">
     <header className="teacher-topbar">
-      <div><span>بوابة المعلم</span><h1>{dashboard?.schoolName || 'نظام الحصر'}</h1></div>
+      <div><span>بوابة المعلم</span><h1>{dashboard?.schoolName || 'نظام الحصر المدرسي'}</h1></div>
     </header>
     {!!cooperationStatus?.contributors.length && !thanksClosed && <section className="teacher-thanks-banner" aria-label="شكر المعلمين المتعاونين"><button type="button" onClick={() => { localStorage.setItem(`teacher-cooperation-thanks:${account.schoolId}:${cooperationStatus.date}`, '1'); setThanksClosed(true) }} aria-label="إغلاق شريط الشكر"><X size={17} /></button><Handshake size={19} /><div className="teacher-thanks-window"><div className="teacher-thanks-track"><strong>شكر وتقدير للمعلمين المتعاونين مع الإدارة اليوم:</strong>{cooperationStatus.contributors.map(item => <span key={item.teacherId}>الأستاذ {item.name}</span>)}<b>تعاونكم يدل على وعيكم ويسهم في انضباط طلاب المدرسة</b></div></div></section>}
     <section className="teacher-welcome">

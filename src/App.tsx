@@ -1892,10 +1892,10 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
         <div className="sidebar-top">
           <div className="brand">
             <span className="brand-mark">
-              <img src={`${import.meta.env.BASE_URL}attendance-system-logo.svg`} alt="" />
+              <img src={`${import.meta.env.BASE_URL}school-census-logo.webp?v=1`} alt="" />
             </span>
             <div>
-              <strong>نظام الحصر</strong>
+              <strong>نظام الحصر المدرسي</strong>
               <small>{currentAccountName}</small>
             </div>
           </div>

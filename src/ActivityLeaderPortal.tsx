@@ -42,7 +42,7 @@ export function ActivityLeaderPortal({ account, onLogout }: { account: Account; 
   </section>
 
   return <main className="teacher-portal" dir="rtl"><section className="teacher-main">
-    <header className="teacher-page-title"><span>بوابة رائد النشاط</span><h1>نظام الحصر</h1></header>
+    <header className="teacher-page-title"><span>بوابة رائد النشاط</span><h1>نظام الحصر المدرسي</h1></header>
     {!changed ? passwordForm : <>
       <nav className="teacher-admin-tabs student-admin-tabs">
         <button type="button" className={tab === 'home' ? 'active' : ''} onClick={() => setTab('home')}><Sparkles size={17} />الرئيسية</button>

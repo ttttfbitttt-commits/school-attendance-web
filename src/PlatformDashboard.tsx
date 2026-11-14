@@ -606,7 +606,7 @@ export function PlatformPortal() {
     <section className="auth-card">
       <div className="auth-icon"><LockKeyhole size={30} /></div>
       <span className="platform-dashboard-kicker">دخول مستقل عن المدارس</span>
-      <h1>إشراف نظام الحصر</h1>
+      <h1>إشراف نظام الحصر المدرسي</h1>
       <p>هذه بوابة المشرف لإدارة ومتابعة المدارس المسجلة. لا تستخدم حساب مدير المدرسة هنا.</p>
       {error && <div className="auth-error" role="alert">{error}</div>}
       <form onSubmit={login} autoComplete="on">
@@ -623,7 +623,7 @@ export function PlatformPortal() {
 
   return <main className="platform-portal" dir="rtl">
     <header className="platform-portal-header">
-      <div><strong>إشراف نظام الحصر</strong><span>بوابة المشرف المستقلة</span></div>
+      <div><strong>إشراف نظام الحصر المدرسي</strong><span>بوابة المشرف المستقلة</span></div>
       <div className="platform-header-actions">
         <button type="button" className="secondary-button" onClick={() => { setPasswordPanelOpen(open => !open); setPasswordNotice('') }}><KeyRound size={16} /> تغيير كلمة المرور</button>
         <button type="button" className="secondary-button" onClick={() => void logout()}><LogOut size={16} /> تسجيل خروج المشرف</button>

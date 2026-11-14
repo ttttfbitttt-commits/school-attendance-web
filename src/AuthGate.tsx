@@ -1,7 +1,7 @@
 import './auth-redesign.css'
 import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
-import { BarChart3, CalendarCheck2, CalendarRange, ClipboardCheck, FileText, GraduationCap, LockKeyhole, School, UserRound } from 'lucide-react'
+import { ArrowLeft, ArrowRight, BarChart3, BookOpen, Pause, Play, CalendarCheck2, CalendarRange, ClipboardCheck, FileText, GraduationCap, LockKeyhole, School, UserRound } from 'lucide-react'
 import { api, type Account, type LoginChoice } from './api'
 import { cacheReportSchoolBrand, clearReportSchoolBrand } from './SchoolFeatures'
 
@@ -41,8 +41,22 @@ export function AuthGate({ children }: { children: (account: Account, logout: ()
     { title: 'استئذان الطلاب', description: 'تواصل مباشر مع ولي الأمر', blurb: 'أرسل طلب الاستئذان لولي الأمر، وتابع الرد والتوقيع في سجل المدرسة.', icon: <ClipboardCheck size={23} /> },
     { title: 'التعاميم والتوقيعات', description: 'متابعة الاطلاع إلكترونياً', blurb: 'شارك التعاميم مع منسوبي المدرسة وتابع التوقيعات وحالة الاطلاع.', icon: <FileText size={23} /> },
     { title: 'ملفات الإنجاز والشواهد', description: 'أعمال الطلاب والمعلمين', blurb: 'تابع ملفات إنجاز الطلاب وشواهد المعلمين من حساباتهم في المنصة.', icon: <GraduationCap size={23} /> },
+    { title: 'الكتب الدراسية', description: 'مصادر التعلّم للمعلم والطالب', blurb: 'انتقل إلى مصادر الكتب الدراسية من حساب المعلم أو الطالب.', icon: <BookOpen size={23} /> },
+    { title: 'إجراءات التعامل مع الغياب', description: 'متابعة الحالات المدرسية', blurb: 'تابع حالات غياب الطلاب والإجراءات المرتبطة بها من مكان واحد.', icon: <ClipboardCheck size={23} /> },
+    { title: 'سير الحصص', description: 'متابعة الحصص والمعلمين', blurb: 'تابع سير الحصص والمعلم المكلّف بالفصل وسجّل الملاحظات.', icon: <CalendarCheck2 size={23} /> },
+    { title: 'إحالات الطلاب والسلوك', description: 'متابعة تربوية منظمة', blurb: 'وثّق الإحالات والسلوك وتابع الحالات من الحسابات المدرسية المعنية.', icon: <UserRound size={23} /> },
+    { title: 'تقارير المدرسة', description: 'سجلات قابلة للطباعة', blurb: 'استعرض تقارير وسجلات المدرسة واطبع ما تحتاجه للمتابعة.', icon: <FileText size={23} /> },
+    { title: 'بوابات منسوبي المدرسة', description: 'أدوات تناسب كل مستخدم', blurb: 'حسابات للطلاب والمعلمين والإدارة تتيح لكل مستخدم الوصول إلى أدواته.', icon: <School size={23} /> },
   ], [])
   const [featureIndex, setFeatureIndex] = useState(0)
+  const [carouselPaused, setCarouselPaused] = useState(() => window.matchMedia('(prefers-reduced-motion: reduce)').matches)
+  const [carouselRevision, setCarouselRevision] = useState(0)
+  const selectFeature = (index: number) => { setFeatureIndex((index + featureHighlights.length) % featureHighlights.length); setCarouselRevision(value => value + 1) }
+  useEffect(() => {
+    if (carouselPaused) return
+    const timer = window.setTimeout(() => setFeatureIndex(index => (index + 1) % featureHighlights.length), 20000)
+    return () => window.clearTimeout(timer)
+  }, [featureIndex, carouselPaused, carouselRevision, featureHighlights.length])
 
   useEffect(() => {
     api.me().then(({ user }) => setAccount(user)).catch(() => {}).finally(() => setLoading(false))
@@ -172,25 +186,26 @@ export function AuthGate({ children }: { children: (account: Account, logout: ()
 
   return <main className="auth-page" dir="rtl">
     <div className="auth-shell">
-      <aside className="auth-visual" aria-label="خدمات نظام الحصر">
-        <div className="auth-visual-topbar"><img src="/attendance-system-logo.svg" alt="" /><span className="auth-visual-brand">نظام الحصر</span><span className="auth-visual-badge">منصة مدرستك المتكاملة</span></div>
+      <aside className="auth-visual" aria-label="خدمات نظام الحصر المدرسي">
+        <div className="auth-visual-topbar"><span className="auth-logo-frame"><img src="/school-census-logo.webp?v=1" alt="" /></span><span className="auth-visual-brand">نظام الحصر المدرسي</span><span className="auth-visual-badge">منصة مدرستك المتكاملة</span></div>
         <div className="auth-hero">
           <div className="auth-hero-copy"><span>كل تفاصيل يومك المدرسي</span><h2>مدرسة أكثر تنظيمًا،<br />ووقت أكثر للتعليم.</h2><p>من الحضور والجدول إلى التقارير والتواصل، أدوات مدرستك في منصة واحدة.</p></div>
           <img src="/login-education-illustration.png" alt="طالب يحمل كتبه في المدرسة" />
         </div>
-        <div className="auth-services-heading"><div><span>اكتشف خدمات الحصر</span><h3>كل ما تحتاجه مدرستك</h3></div><small>اختر خدمة لمعرفة المزيد</small></div>
-        <div className="auth-feature-list">
-          {featureHighlights.map((feature, index) => <button type="button" key={feature.title} className={`auth-feature-card ${featureIndex === index ? 'active' : ''}`} onClick={() => setFeatureIndex(index)} aria-pressed={featureIndex === index}>
-            <span className="auth-feature-icon">{feature.icon}</span><span className="auth-feature-copy"><strong>{feature.title}</strong><small>{feature.description}</small></span>
-          </button>)}
-        </div>
-        <div className="auth-feature-glance" aria-live="polite"><div className="auth-glance-icon">{featureHighlights[featureIndex].icon}</div><div><strong>{featureHighlights[featureIndex].title}</strong><p>{featureHighlights[featureIndex].blurb}</p></div></div>
+        <div className="auth-services-heading"><div><span>اكتشف خدمات الحصر</span><h3>كل ما تحتاجه مدرستك</h3></div><small>تتغير الخدمة تلقائيًا كل ٢٠ ثانية</small></div>
+        <section className="auth-carousel" aria-label="خدمات النظام">
+          <div key={featureIndex} className="auth-carousel-slide">
+            <div className="auth-carousel-art" aria-hidden="true">{featureHighlights[featureIndex].icon}</div>
+            <div className="auth-carousel-copy"><span>خدمة {featureIndex + 1} من {featureHighlights.length}</span><h4>{featureHighlights[featureIndex].title}</h4><strong>{featureHighlights[featureIndex].description}</strong><p>{featureHighlights[featureIndex].blurb}</p></div>
+          </div>
+          <div className="auth-carousel-controls"><div className="auth-carousel-dots" aria-label="اختر خدمة">{featureHighlights.map((feature, index) => <button key={feature.title} type="button" onClick={() => selectFeature(index)} className={featureIndex === index ? 'active' : ''} aria-label={feature.title} aria-current={featureIndex === index ? 'true' : undefined} />)}</div><div className="auth-carousel-actions"><button type="button" onClick={() => selectFeature(featureIndex - 1)} aria-label="الخدمة السابقة"><ArrowRight size={18} /></button><button type="button" onClick={() => setCarouselPaused(value => !value)} aria-label={carouselPaused ? 'تشغيل العرض التلقائي' : 'إيقاف العرض التلقائي'}>{carouselPaused ? <Play size={17} /> : <Pause size={17} />}</button><button type="button" onClick={() => selectFeature(featureIndex + 1)} aria-label="الخدمة التالية"><ArrowLeft size={18} /></button></div></div>
+        </section>
       </aside>
 
       <section className="auth-card">
         <div className="auth-brand-row">
-          <div className="auth-icon"><School size={30} /></div>
-          <h1>{registering ? 'تسجيل مدرسة جديدة' : 'نظام الحصر'}</h1>
+          <div className="auth-icon"><img src="/school-census-logo.webp?v=1" alt="" /></div>
+          <h1>{registering ? 'تسجيل مدرسة جديدة' : 'نظام الحصر المدرسي'}</h1>
         </div>
         <p>{registering ? 'أدخل بيانات المدرسة والمسؤول لإرسال رابط التأكيد.' : 'أدخل رقم الهوية أو بريد المدرسة وكلمة المرور للوصول إلى حسابك.'}</p>
 

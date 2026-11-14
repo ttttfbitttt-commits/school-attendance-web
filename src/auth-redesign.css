@@ -33,3 +33,28 @@
 @media(prefers-reduced-motion:reduce) { .auth-page .auth-feature-card { transition:none; } }
 
 
+.auth-page .auth-icon img { width:100%; height:100%; object-fit:contain; }
+.auth-carousel { overflow:hidden; border:1px solid #d2e5ef; border-radius:19px; background:#fff; box-shadow:0 12px 28px #174b6810; }
+.auth-carousel-slide { min-height:155px; display:flex; align-items:center; gap:22px; padding:22px; animation:auth-slide-enter .55s ease both; }
+.auth-carousel-art { flex:none; display:grid; place-items:center; width:98px; height:98px; border-radius:25px; background:linear-gradient(145deg,#d6f4f1,#e8f4ff); color:#147bb4; }
+.auth-carousel-art svg { width:48px; height:48px; stroke-width:1.5; }
+.auth-carousel-copy { flex:1; min-width:0; }
+.auth-carousel-copy > span { color:#168a85; font-size:11px; font-weight:700; }
+.auth-carousel-copy h4 { color:#0c3e65; font-size:20px; margin:4px 0; }
+.auth-carousel-copy strong { color:#356179; font-size:12px; }
+.auth-carousel-copy p { color:#5a7588; margin:7px 0 0; font-size:13px; line-height:1.7; }
+.auth-carousel-controls { padding:10px 20px; border-top:1px solid #e7f0f3; display:flex; justify-content:space-between; align-items:center; gap:10px; }
+.auth-carousel-dots,.auth-carousel-actions { display:flex; flex-wrap:wrap; align-items:center; gap:7px; }
+.auth-carousel-dots button { padding:0; border:0; width:7px; height:7px; border-radius:8px; background:#c7dbe4; cursor:pointer; transition:width .25s,background .25s; }
+.auth-carousel-dots button.active { width:20px; background:#1686bb; }
+.auth-carousel-actions button { width:32px; height:32px; display:grid; place-items:center; border:1px solid #dcebf2; background:#f6fbfd; color:#14689b; border-radius:9px; cursor:pointer; }
+.auth-carousel button:focus-visible { outline:3px solid #f3a734; outline-offset:2px; }
+@keyframes auth-slide-enter { from { opacity:0; transform:translateX(12px); } to { opacity:1; transform:translateX(0); } }
+@media(max-width:600px) { .auth-carousel-slide { gap:13px; padding:15px; min-height:145px; } .auth-carousel-art { width:65px; height:65px; border-radius:18px; } .auth-carousel-art svg { width:33px; height:33px; } .auth-carousel-copy h4 { font-size:17px; } .auth-carousel-controls { padding:10px 13px; } }
+@media(prefers-reduced-motion:reduce) { .auth-carousel-slide { animation:none; } .auth-carousel-dots button { transition:none; } }
+.auth-page .auth-logo-frame, .auth-page .auth-icon, .brand-mark { overflow:hidden; }
+.auth-page .auth-logo-frame { width:48px; height:48px; border-radius:50%; flex:none; }
+.auth-page .auth-logo-frame img,.auth-page .auth-icon img,.brand-mark img { width:100%; height:100%; display:block; object-fit:cover; object-position:center; transform:scale(1.22); }
+.auth-page .auth-icon { background:#f5fafb; border-radius:50%; }
+.auth-page .auth-card .auth-icon { width:78px; height:78px; flex:none; }
+.auth-page .auth-logo-frame { width:54px; height:54px; }
