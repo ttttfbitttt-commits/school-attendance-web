@@ -1,3 +1,4 @@
+import { SchoolResultsAnalyzer } from './ResultsAnalyzer'
 import { type FormEvent, useEffect, useState } from 'react'
 import { FileImage, FolderOpen, KeyRound, LogOut, Send, Sparkles, ClipboardList, FileText } from 'lucide-react'
 import { api, type Account } from './api'
@@ -11,7 +12,7 @@ export function ActivityLeaderPortal({ account, onLogout }: { account: Account; 
   const [busy, setBusy] = useState(false)
   const [changed, setChanged] = useState(!account.mustChangePassword)
   const [error, setError] = useState('')
-  const [tab, setTab] = useState<'home' | 'portfolio' | 'evidence' | 'activities' | 'activityReport' | 'circulars' | 'password'>('home')
+  const [tab, setTab] = useState<'home' | 'portfolio' | 'evidence' | 'activities' | 'activityReport' | 'circulars' | 'resultsAnalyzer' | 'password'>('home')
   const [schoolName, setSchoolName] = useState('المدرسة')
 
   useEffect(() => {
@@ -50,6 +51,7 @@ export function ActivityLeaderPortal({ account, onLogout }: { account: Account; 
         <button type="button" className={tab === 'activities' ? 'active' : ''} onClick={() => setTab('activities')}><Send size={17} />إرسال نشاط</button>
         <button type="button" className={tab === 'activityReport' ? 'active' : ''} onClick={() => setTab('activityReport')}><ClipboardList size={17} />تقرير النشاط</button>
         <button type="button" className={tab === 'circulars' ? 'active' : ''} onClick={() => setTab('circulars')}><FileText size={17} />التعاميم <b className="absence-procedure-new-badge">جديد</b></button>
+        <button type="button" className={tab === 'resultsAnalyzer' ? 'active' : ''} onClick={() => setTab('resultsAnalyzer')}><FileText size={17} />محلل النتائج</button>
         <button type="button" className={tab === 'password' ? 'active' : ''} onClick={() => setTab('password')}><KeyRound size={17} />كلمة المرور</button>
       </nav>
       {tab === 'home' && <section className="teacher-card teacher-evidence"><div className="teacher-section-head"><div><span>مرحباً {account.displayName}</span><h2>بوابة رائد النشاط</h2><p>يمكنك مراجعة ملفات إنجاز الطلاب وشواهد المعلمين وإرسال الأنشطة ومتابعة تنفيذها.</p></div><Sparkles size={31} /></div><div className="teacher-report-actions"><button type="button" className="outline-button" onClick={() => setTab('portfolio')}><FolderOpen size={16} />فتح ملفات الإنجاز</button><button type="button" className="outline-button" onClick={() => setTab('evidence')}><FileImage size={16} />شواهد المعلمين</button><button type="button" className="outline-button" onClick={() => setTab('activities')}><Send size={16} />إرسال نشاط</button></div></section>}
@@ -58,6 +60,7 @@ export function ActivityLeaderPortal({ account, onLogout }: { account: Account; 
       {tab === 'activities' && <ActivityLeaderActivities schoolName={schoolName} mode="send" />}
       {tab === 'activityReport' && <ActivityLeaderActivities schoolName={schoolName} mode="report" />}
       {tab === 'circulars' && <RecipientCirculars schoolName={schoolName} />}
+      {tab === 'resultsAnalyzer' && <SchoolResultsAnalyzer />}
       {tab === 'password' && passwordForm}
       <button type="button" className="outline-button" onClick={onLogout}><LogOut size={16} />تسجيل الخروج</button>
     </>}

@@ -1,4 +1,5 @@
-import { useEffect, useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import { api, type ReportSchoolBrand } from './api'
 import html from './resultsAnalyzer/analyzer.html?raw'
 import css from './resultsAnalyzer/analyzer.css?raw'
 import { brandReportFragment } from './SchoolFeatures'
@@ -56,4 +57,19 @@ export function ResultsAnalyzer({ schoolName, region, semester }: { schoolName: 
     return () => { root.replaceChildren() }
   }, [schoolName, region, semester])
   return <div ref={host} aria-label="محلل نتائج الطلاب" />
+}
+
+export function SchoolResultsAnalyzer() {
+  const [school, setSchool] = useState<ReportSchoolBrand | null>(null)
+  const [failed, setFailed] = useState(false)
+  const [attempt, setAttempt] = useState(0)
+  useEffect(() => {
+    let active = true
+    setFailed(false)
+    void api.reportSchoolBrand().then(result => { if (active) setSchool(result.school) }).catch(() => { if (active) setFailed(true) })
+    return () => { active = false }
+  }, [attempt])
+  if (failed) return <section dir="rtl"><p>تعذر تحميل بيانات المدرسة للمحلل.</p><button type="button" className="outline-button" onClick={() => setAttempt(value => value + 1)}>إعادة المحاولة</button></section>
+  if (!school) return <p dir="rtl">جارٍ تحميل بيانات المدرسة…</p>
+  return <ResultsAnalyzer schoolName={school.schoolName} region={school.generalEducationAdministration} semester={school.semester || ''} />
 }

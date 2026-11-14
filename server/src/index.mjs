@@ -606,7 +606,7 @@ const server = http.createServer(async (req, res) => {
     if (req.method === 'GET' && url.pathname === '/api/me') return json(res, 200, { user: account(user) })
     if (req.method === 'GET' && url.pathname === '/api/report-header') {
       const result = await scoped(user.school_id, async c => c.query(
-        'SELECT name AS "schoolName",general_education_administration AS "generalEducationAdministration",education_office AS "educationOffice" FROM schools WHERE id=$1',
+        'SELECT name AS "schoolName",general_education_administration AS "generalEducationAdministration",education_office AS "educationOffice",semester FROM schools WHERE id=$1',
         [user.school_id],
       ))
       if (!result.rows[0]) return json(res, 404, { error: 'school_not_found' })

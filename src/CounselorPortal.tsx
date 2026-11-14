@@ -1,3 +1,4 @@
+import { SchoolResultsAnalyzer } from './ResultsAnalyzer'
 import { useEffect, useMemo, useState } from 'react'
 import { ChevronDown, ClipboardList, FileText, GraduationCap, Home, KeyRound, LockKeyhole, LogOut, Menu, MessageSquare, RefreshCw, Send, ShieldAlert, UserRound, Users, X } from 'lucide-react'
 import { api, type Account, type CounselorPortalDashboard } from './api'
@@ -8,7 +9,7 @@ import { AbsenceProcedureGuide, CounselorAbsenceReferralQueue } from './AbsenceP
 import { StudentExcuseCenter } from './StudentExcuses'
 import { RecipientCirculars } from './TeacherCirculars'
 
-type CounselorView = 'home' | 'behavior' | 'referrals' | 'absenceProcedures' | 'studentExcuses' | 'circulars' | 'reports' | 'teachers' | 'students' | 'messages' | 'password'
+type CounselorView = 'home' | 'behavior' | 'referrals' | 'absenceProcedures' | 'studentExcuses' | 'circulars' | 'reports' | 'resultsAnalyzer' | 'teachers' | 'students' | 'messages' | 'password'
 
 const nav: Array<{ id: CounselorView; label: string; icon: typeof Home }> = [
   { id: 'home', label: 'الرئيسية', icon: Home },
@@ -18,6 +19,7 @@ const nav: Array<{ id: CounselorView; label: string; icon: typeof Home }> = [
   { id: 'studentExcuses', label: 'استئذان الطلاب', icon: ClipboardList },
   { id: 'circulars', label: 'التعاميم', icon: FileText },
   { id: 'reports', label: 'التقارير', icon: FileText },
+  { id: 'resultsAnalyzer', label: 'محلل النتائج', icon: FileText },
   { id: 'teachers', label: 'المعلمون', icon: Users },
   { id: 'students', label: 'الطلاب', icon: GraduationCap },
   { id: 'messages', label: 'الرسائل', icon: MessageSquare },
@@ -30,7 +32,7 @@ function counselorNavGroupFor(view: CounselorView): CounselorNavGroup | '' {
   if (['students', 'behavior', 'referrals', 'studentExcuses'].includes(view)) return 'students'
   if (view === 'teachers') return 'staff'
   if (['absenceProcedures', 'circulars'].includes(view)) return 'operations'
-  if (['messages', 'reports'].includes(view)) return 'communication'
+  if (['messages', 'reports', 'resultsAnalyzer'].includes(view)) return 'communication'
   if (view === 'password') return 'account'
   return ''
 }
@@ -124,6 +126,7 @@ export function CounselorPortal({ account, onLogout }: { account: Account; onLog
         <CounselorSidebarGroup title="التواصل والتقارير" open={openNavGroup === 'communication'} onToggle={() => setOpenNavGroup(current => current === 'communication' ? '' : 'communication')}>
           <button type="button" className={view === 'messages' ? 'active' : ''} onClick={() => go('messages')}><MessageSquare size={18} />الرسائل</button>
           <button type="button" className={view === 'reports' ? 'active' : ''} onClick={() => go('reports')}><FileText size={18} />التقارير</button>
+          <button type="button" className={view === 'resultsAnalyzer' ? 'active' : ''} onClick={() => go('resultsAnalyzer')}><FileText size={18} />محلل النتائج</button>
         </CounselorSidebarGroup>
         <CounselorSidebarGroup title="الحساب" open={openNavGroup === 'account'} onToggle={() => setOpenNavGroup(current => current === 'account' ? '' : 'account')}>
           <button type="button" className={view === 'password' ? 'active' : ''} onClick={() => go('password')}><KeyRound size={18} />كلمة المرور</button>
@@ -141,6 +144,7 @@ export function CounselorPortal({ account, onLogout }: { account: Account; onLog
       {view === 'absenceProcedures' && <><AbsenceProcedureGuide role="counselor" /><CounselorAbsenceReferralQueue /></>}
       {view === 'studentExcuses' && <StudentExcuseCenter schoolName={dashboard.schoolName} />}
       {view === 'circulars' && <RecipientCirculars schoolName={dashboard.schoolName} />}
+      {view === 'resultsAnalyzer' && <SchoolResultsAnalyzer />}
       {view === 'reports' && <ReportsCenter students={dashboard.students} schoolName={dashboard.schoolName} viewer="counselor" />}
       {view === 'messages' && <MessageCenter students={dashboard.students} attendance={attendance as never[]} schoolName={dashboard.schoolName} />}
       {view === 'teachers' && <section className="counselor-directory"><header><div><span>بيانات المدرسة</span><h2>المعلمون</h2><p>عرض قائمة المعلمين ووسائل التواصل.</p></div><Users size={30} /></header><input value={search} onChange={event => setSearch(event.target.value)} placeholder="ابحث باسم المعلم أو رقم الهوية أو الجوال" /> <div className="counselor-directory-grid">{teachers.map(teacher => <article key={teacher.teacherId}><strong>{teacher.name}</strong><span>رقم الهوية <b dir="ltr">{teacher.identityNumber || '—'}</b></span><small dir="ltr">{teacher.phone || 'لا يوجد رقم جوال'}</small></article>)}</div>{!teachers.length && <p className="teacher-empty">لا يوجد معلمون مطابقون للبحث.</p>}</section>}

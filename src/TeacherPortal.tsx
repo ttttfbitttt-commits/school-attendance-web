@@ -1,3 +1,4 @@
+import { SchoolResultsAnalyzer } from './ResultsAnalyzer'
 import { Textbooks } from './Textbooks'
 import { useEffect, useState } from 'react'
 import { BarChart3, BookOpenCheck, CalendarDays, Check, Copy, FileSpreadsheet, FileText, FolderOpen, Handshake, KeyRound, LayoutDashboard, LogOut, Menu, Plus, Printer, Save, Send, Trash2, UserRound, X } from 'lucide-react'
@@ -36,7 +37,7 @@ const displaySheetValue = (value: string | number | boolean | undefined, type?: 
 
 type TeacherAttendanceStatus = 'present' | 'absent' | 'late' | 'excused'
 type StudentState = { status: TeacherAttendanceStatus; note: TeacherNote | ''; sheetValues: Record<string, string | number | boolean> }
-type TeacherTab = 'books' | 'home' | 'schedule' | 'standby' | 'cooperation' | 'referrals' | 'circulars' | 'sheets' | 'portfolio' | 'evidence' | 'reports' | 'password'
+type TeacherTab = 'books' | 'home' | 'schedule' | 'standby' | 'cooperation' | 'referrals' | 'circulars' | 'sheets' | 'portfolio' | 'evidence' | 'reports' | 'resultsAnalyzer' | 'password'
 type RenderSheetColumn = TeacherSheetColumn & { key: string; sheetType: TeacherSheetType }
 const getSheetColumns = (lesson: TeacherLesson): RenderSheetColumn[] => lesson.sheetConfigs.flatMap(config => config.columns.map(column => ({ ...column, key: `${config.sheetType}:${column.id}`, sheetType: config.sheetType })))
 const attendanceStatusLabel = (status: TeacherAttendanceStatus) => status === 'present' ? 'حاضر' : status === 'late' ? 'تأخر عن الحصة' : status === 'excused' ? 'مستأذن' : 'غائب'
@@ -831,6 +832,7 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
         <button type="button" className={activeTab === 'portfolio' ? 'active' : ''} onClick={() => navigate('portfolio')}><FolderOpen size={18} /> ملف الإنجاز</button>
         <button type="button" className={activeTab === 'evidence' ? 'active' : ''} onClick={() => navigate('evidence')}><BookOpenCheck size={18} /> شواهد {dashboard?.activityEvidenceCount ? <span>هام</span> : null}</button>
         <button type="button" className={activeTab === 'reports' ? 'active' : ''} onClick={() => navigate('reports')}><BarChart3 size={18} /> التقارير</button>
+        <button type="button" className={activeTab === 'resultsAnalyzer' ? 'active' : ''} onClick={() => navigate('resultsAnalyzer')}><BarChart3 size={18} /> محلل النتائج</button>
       </nav>
       <button type="button" className="teacher-sidebar-logout" onClick={onLogout}><LogOut size={18} /> تسجيل الخروج</button>
     </aside>
@@ -895,6 +897,7 @@ export function TeacherPortal({ account, onLogout }: { account: Account; onLogou
     </section>}
     {activeTab === 'portfolio' && <StudentPortfolioBoard scope="teacher" />}
     {activeTab === 'evidence' && <TeacherEvidence schoolName={dashboard?.schoolName || 'المدرسة'} teacherName={dashboard?.teacher.name || account.displayName} onPrint={setPrintPreview} onActivitiesViewed={() => setDashboard(current => current ? { ...current, activityEvidenceCount: 0 } : current)} />}
+    {activeTab === 'resultsAnalyzer' && <SchoolResultsAnalyzer />}
     {activeTab === 'reports' && <TeacherReportsTab key={reportsKey} schedule={dashboard?.weekSchedule || []} schoolName={dashboard?.schoolName || 'المدرسة'} teacherName={dashboard?.teacher.name || account.displayName} />}
     {printPreview && <div className="teacher-print-overlay" role="dialog" aria-modal="true" aria-label="معاينة الطباعة"><div className="teacher-print-actions"><button type="button" className="outline-button" onClick={() => setPrintPreview('')}>إغلاق والعودة</button><button type="button" className="primary-button" onClick={() => {
       const report = document.querySelector<HTMLElement>('.teacher-print-preview')
