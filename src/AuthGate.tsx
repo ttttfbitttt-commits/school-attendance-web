@@ -54,7 +54,7 @@ export function AuthGate({ children }: { children: (account: Account, logout: ()
   const selectFeature = (index: number) => { setFeatureIndex((index + featureHighlights.length) % featureHighlights.length); setCarouselRevision(value => value + 1) }
   useEffect(() => {
     if (carouselPaused) return
-    const timer = window.setTimeout(() => setFeatureIndex(index => (index + 1) % featureHighlights.length), 20000)
+    const timer = window.setTimeout(() => setFeatureIndex(index => (index + 1) % featureHighlights.length), 5000)
     return () => window.clearTimeout(timer)
   }, [featureIndex, carouselPaused, carouselRevision, featureHighlights.length])
 
@@ -192,7 +192,7 @@ export function AuthGate({ children }: { children: (account: Account, logout: ()
           <div className="auth-hero-copy"><span>كل تفاصيل يومك المدرسي</span><h2>مدرسة أكثر تنظيمًا،<br />ووقت أكثر للتعليم.</h2><p>من الحضور والجدول إلى التقارير والتواصل، أدوات مدرستك في منصة واحدة.</p></div>
           <img src="/login-education-illustration.png" alt="طالب يحمل كتبه في المدرسة" />
         </div>
-        <div className="auth-services-heading"><div><span>اكتشف خدمات الحصر</span><h3>كل ما تحتاجه مدرستك</h3></div><small>تتغير الخدمة تلقائيًا كل ٢٠ ثانية</small></div>
+        <div className="auth-services-heading"><div><span>اكتشف خدمات الحصر</span><h3>كل ما تحتاجه مدرستك</h3></div><small>تتغير الخدمة تلقائيًا كل ٥ ثوانٍ</small></div>
         <section className="auth-carousel" aria-label="خدمات النظام">
           <div key={featureIndex} className="auth-carousel-slide">
             <div className="auth-carousel-art" aria-hidden="true">{featureHighlights[featureIndex].icon}</div>
