@@ -1,6 +1,7 @@
+import './auth-redesign.css'
 import { useEffect, useMemo, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
-import { BarChart3, BellRing, CalendarCheck2, CalendarRange, ClipboardCheck, FileText, GraduationCap, LockKeyhole, School, UserRound } from 'lucide-react'
+import { BarChart3, CalendarCheck2, CalendarRange, ClipboardCheck, FileText, GraduationCap, LockKeyhole, School, UserRound } from 'lucide-react'
 import { api, type Account, type LoginChoice } from './api'
 import { cacheReportSchoolBrand, clearReportSchoolBrand } from './SchoolFeatures'
 
@@ -34,19 +35,14 @@ export function AuthGate({ children }: { children: (account: Account, logout: ()
   const [schoolEmail, setSchoolEmail] = useState('')
   const [schoolPassword, setSchoolPassword] = useState('')
   const featureHighlights = useMemo(() => [
-    { title: 'حضور ذكي', description: 'تسجيل سريع للطلاب', blurb: 'متابعة حضور الطالب في ثوانٍ مع تسجيل الأنشطة والغياب بشكل فوري ودقيق.', icon: <CalendarCheck2 size={18} /> },
-    { title: 'تقارير دقيقة', description: 'مؤشرات الأداء', blurb: 'تقارير شاملة للمعلمين والإدارة لمتابعة الطلاب والدرجات والسلوك والغياب.', icon: <BarChart3 size={18} /> },
-    { title: 'تواصل فوري', description: 'رسائل وتعليمات', blurb: 'إرسال التعاميم والرسائل إلى أولياء الأمور والطلاب من نفس المنصة.', icon: <BellRing size={18} /> },
-    { title: 'استئذان الطلاب', description: 'إدارة الطلبات', blurb: 'متابعة استئذان الطلاب وتسجيل الحالات بسرعة مع توثيقها ومنع الخلط.', icon: <ClipboardCheck size={18} /> },
-    { title: 'جدولة الحصص', description: 'جداول مرنة', blurb: 'إنشاء الجداول، توزيع الحصص، وتحديث المواعيد بسهولة عبر واجهة مدرسية مرنة.', icon: <CalendarRange size={18} /> },
-    { title: 'التعاميم', description: 'إتصال مؤسسي', blurb: 'إرسال التعاميم الرسمية داخل المدرسة مع متابعة المسار والتأكيد والتنظيم.', icon: <FileText size={18} /> },
+    { title: 'الحضور والغياب', description: 'متابعة يومية في مكان واحد', blurb: 'سجّل الحضور وتابع التأخر والغياب، واطّلع على السجلات والتقارير بسهولة.', icon: <CalendarCheck2 size={23} /> },
+    { title: 'الجدول وحصص الانتظار', description: 'تنظيم اليوم الدراسي', blurb: 'أعد الجداول ووزّع حصص الانتظار، وتابع تكليف المعلمين عند الغياب.', icon: <CalendarRange size={23} /> },
+    { title: 'تحليل النتائج', description: 'بيانات تساعد على اتخاذ القرار', blurb: 'حلّل نتائج الطلاب، واستعرض المؤشرات، وأصدر تقارير PDF للمتابعة.', icon: <BarChart3 size={23} /> },
+    { title: 'استئذان الطلاب', description: 'تواصل مباشر مع ولي الأمر', blurb: 'أرسل طلب الاستئذان لولي الأمر، وتابع الرد والتوقيع في سجل المدرسة.', icon: <ClipboardCheck size={23} /> },
+    { title: 'التعاميم والتوقيعات', description: 'متابعة الاطلاع إلكترونياً', blurb: 'شارك التعاميم مع منسوبي المدرسة وتابع التوقيعات وحالة الاطلاع.', icon: <FileText size={23} /> },
+    { title: 'ملفات الإنجاز والشواهد', description: 'أعمال الطلاب والمعلمين', blurb: 'تابع ملفات إنجاز الطلاب وشواهد المعلمين من حساباتهم في المنصة.', icon: <GraduationCap size={23} /> },
   ], [])
   const [featureIndex, setFeatureIndex] = useState(0)
-
-  useEffect(() => {
-    const timer = window.setInterval(() => setFeatureIndex(index => (index + 1) % featureHighlights.length), 3000)
-    return () => window.clearInterval(timer)
-  }, [featureHighlights.length])
 
   useEffect(() => {
     api.me().then(({ user }) => setAccount(user)).catch(() => {}).finally(() => setLoading(false))
@@ -176,34 +172,19 @@ export function AuthGate({ children }: { children: (account: Account, logout: ()
 
   return <main className="auth-page" dir="rtl">
     <div className="auth-shell">
-      <aside className="auth-visual" aria-label="خدمات النظام">
-        <div className="auth-visual-topbar">
-          <span className="auth-visual-brand">نظام الحصر</span>
-          <span className="auth-visual-badge">+15 خدمة</span>
+      <aside className="auth-visual" aria-label="خدمات نظام الحصر">
+        <div className="auth-visual-topbar"><img src="/attendance-system-logo.svg" alt="" /><span className="auth-visual-brand">نظام الحصر</span><span className="auth-visual-badge">منصة مدرستك المتكاملة</span></div>
+        <div className="auth-hero">
+          <div className="auth-hero-copy"><span>كل تفاصيل يومك المدرسي</span><h2>مدرسة أكثر تنظيمًا،<br />ووقت أكثر للتعليم.</h2><p>من الحضور والجدول إلى التقارير والتواصل، أدوات مدرستك في منصة واحدة.</p></div>
+          <img src="/login-education-illustration.png" alt="طالب يحمل كتبه في المدرسة" />
         </div>
-        <div className="auth-metrics-grid" aria-label="مؤشرات النظام">
-          <div className="auth-metric"><strong>24/7</strong><span>متابعة مستمرة</span></div>
-          <div className="auth-metric"><strong>99%</strong><span>دقة الحضور</span></div>
-          <div className="auth-metric"><strong>3x</strong><span>تسريع العمل</span></div>
-        </div>
+        <div className="auth-services-heading"><div><span>اكتشف خدمات الحصر</span><h3>كل ما تحتاجه مدرستك</h3></div><small>اختر خدمة لمعرفة المزيد</small></div>
         <div className="auth-feature-list">
-          {featureHighlights.map((feature, index) => (
-            <div key={feature.title} className={`auth-feature-card ${featureIndex === index ? 'active' : ''}`}>
-              <div className="auth-feature-icon">{feature.icon}</div>
-              <div className="auth-feature-copy">
-                <strong>{feature.title}</strong>
-                <small>{feature.description}</small>
-              </div>
-            </div>
-          ))}
+          {featureHighlights.map((feature, index) => <button type="button" key={feature.title} className={`auth-feature-card ${featureIndex === index ? 'active' : ''}`} onClick={() => setFeatureIndex(index)} aria-pressed={featureIndex === index}>
+            <span className="auth-feature-icon">{feature.icon}</span><span className="auth-feature-copy"><strong>{feature.title}</strong><small>{feature.description}</small></span>
+          </button>)}
         </div>
-        <div className="auth-feature-glance">
-          <div className="auth-glance-icon"><GraduationCap size={18} /></div>
-          <div>
-            <strong>{featureHighlights[featureIndex].title}</strong>
-            <p>{featureHighlights[featureIndex].blurb}</p>
-          </div>
-        </div>
+        <div className="auth-feature-glance" aria-live="polite"><div className="auth-glance-icon">{featureHighlights[featureIndex].icon}</div><div><strong>{featureHighlights[featureIndex].title}</strong><p>{featureHighlights[featureIndex].blurb}</p></div></div>
       </aside>
 
       <section className="auth-card">
