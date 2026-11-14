@@ -8,7 +8,7 @@
 .auth-page .auth-visual-badge { margin-inline-start:auto; background:#e4f3fa; border:0; color:#176a91; padding:8px 13px; }
 .auth-hero { position:relative; overflow:hidden; min-height:270px; border-radius:23px; background:#d8eefa; }
 .auth-hero > img { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; object-position:center top; transform:scaleX(-1); }
-.auth-hero::after { content:''; position:absolute; inset:0; background:linear-gradient(270deg,rgba(236,248,252,.97) 0%,rgba(236,248,252,.91) 39%,rgba(236,248,252,.05) 75%); }
+.auth-hero::after { content:''; position:absolute; inset:0; background:linear-gradient(270deg,rgba(236,248,252,.97) 0%,rgba(236,248,252,.95) 30%,rgba(236,248,252,.02) 54%); }
 .auth-hero-copy { position:relative; z-index:1; max-width:56%; padding:35px 30px; }
 .auth-hero-copy > span,.auth-services-heading span { color:#138b88; font-size:12px; font-weight:800; }
 .auth-hero-copy h2 { margin:12px 0; color:#103c60; font-size:clamp(24px,2.3vw,34px); line-height:1.45; }

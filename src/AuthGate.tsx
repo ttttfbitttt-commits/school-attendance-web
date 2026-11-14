@@ -190,7 +190,7 @@ export function AuthGate({ children }: { children: (account: Account, logout: ()
         <div className="auth-visual-topbar"><span className="auth-logo-frame"><img src="/school-census-logo.webp?v=1" alt="" /></span><span className="auth-visual-brand">نظام الحصر المدرسي</span><span className="auth-visual-badge">منصة مدرستك المتكاملة</span></div>
         <div className="auth-hero">
           <div className="auth-hero-copy"><span>كل تفاصيل يومك المدرسي</span><h2>مدرسة أكثر تنظيمًا،<br />ووقت أكثر للتعليم.</h2><p>من الحضور والجدول إلى التقارير والتواصل، أدوات مدرستك في منصة واحدة.</p></div>
-          <img src="/login-education-illustration.png" alt="طالب يحمل كتبه في المدرسة" />
+          <img src="/login-students-illustration.png" alt="طالب وطالبة يحملان كتبهما في المدرسة" />
         </div>
         <div className="auth-services-heading"><div><span>اكتشف خدمات الحصر</span><h3>كل ما تحتاجه مدرستك</h3></div><small>تتغير الخدمة تلقائيًا كل ٥ ثوانٍ</small></div>
         <section className="auth-carousel" aria-label="خدمات النظام">
