@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { Download, FileText, Printer, X } from 'lucide-react'
 import type { StudentPortfolioCorrection } from './api'
 import { openPrintDocument } from './SchoolFeatures'
@@ -62,10 +62,32 @@ export function PortfolioFilePreview({ file, correction, signatureMode, signatur
   schoolName?: string
   onClose: () => void
 }) {
+  const imageWrapRef = useRef<HTMLDivElement>(null)
   const selectedSignatureMode = correction?.signatureMode || signatureMode || 'generated'
   const selectedSignatureData = correction?.signatureData || signatureData || ''
   const printCorrection = () => {
     if (!correction) return
+    if (isImage && imageWrapRef.current) {
+      // Print the image and stamp shown in the preview without opening a popup.
+      const printRoot = document.createElement('div')
+      printRoot.className = 'portfolio-image-print-root'
+      printRoot.appendChild(imageWrapRef.current.cloneNode(true))
+      document.body.appendChild(printRoot)
+      document.body.classList.add('portfolio-image-print-mode')
+      const cleanup = () => {
+        document.body.classList.remove('portfolio-image-print-mode')
+        printRoot.remove()
+        window.removeEventListener('afterprint', cleanup)
+      }
+      window.addEventListener('afterprint', cleanup)
+      try {
+        window.print()
+      } catch {
+        cleanup()
+        window.alert('تعذرت الطباعة. يرجى المحاولة من متصفح آخر.')
+      }
+      return
+    }
     const teacher = teacherNameParts(correction.teacherName)
     const signature = selectedSignatureMode === 'uploaded' && selectedSignatureData
       ? `<span class="signature uploaded" role="img" aria-label="التوقيع" style="-webkit-mask-image:url(&quot;${escapeHtml(selectedSignatureData)}&quot;);mask-image:url(&quot;${escapeHtml(selectedSignatureData)}&quot;)"></span>`
@@ -91,7 +113,7 @@ export function PortfolioFilePreview({ file, correction, signatureMode, signatur
     <section className="portfolio-preview-dialog" role="dialog" aria-modal="true" aria-label={`معاينة ${file.fileName || 'ملف الإنجاز'}`}>
       <header><div><span>معاينة ملف الإنجاز</span><strong>{file.fileName || 'ملف مرفوع'}</strong></div><button type="button" className="portfolio-preview-close" onClick={onClose} aria-label="إغلاق المعاينة"><X size={21} /><span>إغلاق</span></button></header>
       <div className={`portfolio-preview-content ${isImage ? 'image' : isPdf ? 'pdf' : 'download'}`}>
-        {isImage ? <div className="portfolio-preview-image-wrap"><img src={file.fileUrl} alt={file.fileName || 'ملف إنجاز الطالب'} />{correction && <PortfolioCorrectionStamp correction={correction} signatureMode={selectedSignatureMode} signatureData={selectedSignatureData} />}</div> : isPdf ? <div className="portfolio-preview-pdf-wrap"><iframe src={file.fileUrl} title={file.fileName || 'ملف إنجاز الطالب'} />{correction && <PortfolioCorrectionStamp correction={correction} signatureMode={selectedSignatureMode} signatureData={selectedSignatureData} />}</div> : <div className="portfolio-preview-download-wrap"><FileText size={52} /><h2>هذا الملف بصيغة Word</h2><p>يمكن تنزيله وفتحه في تطبيق المستندات على جهازك.</p>{correction && <PortfolioCorrectionStamp correction={correction} signatureMode={selectedSignatureMode} signatureData={selectedSignatureData} />}</div>}
+        {isImage ? <div className="portfolio-preview-image-wrap" ref={imageWrapRef}><img src={file.fileUrl} alt={file.fileName || 'ملف إنجاز الطالب'} />{correction && <PortfolioCorrectionStamp correction={correction} signatureMode={selectedSignatureMode} signatureData={selectedSignatureData} />}</div> : isPdf ? <div className="portfolio-preview-pdf-wrap"><iframe src={file.fileUrl} title={file.fileName || 'ملف إنجاز الطالب'} />{correction && <PortfolioCorrectionStamp correction={correction} signatureMode={selectedSignatureMode} signatureData={selectedSignatureData} />}</div> : <div className="portfolio-preview-download-wrap"><FileText size={52} /><h2>هذا الملف بصيغة Word</h2><p>يمكن تنزيله وفتحه في تطبيق المستندات على جهازك.</p>{correction && <PortfolioCorrectionStamp correction={correction} signatureMode={selectedSignatureMode} signatureData={selectedSignatureData} />}</div>}
       </div>
       <footer><a href={file.fileUrl} download><Download size={17} /> تنزيل الملف الأصلي</a>{correction && <button type="button" onClick={printCorrection}><Printer size={17} /> طباعة مع التصحيح</button>}<button type="button" onClick={onClose}>العودة إلى الموقع</button></footer>
     </section>
