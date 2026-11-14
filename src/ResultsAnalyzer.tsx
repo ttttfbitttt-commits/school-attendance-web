@@ -9,6 +9,9 @@ async function downloadAnalysis(report: HTMLElement, schoolName: string, region:
   const copy = report.cloneNode(true) as HTMLElement
   copy.querySelector('.official-header .header-right')?.remove()
   copy.querySelector('.report-top')?.remove()
+  copy.querySelector('.report-author-credit')?.remove()
+  const footerLabel = copy.querySelector('.official-footer span:first-child')
+  if (footerLabel) footerLabel.textContent = 'تقرير تحليل نتائج الطلاب'
   const iframe = document.createElement('iframe')
   iframe.setAttribute('aria-hidden', 'true')
   iframe.tabIndex = -1
