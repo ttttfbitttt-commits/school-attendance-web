@@ -1,0 +1,4 @@
+User-agent: *
+Disallow: /api/
+Disallow: /voice-table/
+Sitemap: https://7asr2030.com/sitemap.xml
