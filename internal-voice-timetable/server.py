@@ -5,6 +5,7 @@ from http.cookies import SimpleCookie
 import copy, json, threading, uuid, os, base64, io, datetime, html, subprocess, tempfile, secrets, hmac, contextvars
 import openpyxl
 from teacher_import import teacher_preview
+from asc_import import parse_asc, build_project
 from teacher_contacts import contact_preview, apply_contacts
 from term_workspaces import ensure as ensure_terms, refresh_active as refresh_active_term, create_next as create_term_workspace, switch as switch_term_workspace, public_list as public_term_list
 import copilot_auth
@@ -469,6 +470,35 @@ class Handler(SimpleHTTPRequestHandler):
                     except ValueError as error: return self.reply({'errors':[str(error)]},422)
                     project['revision']=current.get('revision',0)+1; write(project)
                 return self.reply({'project':project})
+            if path in ['/api/asc-preview','/api/asc-import']:
+                try:
+                    raw=base64.b64decode(str(body.get('file','')),validate=True)
+                    parsed=parse_asc(raw)
+                    summary={'classes':parsed['classes'],'teachers':parsed['teachers'],'lessons':len(parsed['lessons']),'issues':parsed['issues'],'days':len(parsed['days']), 'assignments':[{'teacher':teacher,'className':class_name,'subject':subject,'count':count} for (teacher,class_name,subject),count in sorted(__import__('collections').Counter((lesson['teacher'],lesson['className'],lesson['subject']) for lesson in parsed['lessons']).items())]}
+                    if path=='/api/asc-preview':
+                        return self.reply({'summary':summary})
+                    with lock:
+                        current=read()
+                        if body.get('revision')!=current.get('revision'):
+                            return self.reply({'errors':['تغيرت البيانات. حدّث الصفحة ثم أعد المعاينة.']},409)
+                        # Keep every existing schedule and record untouched: imports
+                        # into a populated workspace require an explicit new workspace.
+                        if current.get('placements') or current.get('absenceRecords') or current.get('signatureTasks') or current.get('savedSchedules'):
+                            return self.reply({'errors':['تحتوي مساحة العمل على جدول أو سجلات. أنشئ مساحة فصل جديدة قبل الاستيراد لحماية بياناتها.']},409)
+                        candidate=build_project(parsed,current,body.get('teachers',{}),body.get('classes',{}))
+                        project=copy.deepcopy(current)
+                        project.update(candidate)
+                        project['referencePlacements']=copy.deepcopy(candidate['placements'])
+                        project['locks']=[]; project['manualOverrideMode']=True
+                        project['setupStep']=5; project['activeScheduleName']='جدول مستورد من تايم تيبل'
+                        project.pop('standby',None); project.pop('activeScheduleId',None)
+                        project['revision']=current.get('revision',0)+1
+                        write(project)
+                    return self.reply({'project':project,'summary':summary})
+                except ValueError as error:
+                    return self.reply({'errors':[str(error)]},422)
+                except Exception:
+                    return self.reply({'errors':['تعذر قراءة الملف. اختر تصدير جدول الفصول من تايم تيبل.']},422)
             if path in ['/api/smarttable-preview','/api/smarttable-import']:
                 temporary=None
                 try:
