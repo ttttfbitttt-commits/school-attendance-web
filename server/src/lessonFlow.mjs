@@ -388,7 +388,10 @@ export async function syncVoiceTimetableCoverages({ scoped, schoolId, date, entr
       // An ambiguous or unmatched name is retained only as no mapping: it must
       // never replace a teacher incorrectly during barcode scanning.
       const classroomId = classroom.rowCount === 1 ? classroom.rows[0].id : null
-      const replacementTeacherId = teacherMatches.length === 1 ? teacherMatches[0].id : null
+      const manualMatch = await client.query(`SELECT m.teacher_id FROM lesson_name_mappings m
+        JOIN lesson_teachers t ON t.id=m.teacher_id AND t.school_id=m.school_id AND t.active=true
+        WHERE m.school_id=$1 AND m.raw_name_normalized=$2`, [schoolId, normalizedReplacement])
+      const replacementTeacherId = manualMatch.rows[0]?.teacher_id || (teacherMatches.length === 1 ? teacherMatches[0].id : null)
       const previous = existingBySource.get(sourceKey)
       if (previous && previous.teacherId && previous.teacherId !== replacementTeacherId) {
         await client.query(`DELETE FROM teacher_lesson_sessions
