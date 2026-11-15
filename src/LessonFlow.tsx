@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import * as XLSX from 'xlsx'
 import { isAscMime, parseAscClassSchedule, type AscSchedule } from './ascClassSchedule'
+import { suggestAscTeachers } from './ascTeacherSuggestions'
 import * as QRCode from 'qrcode'
 import * as jsQRNs from 'jsqr'
 import {
@@ -354,6 +355,8 @@ export function LessonFlowCenter({
   const [mappingChoices, setMappingChoices] = useState<Record<string, string>>({})
   const [ascPreview, setAscPreview] = useState<AscSchedule | null>(null)
   const [ascTeachers, setAscTeachers] = useState<Record<string, string>>({})
+  const [ascSuggestions, setAscSuggestions] = useState<Record<string, string>>({})
+  const [ascReviewed, setAscReviewed] = useState(false)
   const [ascClasses, setAscClasses] = useState<Record<string, string>>({})
   const [times, setTimes] = useState<LessonTimeSlot[]>(defaultTimes())
   const [activeDay, setActiveDay] = useState(1)
@@ -503,10 +506,10 @@ export function LessonFlowCenter({
       try {
         const parsed = parseAscClassSchedule(bytes)
         setError(''); setNotice('')
-        setAscTeachers(Object.fromEntries(parsed.teachers.map(name => {
-          const exact = teacherOptions.filter(teacher => compact(teacher.name) === compact(name))
-          return [name, exact.length === 1 ? exact[0].id : '']
-        })))
+        const suggestions = suggestAscTeachers(parsed.teachers, teacherOptions)
+        setAscSuggestions(suggestions)
+        setAscTeachers(suggestions)
+        setAscReviewed(false)
         setAscClasses(Object.fromEntries(parsed.classrooms.map(item => [item.name, item.name])))
         setAscPreview(parsed)
       } catch (err) { setError(err instanceof Error ? err.message : 'تعذر قراءة ملف تايم تيبل.') }
@@ -521,6 +524,7 @@ export function LessonFlowCenter({
 
   const importAscSchedule = async () => {
     if (!ascPreview) return
+    if (!ascReviewed) { setError('راجع الاقتراحات والفصول ثم أكّد المراجعة قبل الاعتماد.'); return }
     const selected = ascPreview.teachers.map(name => teacherOptions.find(teacher => teacher.id === ascTeachers[name]))
     if (selected.some(teacher => !teacher)) { setError('اربط كل اسم معلم بالحساب الصحيح قبل الاعتماد.'); return }
     if (new Set(selected.map(teacher => teacher?.id)).size !== selected.length) { setError('اختر معلمًا مختلفًا لكل اسم في الملف.'); return }
@@ -870,10 +874,11 @@ export function LessonFlowCenter({
           <div className="lesson-section-heading"><div><h3>معاينة جدول تايم تيبل</h3><p>لم يتغير جدول المدرسة بعد. راجع أسماء الفصول واربط كل اسم معلم بحسابه قبل الاعتماد.</p></div></div>
           <p>{ascPreview.classrooms.length} فصل · {ascPreview.teachers.length} اسم معلم · {ascPreview.assignments.length} حصة</p>
           <p>ملف تايم تيبل لا يتضمن أوقات الحصص. ستبقى الأوقات المحفوظة، وراجعها من «أوقات الحصص».</p>
-          <details open><summary>ربط أسماء المعلمين</summary>{ascPreview.teachers.map(name => <div className="lesson-map-row" key={name}><strong>{name}</strong><select aria-label={`ربط ${name}`} value={ascTeachers[name] || ''} onChange={e=>setAscTeachers(current=>({...current,[name]:e.target.value}))}><option value="">اختر المعلم الصحيح</option>{teacherOptions.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</select></div>)}</details>
-          <details><summary>مراجعة أسماء الفصول</summary>{ascPreview.classrooms.map(item => <div className="lesson-map-row" key={item.name}><strong>{item.name}</strong><input aria-label={`اسم الفصل ${item.name}`} value={ascClasses[item.name] ?? ''} onChange={e=>setAscClasses(current=>({...current,[item.name]:e.target.value}))} /></div>)}</details>
+          <details open><summary>ربط أسماء المعلمين</summary><p>المطابقة المقترحة تحتاج مراجعتك، ويمكنك تغييرها. الأسماء غير الواضحة تُترك للاختيار اليدوي.</p>{ascPreview.teachers.map(name => <div className="lesson-map-row" key={name}><div><strong>{name}</strong><small>{ascTeachers[name] && ascTeachers[name] === ascSuggestions[name] ? 'اقتراح تلقائي — راجعه' : ascTeachers[name] ? 'اختيار يدوي' : 'يحتاج اختيارًا'}</small></div><select aria-label={`ربط ${name}`} value={ascTeachers[name] || ''} onChange={e=>{setAscReviewed(false);setAscTeachers(current=>({...current,[name]:e.target.value}))}}><option value="">اختر المعلم الصحيح</option>{teacherOptions.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</select></div>)}</details>
+          <details><summary>مراجعة أسماء الفصول</summary>{ascPreview.classrooms.map(item => <div className="lesson-map-row" key={item.name}><strong>{item.name}</strong><input aria-label={`اسم الفصل ${item.name}`} value={ascClasses[item.name] ?? ''} onChange={e=>{setAscReviewed(false);setAscClasses(current=>({...current,[item.name]:e.target.value}))}} /></div>)}</details>
           <details><summary>مراجعة الحصص حسب الفصل</summary>{ascPreview.classrooms.map(item => <details key={item.name}><summary>{ascClasses[item.name] || item.name}</summary><div className="lesson-mapping-list">{ascPreview.assignments.filter(lesson=>lesson.classroomName===item.name).map(lesson=><div className="lesson-map-row" key={`${lesson.weekday}-${lesson.periodNumber}`}><strong>{weekdays.find(day=>day.id===lesson.weekday)?.label} · الحصة {lesson.periodNumber}</strong><span>{lesson.subjectName} · {teacherOptions.find(teacher=>teacher.id===ascTeachers[lesson.rawTeacherName])?.name || lesson.rawTeacherName}</span></div>)}</div></details>)}</details>
           <p>عند الاعتماد يصبح الجدول المستورد هو الجدول النشط، وتُراجع بيانات الفصول والربط. تأكد من اختيار الملف الصحيح.</p>
+          <label><input type="checkbox" checked={ascReviewed} onChange={event=>setAscReviewed(event.target.checked)} /> راجعت أسماء المعلمين والفصول والإسنادات</label>
           <div className="teacher-report-actions"><button type="button" className="outline-button" onClick={()=>setAscPreview(null)}>إلغاء المعاينة</button><button type="button" className="primary-button" disabled={!!busy} onClick={()=>void importAscSchedule()}>اعتماد جدول تايم تيبل</button></div>
         </section>}
         <div className="lesson-kpi-grid">
