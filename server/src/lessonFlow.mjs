@@ -548,6 +548,7 @@ export async function handleLessonFlowRequest(context) {
       periodNumber: asPeriod(value?.periodNumber),
       subjectName: cleanText(value?.subjectName, 180),
       rawTeacherName: cleanText(value?.rawTeacherName, 240),
+      selectedTeacherId: String(value?.teacherId || ''),
     })).filter(value => value.classroomName && value.weekday && value.periodNumber)
     const times = sourceTimes.map(value => ({
       weekday: asWeekday(value?.weekday), periodNumber: asPeriod(value?.periodNumber),
@@ -564,6 +565,8 @@ export async function handleLessonFlowRequest(context) {
     const result = await scoped(user.school_id, async client => {
       const teachers = (await client.query('SELECT id,full_name,normalized_name FROM lesson_teachers WHERE school_id=$1 AND active=true', [user.school_id])).rows
       const lookup = teacherLookup(teachers)
+      const allowedTeacherIds = new Set(teachers.map(teacher => teacher.id))
+      if (assignments.some(assignment => assignment.selectedTeacherId && !allowedTeacherIds.has(assignment.selectedTeacherId))) return { error: 'invalid_schedule_teacher' }
       const mappings = new Map((await client.query(`SELECT raw_name_normalized,teacher_id FROM lesson_name_mappings WHERE school_id=$1`, [user.school_id])).rows.map(row => [row.raw_name_normalized, row.teacher_id]))
       const existingTimes = await client.query('SELECT 1 FROM lesson_time_slots WHERE school_id=$1 LIMIT 1', [user.school_id])
       await client.query('UPDATE lesson_schedule_imports SET is_active=false WHERE school_id=$1 AND is_active=true', [user.school_id])
@@ -591,8 +594,8 @@ export async function handleLessonFlowRequest(context) {
         const rawNormalized = normalizeName(assignment.rawTeacherName)
         const manualTeacherId = mappings.get(rawNormalized)
         const exact = lookup.get(rawNormalized) || []
-        const teacherId = manualTeacherId || (exact.length === 1 ? exact[0].id : null)
-        const mappingStatus = manualTeacherId ? 'manual' : teacherId ? 'exact' : 'unresolved'
+        const teacherId = assignment.selectedTeacherId || manualTeacherId || (exact.length === 1 ? exact[0].id : null)
+        const mappingStatus = assignment.selectedTeacherId || manualTeacherId ? 'manual' : teacherId ? 'exact' : 'unresolved'
         if (teacherId) resolved += 1
         await client.query(`INSERT INTO lesson_schedule_assignments(
           school_id,import_id,classroom_id,weekday,period_number,subject_name,raw_teacher_name,raw_teacher_normalized,teacher_id,mapping_status)
@@ -603,6 +606,7 @@ export async function handleLessonFlowRequest(context) {
       }
       return { importedClassrooms: classroomNames.length, importedAssignments: assignments.length, resolved, seededTimes: !existingTimes.rowCount ? times.length : 0 }
     })
+    if (result.error) { json(res, 400, result); return true }
     json(res, 200, { ok: true, ...result })
     return true
   }

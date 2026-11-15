@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import * as XLSX from 'xlsx'
+import { isAscMime, parseAscClassSchedule, type AscSchedule } from './ascClassSchedule'
 import * as QRCode from 'qrcode'
 import * as jsQRNs from 'jsqr'
 import {
@@ -351,6 +352,9 @@ export function LessonFlowCenter({
   const [error, setError] = useState('')
   const [busy, setBusy] = useState('')
   const [mappingChoices, setMappingChoices] = useState<Record<string, string>>({})
+  const [ascPreview, setAscPreview] = useState<AscSchedule | null>(null)
+  const [ascTeachers, setAscTeachers] = useState<Record<string, string>>({})
+  const [ascClasses, setAscClasses] = useState<Record<string, string>>({})
   const [times, setTimes] = useState<LessonTimeSlot[]>(defaultTimes())
   const [activeDay, setActiveDay] = useState(1)
   const [selectedClassroomId, setSelectedClassroomId] = useState('')
@@ -493,10 +497,48 @@ export function LessonFlowCenter({
     const file = event.target.files?.[0]
     event.target.value = ''
     if (!file) return
+    setAscPreview(null)
+    const bytes = new Uint8Array(await file.arrayBuffer())
+    if (isAscMime(bytes)) {
+      try {
+        const parsed = parseAscClassSchedule(bytes)
+        setError(''); setNotice('')
+        setAscTeachers(Object.fromEntries(parsed.teachers.map(name => {
+          const exact = teacherOptions.filter(teacher => compact(teacher.name) === compact(name))
+          return [name, exact.length === 1 ? exact[0].id : '']
+        })))
+        setAscClasses(Object.fromEntries(parsed.classrooms.map(item => [item.name, item.name])))
+        setAscPreview(parsed)
+      } catch (err) { setError(err instanceof Error ? err.message : 'تعذر قراءة ملف تايم تيبل.') }
+      return
+    }
     await run('schedule', async () => {
       const parsed = parseSmartSchedule(await workbookFromFile(file))
       const result = await api.importLessonSchedule(parsed)
       return `تم استيراد ${result.importedClassrooms} فصل و ${result.importedAssignments} حصة. المتبقي للربط: ${result.importedAssignments - result.resolved}.`
+    })
+  }
+
+  const importAscSchedule = async () => {
+    if (!ascPreview) return
+    const selected = ascPreview.teachers.map(name => teacherOptions.find(teacher => teacher.id === ascTeachers[name]))
+    if (selected.some(teacher => !teacher)) { setError('اربط كل اسم معلم بالحساب الصحيح قبل الاعتماد.'); return }
+    if (new Set(selected.map(teacher => teacher?.id)).size !== selected.length) { setError('اختر معلمًا مختلفًا لكل اسم في الملف.'); return }
+    const classNames = ascPreview.classrooms.map(item => compact(ascClasses[item.name]))
+    if (classNames.some(name => !name) || new Set(classNames.map(name => normalizeHeader(name))).size !== classNames.length) { setError('أكمل أسماء الفصول وتأكد من عدم تكرارها.'); return }
+    const mapping = new Map(ascPreview.teachers.map((name, index) => [name, selected[index]!.name]))
+    const classMapping = new Map(ascPreview.classrooms.map((item, index) => [item.name, classNames[index]]))
+    const occupied = new Set<string>()
+    for (const item of ascPreview.assignments) {
+      const key = `${mapping.get(item.rawTeacherName)}:${item.weekday}:${item.periodNumber}`
+      if (occupied.has(key)) { setError('يوجد معلم مسند لأكثر من فصل في الحصة نفسها. راجع الأسماء والملف.'); return }
+      occupied.add(key)
+    }
+    if (!window.confirm('سيصبح جدول تايم تيبل هو جدول الفصول النشط. هل راجعت الفصول وأسماء المعلمين وتريد الاعتماد؟')) return
+    await run('schedule', async () => {
+      const result = await api.importLessonSchedule({sourceSchoolName:'',classrooms:classNames.map(name=>({name})),times:[],assignments:ascPreview.assignments.map(item=>({...item,classroomName:classMapping.get(item.classroomName)!,rawTeacherName:item.rawTeacherName,teacherId:ascTeachers[item.rawTeacherName]}))})
+      setAscPreview(null)
+      return `تم استيراد ${result.importedClassrooms} فصل و${result.importedAssignments} حصة وربط ${result.resolved} حصة. راجع أوقات الحصص.`
     })
   }
 
@@ -824,6 +866,16 @@ export function LessonFlowCenter({
             <input type="file" accept=".xlsx,.xls" onChange={importSchedule} />
           </label>
         </div>
+        {ascPreview && <section className="lesson-panel" aria-label="معاينة استيراد تايم تيبل">
+          <div className="lesson-section-heading"><div><h3>معاينة جدول تايم تيبل</h3><p>لم يتغير جدول المدرسة بعد. راجع أسماء الفصول واربط كل اسم معلم بحسابه قبل الاعتماد.</p></div></div>
+          <p>{ascPreview.classrooms.length} فصل · {ascPreview.teachers.length} اسم معلم · {ascPreview.assignments.length} حصة</p>
+          <p>ملف تايم تيبل لا يتضمن أوقات الحصص. ستبقى الأوقات المحفوظة، وراجعها من «أوقات الحصص».</p>
+          <details open><summary>ربط أسماء المعلمين</summary>{ascPreview.teachers.map(name => <div className="lesson-map-row" key={name}><strong>{name}</strong><select aria-label={`ربط ${name}`} value={ascTeachers[name] || ''} onChange={e=>setAscTeachers(current=>({...current,[name]:e.target.value}))}><option value="">اختر المعلم الصحيح</option>{teacherOptions.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}</select></div>)}</details>
+          <details><summary>مراجعة أسماء الفصول</summary>{ascPreview.classrooms.map(item => <div className="lesson-map-row" key={item.name}><strong>{item.name}</strong><input aria-label={`اسم الفصل ${item.name}`} value={ascClasses[item.name] ?? ''} onChange={e=>setAscClasses(current=>({...current,[item.name]:e.target.value}))} /></div>)}</details>
+          <details><summary>مراجعة الحصص حسب الفصل</summary>{ascPreview.classrooms.map(item => <details key={item.name}><summary>{ascClasses[item.name] || item.name}</summary><div className="lesson-mapping-list">{ascPreview.assignments.filter(lesson=>lesson.classroomName===item.name).map(lesson=><div className="lesson-map-row" key={`${lesson.weekday}-${lesson.periodNumber}`}><strong>{weekdays.find(day=>day.id===lesson.weekday)?.label} · الحصة {lesson.periodNumber}</strong><span>{lesson.subjectName} · {teacherOptions.find(teacher=>teacher.id===ascTeachers[lesson.rawTeacherName])?.name || lesson.rawTeacherName}</span></div>)}</div></details>)}</details>
+          <p>عند الاعتماد يصبح الجدول المستورد هو الجدول النشط، وتُراجع بيانات الفصول والربط. تأكد من اختيار الملف الصحيح.</p>
+          <div className="teacher-report-actions"><button type="button" className="outline-button" onClick={()=>setAscPreview(null)}>إلغاء المعاينة</button><button type="button" className="primary-button" disabled={!!busy} onClick={()=>void importAscSchedule()}>اعتماد جدول تايم تيبل</button></div>
+        </section>}
         <div className="lesson-kpi-grid">
           <span><strong>{overview?.summary.classrooms || 0}</strong> فصل</span>
           <span><strong>{overview?.summary.unresolved || 0}</strong> يحتاج ربط</span>

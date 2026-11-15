@@ -517,7 +517,7 @@ export const api = {
   importLessonSchedule: (payload: {
     sourceSchoolName?: string
     classrooms: Array<{ name: string } | string>
-    assignments: Array<{ classroomName: string; weekday: number; periodNumber: number; subjectName?: string; rawTeacherName?: string }>
+    assignments: Array<{ classroomName: string; weekday: number; periodNumber: number; subjectName?: string; rawTeacherName?: string; teacherId?: string }>
     times: LessonTimeSlot[]
   }) => request<{ ok: boolean; importedClassrooms: number; importedAssignments: number; resolved: number; seededTimes: number }>('/lesson-flow/schedule', { method: 'POST', body: JSON.stringify(payload) }),
   saveLessonMappings: (mappings: Array<{ rawName: string; teacherId: string }>) =>
