@@ -383,7 +383,8 @@ export async function syncVoiceTimetableCoverages({ scoped, schoolId, date, entr
       const teacher = await client.query('SELECT id,full_name FROM lesson_teachers WHERE school_id=$1 AND active=true', [schoolId])
       // Names imported from the two systems can differ only by "بن / ابن".
       // Accept that exact token-equivalence, but never a partial/ambiguous name.
-      const teacherMatches = teacher.rows.filter(row => normalizeName(row.full_name) === normalizedReplacement || candidateScore(replacementName, row.full_name) >= 0.99)
+      const compactName = value => nameTokens(value).join('').replace(/ئ/g, 'ي')
+      const teacherMatches = teacher.rows.filter(row => normalizeName(row.full_name) === normalizedReplacement || (compactName(replacementName) && compactName(replacementName) === compactName(row.full_name)))
       // An ambiguous or unmatched name is retained only as no mapping: it must
       // never replace a teacher incorrectly during barcode scanning.
       const classroomId = classroom.rowCount === 1 ? classroom.rows[0].id : null
