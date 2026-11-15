@@ -124,6 +124,22 @@ async function next(){
  const previous=project.setupStep||0;project.setupStep=Math.max(previous,step+1);
  if(!await save()){project.setupStep=previous;return}unlocked=project.setupStep;step++;render();window.scrollTo(0,0);
 }
+async function downloadPrintExcel(kind){
+ if(!project.placements.length)return notice('أنشئ الجدول أولًا قبل التصدير.');
+ notice('يجري تجهيز ملف Excel…');
+ try{
+  const response=await fetch('/api/print-excel',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({project,kind})});
+  if(!response.ok){const data=await response.json().catch(()=>({}));throw Error((data.errors||['تعذر إنشاء ملف Excel.']).join('\n'))}
+  const blob=await response.blob(),url=URL.createObjectURL(blob),link=document.createElement('a');
+  link.href=url;link.download=`${kind}.xlsx`;document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1500);
+  notice('تم تنزيل ملف Excel.');
+ }catch(error){notice(error.message||'تعذر إنشاء ملف Excel.')}
+}
+const printCenterSection=$('#printCenter .printCenter'),printFormat=document.createElement('label');
+printFormat.className='paperChoice';printFormat.innerHTML='صيغة التصدير<select id="printFormat"><option value="pdf">PDF</option><option value="excel">Excel</option></select>';
+printCenterSection.insertBefore(printFormat,printCenterSection.querySelector('.paperChoice'));
+printCenterSection.querySelector('p.muted').textContent='اختر صيغة التصدير ثم نموذج الجدول. يتوفر اختيار حجم الورق لملف PDF.';
+$('#printFormat').onchange=()=>{$('#printPaper').closest('.paperChoice').hidden=$('#printFormat').value==='excel'};
 async function downloadPrintPdf(kind,paper='a4'){
  if(!project.placements.length)return notice('أنشئ الجدول أولًا قبل الطباعة.');
  notice('يجري تجهيز ملف PDF أفقي…');
@@ -252,7 +268,7 @@ document.addEventListener('pointerup',e=>{if(!pointerMove)return;const m=pointer
 document.addEventListener('pointercancel',()=>{pointerMove=null;clearDrag()});
 document.addEventListener('keydown',e=>{if(e.key==='Escape'){pointerMove=null;selectedLesson=null;clearDrag()}});
 $('#next').onclick=()=>next().catch(e=>notice(e.message));$('#prev').onclick=()=>{step--;notice('');render()};const saveButton=$('#save');if(saveButton)saveButton.onclick=save;
-$('#printCenter').onclick=e=>{const choice=e.target.closest('[data-print-type]');if(choice){const paper=$('#printPaper').value;$('#printCenter').close();downloadPrintPdf(choice.dataset.printType,paper)}};$('#closePrintCenter').onclick=()=>$('#printCenter').close();
+$('#printCenter').onclick=e=>{const choice=e.target.closest('[data-print-type]');if(choice){const paper=$('#printPaper').value,format=$('#printFormat').value;$('#printCenter').close();if(format==='excel')downloadPrintExcel(choice.dataset.printType);else downloadPrintPdf(choice.dataset.printType,paper)}};$('#closePrintCenter').onclick=()=>$('#printCenter').close();
 function msg(text,user=false){const p=document.createElement('p');p.className=user?'user':'';p.textContent=text;const messages=$('#messages');messages.append(p);messages.scrollTop=messages.scrollHeight;if(user)guide('فهمت طلبك، لحظة…','thinking');else{guide(text,'ready');if(voiceReplies)speakGuide(text)}}
 function arabicNumber(value){return Number(String(value).replace(/[٠-٩]/g,c=>'٠١٢٣٤٥٦٧٨٩'.indexOf(c)))}
 function commandValue(value){return value.replace(/^(?:الى|هو|ليصبح)\s+/,'').trim()}

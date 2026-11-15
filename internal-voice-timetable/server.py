@@ -6,6 +6,7 @@ import copy, json, threading, uuid, os, base64, io, datetime, html, subprocess, 
 import openpyxl
 from teacher_import import teacher_preview
 from asc_import import parse_asc, build_project
+from excel_timetable import export_timetable
 from teacher_contacts import contact_preview, apply_contacts
 from term_workspaces import ensure as ensure_terms, refresh_active as refresh_active_term, create_next as create_term_workspace, switch as switch_term_workspace, public_list as public_term_list
 import copilot_auth
@@ -682,6 +683,14 @@ class Handler(SimpleHTTPRequestHandler):
                 project=body.get('project',{})
                 if not project.get('standby',{}).get('assignments'): return self.reply({'errors':['أنشئ جدول الانتظار أولًا.']},422)
                 return self.reply_pdf(render_pdf(project,'standby','a4'),'standby-weekly.pdf')
+            if path=='/api/print-excel':
+                try:
+                    data=export_timetable(body.get('project',{}),body.get('kind',''))
+                except ValueError as error:
+                    return self.reply({'errors':[str(error)]},422)
+                self.send_response(200); self.send_header('Content-Type','application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+                self.send_header('Content-Disposition','attachment; filename="timetable.xlsx"'); self.send_header('Content-Length',str(len(data)))
+                self.send_header('Cache-Control','no-store'); self.end_headers(); self.wfile.write(data); return
             if path=='/api/print-pdf':
                 kind=body.get('kind'); paper=body.get('paper','a4'); project=body.get('project',{})
                 if kind not in PRINT_TITLES or paper not in ['a4','a3'] or not project.get('placements'):
