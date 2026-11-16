@@ -466,6 +466,7 @@ export const api = {
   deleteStudentPortfolioImage: (assignmentId: string, slotNumber: number) => request<{ ok: boolean }>('/student-portal/student/portfolio/delete', { method: 'POST', body: JSON.stringify({ assignmentId, slotNumber }) }),
   attendance: () => request<{ records: unknown[] }>('/attendance'),
   markAttendance: (studentId: string, status: 'present' | 'late') => request<{ ok: boolean; duplicate?: boolean }>('/attendance', { method: 'POST', body: JSON.stringify({ studentId, status }) }),
+  cancelAttendance: (studentId: string, date: string) => request<{ ok: boolean }>('/attendance/cancel', { method: 'POST', body: JSON.stringify({ studentId, date }) }),
   updateAttendanceStatus: (studentId: string, status: 'present' | 'late') => request<{ ok: boolean; studentId: string; status: 'present' | 'late'; time: string }>('/attendance', { method: 'PATCH', body: JSON.stringify({ studentId, status }) }),
   markAttendanceBulk: (studentIds: string[], status: 'present' | 'late') => request<{ ok: boolean; created: string[]; duplicates: string[]; missing: string[] }>('/attendance/bulk', { method: 'POST', body: JSON.stringify({ studentIds, status }) }),
   almadar: () => request<{ account: AlmadarAccount }>('/almadar'),

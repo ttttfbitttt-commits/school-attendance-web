@@ -6051,3 +6051,8 @@ body.referral-print-mode .referral-official-sheet{width:210mm!important;height:2
     -webkit-print-color-adjust: exact; print-color-adjust: exact;
   }
 }
+
+.attendance-cancel-button { display:inline-grid; place-items:center; width:30px; height:30px; margin-inline-start:5px; border:1px solid #f1c4c1; border-radius:8px; background:#fff; color:#b3322d; font-size:20px; line-height:1; cursor:pointer; vertical-align:middle; }
+.attendance-cancel-button:hover { background:#fff1f0; }
+.attendance-cancel-button:focus-visible { outline:3px solid #80b7e4; outline-offset:2px; }
+.attendance-cancel-button:disabled { opacity:.5; cursor:wait; }

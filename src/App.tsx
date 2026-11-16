@@ -1534,6 +1534,22 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
     }
   }
 
+  const cancelAttendance = async (record: ScanRecord) => {
+    if (attendanceStatusUpdating.has(record.studentId)) return
+    const confirmed = window.confirm(`إلغاء تسجيل الحضور\n\nهل تريد إلغاء حضور الطالب ${record.name} بتاريخ ${formatHijriDate(record.date)}؟\n\nسيُزال تسجيله من سجل هذا اليوم وتُحدّث أعداد الحضور. سيُحتفظ بسجل للتصحيح باسم المستخدم ووقته، ولن يُسجّل الطالب غائبًا تلقائيًا.`)
+    if (!confirmed) return
+    setAttendanceStatusUpdating(current => new Set(current).add(record.studentId))
+    try {
+      await api.cancelAttendance(record.studentId, record.date)
+      setScanLog(current => current.filter(item => !(item.studentId === record.studentId && item.date === record.date)))
+      setNotice(`تم إلغاء تسجيل حضور ${record.name}. لم يُسجّل غيابه تلقائيًا.`)
+    } catch {
+      setNotice('تعذر إلغاء تسجيل الحضور. تحقق من صلاحيتك وحدّث الصفحة ثم حاول مجددًا.')
+    } finally {
+      setAttendanceStatusUpdating(current => { const next = new Set(current); next.delete(record.studentId); return next })
+    }
+  }
+
   // Export attended students only so separate teacher files can be merged safely.
   const exportAttendanceXlsx = () => {
     const reportDate = getTodayDateStr()
@@ -3066,6 +3082,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
                             >
                               {attendanceStatusUpdating.has(record.studentId) ? 'جارٍ التعديل...' : record.status === 'present' ? '✓ حاضر' : '⏰ متأخر'}
                             </button>
+                            {isSchoolManager && <button type="button" className="attendance-cancel-button" aria-label={`إلغاء تسجيل حضور ${record.name}`} title="إلغاء تسجيل الحضور" disabled={attendanceStatusUpdating.has(record.studentId)} onClick={() => void cancelAttendance(record)}>⊗</button>}
                           </td>
                         </tr>
                       ))}

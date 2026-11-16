@@ -5,6 +5,7 @@ import pg from 'pg'
 import { handleFeatureRequest, migrateFeatures } from './features.mjs'
 import { migrateEmailVerification, requestSchoolRegistration, verifySchoolRegistration } from './emailVerification.mjs'
 import { handleLessonFlowRequest, migrateLessonFlow, syncVoiceTimetableCoverages } from './lessonFlow.mjs'
+import { migrateAttendanceCorrection, cancelAttendance } from './attendanceCorrection.mjs'
 import { handleTeacherPortalRequest, migrateTeacherPortal } from './teacherPortal.mjs'
 import { handleBehaviorRequest, migrateBehavior } from './behavior.mjs'
 import { handleStudentReferralRequest, migrateStudentReferrals } from './studentReferrals.mjs'
@@ -315,7 +316,7 @@ async function configureDatabaseRoles() {
   }
 
   await adminPool.query('GRANT USAGE ON SCHEMA public TO attendance_app, attendance_auth')
-  await adminPool.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON schools, students, attendance_logs, almadar_accounts, student_excuses,
+  await adminPool.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON schools, students, attendance_logs, attendance_correction_audit, almadar_accounts, student_excuses,
     message_logs, absence_records, absence_corrections, absence_follow_up_cases, absence_message_logs, lesson_teachers, lesson_classrooms, lesson_schedule_imports,
     lesson_name_mappings, lesson_time_slots, lesson_schedule_assignments, teacher_incidents, teacher_day_absences,
     voice_timetable_coverages,
@@ -345,6 +346,7 @@ async function enforceTenantRowSecurity() {
     ['school_login_activity', 'school_id', 'school_login_activity_scope'],
     ['students', 'school_id', 'students_school_scope'],
     ['attendance_logs', 'school_id', 'attendance_school_scope'],
+    ['attendance_correction_audit', 'school_id', 'attendance_correction_school_scope'],
     ['almadar_accounts', 'school_id', 'almadar_accounts_school_scope'],
     ['student_excuses', 'school_id', 'student_excuses_school_scope'],
     ['message_logs', 'school_id', 'message_logs_school_scope'],
@@ -433,6 +435,7 @@ async function migrateDatabase() {
   await migrateFeatures(adminPool)
   await migrateEmailVerification(adminPool)
   await migrateLessonFlow(adminPool)
+  await migrateAttendanceCorrection(adminPool)
   await migrateTeacherPortal(adminPool)
   await migrateTeacherDocumentation(adminPool)
   await migrateAdministratorPortal(adminPool)
@@ -747,6 +750,11 @@ const server = http.createServer(async (req, res) => {
       })
       if (!result) return json(res,404,{error:'student_not_found'})
       return json(res, result.rowCount ? 201 : 200, { ok: Boolean(result.rowCount), duplicate: !result.rowCount })
+    }
+    if (req.method === 'POST' && url.pathname === '/api/attendance/cancel') {
+      const input = await body(req)
+      const result = await cancelAttendance({ user, studentId: String(input.studentId || ''), date: String(input.date || ''), today: todayRiyadh(), scoped })
+      return json(res, result.status || 200, result)
     }
     if (req.method === 'DELETE' && url.pathname === '/api/attendance') {
       return json(res,405,{error:'attendance_deletion_disabled'})
