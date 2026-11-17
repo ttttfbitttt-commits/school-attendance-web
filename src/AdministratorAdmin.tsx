@@ -3,13 +3,10 @@ import * as XLSX from 'xlsx'
 import { FileDown, FileUp, KeyRound, Printer, RefreshCw, Search, ShieldCheck, UsersRound } from 'lucide-react'
 import { api, type AdministrativeStaff } from './api'
 import { downloadWorkbook, openPrintDocument } from './SchoolFeatures'
+import { parseAdministrators } from './administratorSpreadsheet'
 
 type Credential = { administratorId: string; name: string; identityNumber: string; temporaryPassword: string }
 const escapeHtml = (value: unknown) => String(value ?? '').replace(/[&<>'"]/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', "'": '&#39;', '"': '&quot;' }[character] || character))
-const normalizedHeader = (value: unknown) => String(value ?? '').trim().replace(/[\s_\-]+/g, '').replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي')
-const identity = (value: unknown) => String(value ?? '').replace(/\D/g, '')
-
-function locate(headers: string[], words: string[]) { return headers.findIndex(header => words.some(word => header.includes(word))) }
 function credentialsHtml(credentials: Credential[], schoolName: string) {
   return `<section class="page" dir="rtl"><h1>${escapeHtml(schoolName)}</h1><h2>بيانات دخول الإداريين</h2><p>تُسلّم لكل إداري بياناته الخاصة، ثم يغيّر كلمة المرور بعد دخوله لأول مرة.</p><table><thead><tr><th>الاسم</th><th>رقم الهوية</th><th>كلمة المرور المؤقتة</th></tr></thead><tbody>${credentials.map(row => `<tr><td>${escapeHtml(row.name)}</td><td dir="ltr">${escapeHtml(row.identityNumber)}</td><td dir="ltr">${escapeHtml(row.temporaryPassword)}</td></tr>`).join('')}</tbody></table></section>`
 }
@@ -47,30 +44,14 @@ export function AdministratorAdminCenter({ schoolName }: { schoolName: string })
     try {
       const all: Array<{ name: string; identityNumber: string; phone: string }> = []
       for (const file of Array.from(files)) {
-        const buffer = await file.arrayBuffer(); const workbook = XLSX.read(buffer, { type: 'array' }); const sheet = workbook.Sheets[workbook.SheetNames[0]]
-        const rows = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: '' }) as unknown[][]
-        if (!rows.length) continue
-        // ملفات وزارة التعليم قد تبدأ بمعلومات الجهة والشعار، ثم يأتي صف العناوين لاحقًا.
-        const headerRow = rows.findIndex(row => {
-          const headers = row.map(normalizedHeader)
-          return locate(headers, ['الاسم', 'اسمالموظف', 'الموظف']) >= 0 && locate(headers, ['رقمالهويه', 'الهوية', 'السجلالمدني', 'الرقمالمدني']) >= 0
-        })
-        if (headerRow < 0) continue
-        const headers = rows[headerRow].map(normalizedHeader)
-        const nameIndex = locate(headers, ['الاسم', 'اسمالموظف', 'الموظف'])
-        const identityIndex = locate(headers, ['رقمالهويه', 'الهوية', 'السجلالمدني', 'الرقمالمدني'])
-        const phoneIndex = locate(headers, ['الجوال', 'رقمالجوال', 'الهاتف', 'رقمالهاتف', 'التواصل'])
-        rows.slice(headerRow + 1).forEach(row => {
-          const name = String(row[nameIndex] ?? '').trim()
-          const identityNumber = identity(row[identityIndex])
-          if (name && identityNumber) all.push({ name, identityNumber, phone: String(phoneIndex >= 0 ? row[phoneIndex] ?? '' : '').trim() })
-        })
+        const buffer = await file.arrayBuffer(); const workbook = XLSX.read(buffer, { type: 'array' })
+        all.push(...parseAdministrators(workbook))
       }
-      if (!all.length) throw new Error('invalid')
+      if (!all.length) throw new Error('لم أجد أعمدة واضحة للاسم ورقم الهوية في الملفات. تأكد من العناوين ثم أعد الرفع.')
       const result = await api.importAdministrators(all)
       setNotice(`تمت إضافة ${result.added} إداريًا. تم تجاوز ${result.skipped} اسمًا مطابقًا${result.conflicts ? `، وترك ${result.conflicts} سجلًا لمراجعة تعارض رقم الهوية` : ''}.`)
       await load()
-    } catch { setError('لم أجد أعمدة واضحة للاسم ورقم الهوية في الملفات. تأكد من العناوين ثم أعد الرفع.') }
+    } catch (error) { setError(error instanceof Error && error.message.startsWith('لم أجد') ? error.message : 'تعذر استيراد الإداريين. تأكد من صحة الملف واتصالك ثم أعد المحاولة.') }
     finally { setBusy(''); if (input.current) input.current.value = '' }
   }
   async function generate() {
