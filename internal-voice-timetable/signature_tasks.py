@@ -39,7 +39,12 @@ def prepare_tasks(project: dict, record_id: str, sender_phone: str, phones: dict
         task=next((item for item in tasks if item.get("recordId")==record_id and item.get("entryKey")==key and item.get("teacherId")==teacher_id),None)
         if task is None:
             task={"id":uuid.uuid4().hex,"token":secrets.token_urlsafe(32),"recordId":record_id,"entryKey":key,"teacherId":teacher_id,"teacherName":teachers[teacher_id].get("name",""),"phone":teachers[teacher_id].get("whatsapp",""),"status":"pending","createdAt":datetime.datetime.now(datetime.timezone.utc).isoformat()}; tasks.append(task)
-        else: task["phone"] = teachers[teacher_id].get("whatsapp",task.get("phone",""))
+        else:
+            phone = teachers[teacher_id].get("whatsapp",task.get("phone",""))
+            if phone != task.get("phone",""):
+                task.pop("whatsappOpenedAt", None)
+                task.pop("whatsappConfirmedAt", None)
+            task["phone"] = phone
         entry["signatureTaskId"]=task["id"]
         result.append({**public_task(project,task),"link":f"{base_url.rstrip('/')}/signature.html?token={task['token']}"})
     return project,result
@@ -50,6 +55,23 @@ def find_task(project: dict, token: str):
     record=next((item for item in project.get("absenceRecords",[]) if item.get("id")==task.get("recordId")),None)
     entry=next((item for item in (record or {}).get("entries",[]) if item.get("signatureTaskId")==task.get("id")),None)
     return (task,record,entry) if record and entry else None
+
+def mark_whatsapp_action(project: dict, record_id: str, task_id: str, action: str) -> dict:
+    """Track an opened link separately from a sender's explicit confirmation."""
+    if action not in ("opened", "confirm", "undo"):
+        raise ValueError("الإجراء غير صالح.")
+    record = next((item for item in project.get("absenceRecords", []) if item.get("id") == record_id), None)
+    task = next((item for item in project.get("signatureTasks", []) if item.get("id") == task_id and item.get("recordId") == record_id), None)
+    if not record or not task or not any(item.get("signatureTaskId") == task_id for item in record.get("entries", [])):
+        raise ValueError("لم يُعثر على التكليف.")
+    now = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    if action == "opened":
+        task["whatsappOpenedAt"] = now
+    elif action == "confirm":
+        task["whatsappConfirmedAt"] = now
+    else:
+        task.pop("whatsappConfirmedAt", None)
+    return task
 
 def submit_signature(project: dict, token: str, signature: str) -> dict:
     found=find_task(project,token)

@@ -16,7 +16,7 @@ from engine import import_workbook, import_smarttable_project, validate, solve, 
 from standby import generate as generate_standby, signature as standby_signature
 from schedules import sync_schedule
 from absence import distribute as distribute_absence, official_html as absence_html, cancel_absence as cancel_absence_record, reconcile_missing_emergency_assignments, extreme_candidates, assign_extreme_candidate
-from signature_tasks import prepare_tasks, find_task as find_signature_task, public_task as public_signature_task, submit_signature, normalize_phone
+from signature_tasks import prepare_tasks, find_task as find_signature_task, public_task as public_signature_task, submit_signature, normalize_phone, mark_whatsapp_action
 
 ROOT=Path(__file__).parent.resolve(); DATA=ROOT/'data'; DATA.mkdir(exist_ok=True)
 SOURCE=Path.home()/'Downloads'/'الفزاري الثانوية.xlsx'
@@ -641,6 +641,16 @@ class Handler(SimpleHTTPRequestHandler):
                         return self.reply({'errors':[str(error)]},422)
                     project['revision']=current.get('revision',0)+1; write(project)
                 return self.reply({'project':project,'tasks':tasks})
+            if path=='/api/signature-whatsapp-status':
+                with lock:
+                    current=read()
+                    try:
+                        task=mark_whatsapp_action(current, body.get('recordId',''), body.get('taskId',''), body.get('action',''))
+                    except ValueError as error:
+                        return self.reply({'errors':[str(error)]},422)
+                    current['revision']=current.get('revision',0)+1
+                    write(current)
+                return self.reply({'task':task,'revision':current['revision']})
             if path=='/api/absence-cancel':
                 date=body.get('date',''); teacher_ids=body.get('teacherIds',[])
                 with lock:
