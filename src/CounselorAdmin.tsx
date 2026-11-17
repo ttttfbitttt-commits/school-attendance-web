@@ -2,10 +2,11 @@ import { type FormEvent, useEffect, useMemo, useState } from 'react'
 import { KeyRound, Phone, Power, RefreshCw, ShieldCheck, Trash2, UserPlus, UsersRound, X } from 'lucide-react'
 import { api, type CounselorGradeOption, type StudentCounselor } from './api'
 import { StaffSpreadsheetImport } from './StaffSpreadsheetImport'
+import { assignedGradeLabel, gradeDisplayName } from './gradeDisplay'
 
 const emptyForm = { name: '', identityNumber: '', phone: '', grades: [] as string[] }
 
-export function CounselorAdminCenter() {
+export function CounselorAdminCenter({ gradeAliases }: { gradeAliases: Record<string, string> }) {
   const [counselors, setCounselors] = useState<StudentCounselor[]>([])
   const [gradeOptions, setGradeOptions] = useState<CounselorGradeOption[]>([])
   const [defaultPassword, setDefaultPassword] = useState('12345678')
@@ -18,6 +19,8 @@ export function CounselorAdminCenter() {
   const [selectedGrades, setSelectedGrades] = useState<string[]>([])
   const [transferGrades, setTransferGrades] = useState<string[]>([])
   const [form, setForm] = useState(emptyForm)
+  const gradeLabel = (grade: string) => gradeDisplayName(grade, gradeAliases)
+  const assignedLabel = (grade: string) => assignedGradeLabel(grade, gradeAliases, gradeOptions.find(option => option.grade === grade)?.studentCount)
 
   const load = async () => {
     setBusy('load')
@@ -82,6 +85,10 @@ export function CounselorAdminCenter() {
   }
   const saveGrades = async () => {
     if (!editingGrades) return
+    if (selectedGrades.some(grade => !gradeOptions.some(option => option.grade === grade && option.studentCount > 0))) {
+      setError('ألغِ تحديد المراحل التي لا يوجد بها طلاب، واختر صفوف الطلاب الصحيحة قبل الحفظ.')
+      return
+    }
     setBusy(`grades:${editingGrades.counselorId}`); setError(''); setNotice('')
     try {
       await api.setCounselorGrades(editingGrades.counselorId, selectedGrades, transferGrades)
@@ -113,9 +120,11 @@ export function CounselorAdminCenter() {
       const locked = Boolean(option.counselorId && option.counselorId !== counselorId)
       const checked = values.includes(option.grade)
       const owner = locked ? counselors.find(counselor => counselor.counselorId === option.counselorId)?.name : ''
+      const missing = option.studentCount === 0
       return <div key={option.grade} className={`counselor-grade-option ${locked ? 'locked' : ''}`}>
-        <label><input type="checkbox" checked={checked} disabled={locked} onChange={() => onToggle(option.grade)} /><span>{option.grade}</span></label>
-        {locked ? <><small>مُعيّنة لـ {owner || 'موجّه آخر'}</small>{transfer && <button type="button" className="counselor-grade-transfer" onClick={() => toggleTransfer(option.grade)}>{transferGrades.includes(option.grade) ? 'إلغاء النقل' : 'نقلها لهذا الموجّه'}</button>}</> : null}
+        <label><input type="checkbox" checked={checked} disabled={locked || (missing && !checked)} onChange={() => onToggle(option.grade)} /><span>{gradeLabel(option.grade)}</span></label>
+        {missing && <small>لا يوجد طلاب مرتبطون بهذه القيمة: {option.grade}</small>}
+        {locked ? <><small>مُعيّنة لـ {owner || 'موجّه آخر'}</small>{transfer && !missing && <button type="button" className="counselor-grade-transfer" onClick={() => toggleTransfer(option.grade)}>{transferGrades.includes(option.grade) ? 'إلغاء النقل' : 'نقلها لهذا الموجّه'}</button>}</> : null}
       </div>
     })}
     {!gradeOptions.length && <p className="teacher-empty">لا توجد مراحل في سجلات الطلاب لتعيينها.</p>}
@@ -124,11 +133,11 @@ export function CounselorAdminCenter() {
   return <section className="teacher-admin counselor-admin" dir="rtl">
     <header className="teacher-admin-head"><div><span>إدارة المدرسة / بوابة الموجّه الطلابي</span><h2>الموجّهون الطلابيون</h2><p>أضف الموجّه برقم هويته وجواله، ثم فعّل حسابه المستقل. يغيّر الموجّه كلمة المرور عند أول دخول.</p></div><UsersRound size={31} /></header>
     <div className="student-account-summary counselor-summary"><article><UsersRound size={19} /><span>الموجّهون</span><b>{counselors.length}</b></article><article><ShieldCheck size={19} /><span>حسابات مفعلة</span><b>{activeAccounts}</b></article><article><KeyRound size={19} /><span>بانتظار التفعيل</span><b>{pendingAccounts}</b></article></div>
-    <section className="teacher-admin-card counselor-admin-tools"><div><strong>إضافة موجّه طلابي</strong><p>كلمة المرور المؤقتة الموحدة عند تفعيل الحساب هي <b dir="ltr">{defaultPassword}</b>.</p></div><div><button type="button" className="outline-button" onClick={() => void load()} disabled={busy !== ''}><RefreshCw size={16} /> تحديث</button><StaffSpreadsheetImport role="counselor" grades={gradeOptions.map(option => ({ grade: option.grade, owner: option.counselorId }))} existingIdentities={counselors.map(item => item.identityNumber)} onImported={load} /><button type="button" className="primary-button" onClick={() => { setError(''); setShowCreate(true) }} disabled={busy !== ''}><UserPlus size={17} /> إضافة موجّه طلابي</button></div></section>
+    <section className="teacher-admin-card counselor-admin-tools"><div><strong>إضافة موجّه طلابي</strong><p>كلمة المرور المؤقتة الموحدة عند تفعيل الحساب هي <b dir="ltr">{defaultPassword}</b>.</p></div><div><button type="button" className="outline-button" onClick={() => void load()} disabled={busy !== ''}><RefreshCw size={16} /> تحديث</button><StaffSpreadsheetImport role="counselor" grades={gradeOptions.filter(option => option.studentCount > 0).map(option => ({ grade: option.grade, label: gradeLabel(option.grade), owner: option.counselorId }))} existingIdentities={counselors.map(item => item.identityNumber)} onImported={load} /><button type="button" className="primary-button" onClick={() => { setError(''); setShowCreate(true) }} disabled={busy !== ''}><UserPlus size={17} /> إضافة موجّه طلابي</button></div></section>
     {notice && <p className="student-portal-notice success" role="status">{notice}</p>}{error && <p className="student-portal-notice error" role="alert">{error}</p>}
     <input className="student-account-search" value={search} onChange={event => setSearch(event.target.value)} placeholder="ابحث بالاسم أو رقم الهوية أو الجوال" />
     <div className="teacher-account-list counselor-account-list">{visible.map(counselor => <article key={counselor.counselorId}>
-      <div className="teacher-account-avatar">{counselor.name.charAt(0)}</div><div><strong>{counselor.name}</strong><span dir="ltr">{counselor.identityNumber}</span><small><Phone size={12} /> {counselor.phone}</small><small className="counselor-assignment-summary">المراحل: {counselor.assignedGrades.length ? counselor.assignedGrades.join('، ') : 'لم تُعيَّن بعد'}</small>{counselor.temporaryPassword && <small>كلمة المرور المؤقتة: <bdi>{counselor.temporaryPassword}</bdi></small>}</div>
+      <div className="teacher-account-avatar">{counselor.name.charAt(0)}</div><div><strong>{counselor.name}</strong><span dir="ltr">{counselor.identityNumber}</span><small><Phone size={12} /> {counselor.phone}</small><small className="counselor-assignment-summary">المراحل: {counselor.assignedGrades.length ? counselor.assignedGrades.map(assignedLabel).join('، ') : 'لم تُعيَّن بعد'}</small>{counselor.temporaryPassword && <small>كلمة المرور المؤقتة: <bdi>{counselor.temporaryPassword}</bdi></small>}</div>
       <span className={`teacher-account-badge ${counselor.accountCreated && counselor.accountActive ? 'ready' : ''}`}>{!counselor.accountCreated ? 'بانتظار التفعيل' : counselor.accountActive ? counselor.mustChangePassword ? 'بانتظار تغيير المرور' : 'نشط' : 'موقوف'}</span>
       <div className="teacher-account-actions"><button type="button" onClick={() => openGrades(counselor)} disabled={busy !== ''}>إدارة المراحل</button>{!counselor.accountCreated ? <button type="button" className="primary-button" onClick={() => void activate(counselor)} disabled={busy !== ''}><KeyRound size={14} /> {busy === `activate:${counselor.counselorId}` ? 'جارٍ التفعيل…' : 'تفعيل الحساب'}</button> : <><button type="button" onClick={() => void reset(counselor)} disabled={busy !== ''}><RefreshCw size={14} /> إعادة ضبط</button><button type="button" onClick={() => void setStatus(counselor)} disabled={busy !== ''}><Power size={14} /> {counselor.accountActive ? 'إيقاف' : 'تفعيل'}</button></>}<button type="button" className="danger-button" onClick={() => void removeCounselor(counselor)} disabled={busy !== ''}><Trash2 size={14} />حذف</button></div>
     </article>)}</div>
@@ -141,7 +150,7 @@ export function CounselorAdminCenter() {
     </form></div>}
     {editingGrades && <div className="counselor-dialog-backdrop" role="presentation" onMouseDown={() => busy === '' && setEditingGrades(null)}><section className="counselor-dialog counselor-grade-dialog" onMouseDown={event => event.stopPropagation()}>
       <header><div><span>بوابة الموجّه الطلابي</span><h3>تعيين المراحل</h3></div><button type="button" className="icon-button" onClick={() => busy === '' && setEditingGrades(null)} aria-label="إغلاق"><X size={18} /></button></header>
-      <p>اختر المراحل التي سيتعامل معها {editingGrades.name}. يمكنك إلغاء أي مرحلة، أو نقل المرحلة المحجوزة من موجّه آخر مباشرة.</p>
+      <p>اختر المراحل التي سيتعامل معها {editingGrades.name}. يمكنك إلغاء أي مرحلة، أو نقل المرحلة المحجوزة من موجّه آخر مباشرة.</p>{error && <p className="teacher-notice error" role="alert">{error}</p>}
       <section className="counselor-grade-section">{renderGradePicker(selectedGrades, toggleGrade, editingGrades.counselorId, true)}</section>
       <footer><button type="button" className="outline-button" onClick={() => setEditingGrades(null)} disabled={busy !== ''}>إلغاء</button><button type="button" className="primary-button" onClick={() => void saveGrades()} disabled={busy !== ''}>{busy === `grades:${editingGrades.counselorId}` ? 'جارٍ الحفظ…' : 'حفظ التعيين'}</button></footer>
     </section></div>}

@@ -5,7 +5,7 @@ import { api } from './api'
 import { identifyStaffColumn as identify, staffDigits as digits, type StaffColumn as Column } from './staffSpreadsheetColumns'
 
 type Role = 'vice' | 'counselor'
-type Grade = { grade: string; owner: string | null }
+type Grade = { grade: string; owner: string | null; label?: string }
 type Row = { number: number; name: string; identityNumber: string; phone: string; grades: string[]; selected: boolean; saved: boolean; error: string }
 const labels: Record<Column, string> = { name: 'الاسم', identityNumber: 'رقم الهوية أو السجل المدني', phone: 'رقم الجوال' }
 const blankColumns = (): Record<Column, number> => ({ name: -1, identityNumber: -1, phone: -1 })
@@ -113,7 +113,7 @@ export function StaffSpreadsheetImport({ role, grades, existingIdentities, onImp
           <div className="counselor-grade-section"><label>الاسم<input value={row.name} disabled={busy || row.saved} onChange={event => updateRow(row.number, { name: event.target.value })} /></label><label>الهوية<input value={row.identityNumber} inputMode="numeric" disabled={busy || row.saved} onChange={event => updateRow(row.number, { identityNumber: digits(event.target.value) })} /></label><label>الجوال<input value={row.phone} inputMode="tel" disabled={busy || row.saved} onChange={event => updateRow(row.number, { phone: digits(event.target.value) })} /></label></div>
           {row.selected && <div className="counselor-grade-picker"><strong>المراحل المسؤولة:</strong>{grades.map(option => {
             const reserved = Boolean(option.owner) || rows.some(other => other.number !== row.number && other.selected && other.grades.includes(option.grade))
-            return <label key={option.grade}><input type="checkbox" checked={row.grades.includes(option.grade)} disabled={busy || (reserved && !row.grades.includes(option.grade))} onChange={event => updateRow(row.number, { grades: event.target.checked ? [...row.grades, option.grade] : row.grades.filter(grade => grade !== option.grade) })} /> {option.grade}{option.owner ? ' (مسندة)' : ''}</label>
+            return <label key={option.grade}><input type="checkbox" checked={row.grades.includes(option.grade)} disabled={busy || (reserved && !row.grades.includes(option.grade))} onChange={event => updateRow(row.number, { grades: event.target.checked ? [...row.grades, option.grade] : row.grades.filter(grade => grade !== option.grade) })} /> {option.label || option.grade}{option.owner ? ' (مسندة)' : ''}</label>
           })}{!grades.length && <p>استورد الطلاب أولًا لتظهر المراحل المتاحة.</p>}</div>}
           {row.error && <p className="teacher-notice error">{row.error}</p>}
         </article>

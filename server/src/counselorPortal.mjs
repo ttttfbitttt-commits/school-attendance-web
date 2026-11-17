@@ -77,15 +77,16 @@ export async function migrateCounselorPortal(adminPool) {
 const selectedGrades = value => [...new Set((Array.isArray(value) ? value : []).map(grade => clean(grade, 120)).filter(Boolean))]
 
 async function gradeOptions(client, schoolId) {
-  const rows = (await client.query(`SELECT grade, counselor_id AS "counselorId" FROM student_counselor_grade_assignments WHERE school_id=$1
-    UNION
-    SELECT grade, NULL::uuid AS "counselorId" FROM students WHERE school_id=$1 AND active=true AND btrim(grade)<>''
-    ORDER BY grade`, [schoolId])).rows
-  return rows.reduce((options, row) => {
-    const current = options.get(row.grade)
-    if (!current || row.counselorId) options.set(row.grade, { grade: row.grade, counselorId: row.counselorId || null })
-    return options
-  }, new Map())
+  const rows = (await client.query(`WITH counts AS (
+      SELECT grade, count(*)::int AS student_count FROM students
+      WHERE school_id=$1 AND active=true AND btrim(grade)<>'' GROUP BY grade
+    ), all_grades AS (
+      SELECT grade FROM counts UNION SELECT grade FROM student_counselor_grade_assignments WHERE school_id=$1
+    )
+    SELECT g.grade,a.counselor_id AS "counselorId",COALESCE(c.student_count,0)::int AS "studentCount"
+    FROM all_grades g LEFT JOIN counts c ON c.grade=g.grade
+    LEFT JOIN student_counselor_grade_assignments a ON a.school_id=$1 AND a.grade=g.grade ORDER BY g.grade`, [schoolId])).rows
+  return new Map(rows.map(row => [row.grade, row]))
 }
 
 async function validateGrades(client, schoolId, grades, counselorId = '', transferGrades = [], allowEmpty = false) {
