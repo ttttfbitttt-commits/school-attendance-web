@@ -992,7 +992,53 @@ function HistoryCounts({ type, students, schoolName }: { type: 'absence' | 'late
   return <section className="panel history-count-panel"><div className="panel-header"><div><span className="panel-kicker">ملخص تراكمي</span><h2>{title}</h2><p>ابحث وحدد الطلاب، أو افتح بطاقة لعرض فئتها.</p></div></div>{type === 'late' && <section className="daily-export-filter history-scope-filter" aria-label="تحديد نطاق تقرير أيام التأخر"><div><strong>نطاق العرض والتصدير</strong><span>{lateScope}</span></div><label>الصف أو المرحلة<select value={gradeFilter} onChange={event => { setGradeFilter(event.target.value); setClassroomFilter(''); setSelected(new Set()); setActiveBucket(''); setShownRows(allRows) }}><option value="">جميع الصفوف</option>{gradeOptions.map(grade => <option key={grade} value={grade}>{grade}</option>)}</select></label><label>الفصل<select value={classroomFilter} disabled={!gradeFilter || !classroomOptions.length} onChange={event => { setClassroomFilter(event.target.value); setSelected(new Set()); setActiveBucket(''); setShownRows(allRows) }}><option value="">كل فصول الصف</option>{classroomOptions.map(classroom => <option key={classroom} value={classroom}>{classroom}</option>)}</select></label>{(gradeFilter || classroomFilter) && <button type="button" className="secondary-button" onClick={resetLateScope}>إعادة ضبط</button>}</section>}<div className="count-card-grid">{buckets.map(bucket => <button className={`count-card ${bucket.tone}`} type="button" key={bucket.tone} onClick={() => { setActiveBucket(bucket.id); setShownRows(bucket.rows) }}><span>{bucket.label.replace('غياب', type === 'late' ? 'تأخر' : 'غياب')}</span><strong>{bucket.rows.length} طالب</strong></button>)}</div><div className="student-picker"><input value={search} onChange={event => setSearch(event.target.value)} placeholder="ابحث باسم الطالب..." />{matches.map(student => <label key={student.id}><input type="checkbox" checked={selected.has(student.id)} onChange={() => setSelected(current => { const next = new Set(current); next.has(student.id) ? next.delete(student.id) : next.add(student.id); return next })} /> {student.name} · {student.grade} · {student.classroom}</label>)}<button type="button" className="primary-button" onClick={() => { setActiveBucket(''); void load([...selected]) }} disabled={!selected.size}><CheckCircle2 size={16} /> تأكيد الطلاب المحددين</button><button type="button" className="secondary-button" onClick={() => { setSelected(new Set()); setActiveBucket(''); setShownRows(allRows) }}>عرض الجميع</button></div><div className="feature-actions"><button type="button" className="export-btn csv" onClick={() => downloadWorkbook(title, [['الطالب','الصف','الفصل','الجوال','عدد الأيام','بعذر','بدون عذر'], ...filteredRows.map(row => [row.name,row.grade,row.classroom,row.phone,row.days,row.excusedDays,row.unexcusedDays])], exportReportTitle, schoolName, exportReportTitle)} disabled={!filteredRows.length}><Download size={16} /> Excel</button><button type="button" className="export-btn pdf" onClick={() => void printHistories(filteredRows, exportReportTitle)} disabled={!filteredRows.length}><Printer size={16} /> PDF لجميع الظاهرين</button></div><div className="daily-list">{filteredRows.map(row => <button type="button" className="history-row" key={row.studentId} onClick={() => void open(row)}><span><strong>{row.name}</strong><small>{row.grade} · {row.classroom} · <bdi>{row.phone}</bdi></small></span><strong>{row.days} يومًا</strong></button>)}{!filteredRows.length && <p className="report-empty-state">لا توجد بيانات ضمن هذا الاختيار.</p>}</div>{history && <div className="report-modal-overlay"><section className="report-modal"><header className="report-modal-header"><div><span className="panel-kicker">تفاصيل الطالب</span><h2>{history.student.name}</h2><p>{history.student.grade} · {history.student.classroom} · <bdi>{history.student.phone}</bdi></p></div><button type="button" className="modal-close-button" onClick={() => setHistory(null)}>×</button></header><div className="report-modal-actions"><button type="button" className="export-btn csv" onClick={() => downloadWorkbook(`${reportTitle}_${history.student.name}`, [['التاريخ','الحالة', ...(type === 'late' ? ['الوقت'] : [])], ...history.days.map(day => [day.date,statusText(day.status), ...(type === 'late' ? [day.time || '—'] : [])])], reportTitle, schoolName, `${reportTitle} - ${history.student.name}`)}>Excel</button><button type="button" className="export-btn pdf" onClick={() => void printHistories([{ studentId: history.student.studentId, name: history.student.name, grade: history.student.grade, classroom: history.student.classroom, phone: history.student.phone, days: history.days.length, excusedDays: 0, unexcusedDays: 0 }])}>PDF</button></div><div className="absence-detail-list">{history.days.map(day => <article className="absence-day-card" key={day.date}><strong>{day.date}</strong><span>{statusText(day.status)}{type === 'late' && day.time ? ` · ${day.time}` : ''}</span></article>)}</div></section></div>}</section>
 }
 
-type ReportSection = 'pending' | 'phones' | 'absences' | 'absence-history' | 'lates' | 'late-history' | 'student-detail' | 'incidents' | 'comprehensive-absence' | 'comprehensive-late'
+type ReportSection = 'pending' | 'phones' | 'absences' | 'absence-history' | 'lates' | 'late-history' | 'student-detail' | 'student-missing-attendance' | 'incidents' | 'comprehensive-absence' | 'comprehensive-late'
+
+function StudentMissingAttendanceReport({ students, schoolName }: { students: FeatureStudent[]; schoolName: string }) {
+  const [search, setSearch] = useState('')
+  const [selected, setSelected] = useState<FeatureStudent | null>(null)
+  const [customRange, setCustomRange] = useState(false)
+  const [from, setFrom] = useState(today())
+  const [to, setTo] = useState(today())
+  const [report, setReport] = useState<Awaited<ReturnType<typeof api.studentMissingAttendance>> | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
+  const suggestions = useMemo(() => {
+    const q = search.trim()
+    return q && !selected ? students.filter(student => `${student.name} ${student.id}`.includes(q)).slice(0, 10) : []
+  }, [search, selected, students])
+  const statusLabel = (status: string | null) => status === 'excused' ? 'غياب معتمد بعذر' : status === 'unexcused' ? 'غياب معتمد دون عذر' : status === 'special' ? 'غياب معتمد بحالة خاصة' : 'لم يُسجل حضور — غير معتمد'
+  const load = async () => {
+    if (!selected) { setError('اختر طالبًا من قائمة النتائج أولًا.'); return }
+    if (customRange && (!from || !to || from > to || to > today())) { setError('اختر فترة صحيحة تنتهي في اليوم الحالي أو قبله.'); return }
+    setBusy(true); setError(''); setReport(null)
+    try { setReport(await api.studentMissingAttendance(selected.id, customRange ? from : undefined, customRange ? to : undefined)) }
+    catch { setError('تعذر تحميل التقرير. تحقق من صلاحيتك والاتصال ثم أعد المحاولة.') }
+    finally { setBusy(false) }
+  }
+  const periodText = report ? `${report.from ? formatHijriDate(report.from) : 'لا توجد سجلات حضور'} إلى ${formatHijriDate(report.to)}` : ''
+  const rows = report?.days.map(day => [formatHijriDateWithWeekday(day.date), statusLabel(day.status)]) || []
+  const print = () => {
+    if (!report) return
+    openPrintDocument('غياب طالب محدد', `<section class="page"><h1>غياب طالب محدد</h1><p class="meta">الطالب: ${escapeHtml(report.student.name)} · الصف: ${escapeHtml(report.student.grade)} · الفصل: ${escapeHtml(report.student.classroom)}<br>الفترة: ${escapeHtml(periodText)} · الأيام: ${rows.length}</p><p>الأيام التي سُجل فيها حضور بالمدرسة ولم يُسجل حضور لهذا الطالب. عدم تسجيل الحضور لا يعني اعتماد الغياب.</p><table><thead><tr><th>اليوم والتاريخ</th><th>حالة الغياب</th></tr></thead><tbody>${rows.map(row => `<tr><td>${escapeHtml(row[0])}</td><td>${escapeHtml(row[1])}</td></tr>`).join('') || '<tr><td colspan="2">لا توجد أيام مطابقة.</td></tr>'}</tbody></table></section>`, schoolName)
+  }
+  return <section className="panel daily-report-panel">
+    <div className="panel-header"><div><span className="panel-kicker">سجل الحضور اليومي</span><h2>غياب طالب محدد</h2><p>ابحث عن الطالب ثم اعرض الأيام التي سُجل فيها حضور بالمدرسة ولم يُسجل له حضور أو تأخر.</p></div></div>
+    <p className="pending-absence-hint">يُعرض اليوم الحالي عند وجود أي تسجيل حضور، وقد يكون التسجيل ما زال جاريًا. عدم تسجيل الحضور لا يعني اعتماد الغياب. لا يمكن تحديد تاريخ التحاق الطالب من هذا السجل.</p>
+    <div className="teacher-admin-tools"><label><input value={search} placeholder="ابحث باسم الطالب أو رقمه" onChange={event => { setSearch(event.target.value); setSelected(null); setReport(null) }} /></label></div>
+    {suggestions.length > 0 && <div className="comprehensive-card-grid">{suggestions.map(student => <button className="comprehensive-choice-card" type="button" key={student.id} onClick={() => { setSelected(student); setSearch(student.name); setReport(null); setError('') }}><strong>{student.name}</strong><small>{student.grade} · الفصل {student.classroom} · {student.id}</small></button>)}</div>}
+    {selected && <p>{selected.name} · {selected.grade} · الفصل {selected.classroom}</p>}
+    <label><input type="checkbox" checked={customRange} onChange={event => { setCustomRange(event.target.checked); setReport(null) }} /> تحديد فترة من وإلى</label>
+    {customRange && <div className="teacher-report-filters"><HijriDatePicker label="من تاريخ" value={from} onChange={setFrom} max={today()} /><HijriDatePicker label="إلى تاريخ" value={to} onChange={setTo} max={today()} /></div>}
+    {!customRange && <p>الفترة: من أول يوم تسجيل حضور في المدرسة حتى اليوم.</p>}
+    <div className="feature-actions"><button type="button" className="primary-button" onClick={() => void load()} disabled={busy || !selected}>{busy ? 'جارٍ إعداد التقرير...' : 'عرض التقرير'}</button></div>
+    {error && <p className="report-status-notice error" role="alert">{error}</p>}
+    {report && <><div className="comprehensive-report-summary"><span>الفترة: {periodText}</span><strong>{rows.length} يومًا</strong></div>
+      <div className="feature-actions"><button type="button" className="export-btn csv" onClick={() => downloadWorkbook(`غياب_طالب_${report.student.name}`, [['اليوم والتاريخ', 'الحالة'], ...rows], 'غياب طالب', schoolName, `غياب الطالب ${report.student.name} — ${periodText}`)}><Download size={16} /> Excel</button><button type="button" className="export-btn pdf" onClick={print}><Printer size={16} /> PDF</button></div>
+      {rows.length ? <div className="table-wrap"><table className="responsive-data-table"><thead><tr><th>اليوم والتاريخ</th><th>حالة الغياب</th></tr></thead><tbody>{rows.map((row, index) => <tr key={report.days[index].date}><td data-label="اليوم والتاريخ">{row[0]}</td><td data-label="الحالة">{row[1]}</td></tr>)}</tbody></table></div> : <p className="report-empty-state">{report.firstAttendanceDate ? 'لا توجد أيام مطابقة في الفترة المحددة.' : 'لا توجد سجلات حضور للمدرسة حتى اليوم.'}</p>}
+    </>}
+  </section>
+}
 
 type ComprehensiveClassReportProps = {
   type: SchoolComprehensiveReportType
@@ -1321,6 +1367,7 @@ export function ReportsCenter({ students, schoolName, viewer = 'school' }: { stu
     { id: 'pending', label: 'غياب اليوم', count: todayMissingCount },
     { id: 'absences', label: 'سجل الغياب', count: absenceDate === today() ? todayConfirmedCount : absences.length },
     { id: 'absence-history', label: 'أيام الغياب' },
+    { id: 'student-missing-attendance', label: 'غياب طالب محدد' },
     { id: 'lates', label: 'سجل التأخر', count: lates.length },
     { id: 'late-history', label: 'أيام التأخر' },
     { id: 'comprehensive-absence', label: 'الغياب الشامل' },
@@ -1420,6 +1467,7 @@ export function ReportsCenter({ students, schoolName, viewer = 'school' }: { stu
       {activeReport === 'lates' && <DailyList title="تأخر الطلاب" date={lateDate} onDate={value => { setLateDate(value); void loadLates(value) }} rows={lates} onStatus={(ids, status) => void updateLate(ids, status)} onMarkPresent={viewer === 'school' ? ids => void markLatePresent(ids) : undefined} editable={viewer === 'school'} onExcel={(reportRows, scope) => exportDaily(`تأخر_${lateDate}${scope ? `_${scope}` : ''}`, reportRows, schoolName, lateDate)} onPdf={(reportRows, scope) => printDaily(`تأخر الطلاب${scope ? ` — ${scope}` : ''}`, reportRows, schoolName, lateDate)} busy={updatingDailyStatus} actionNotice={dailyStatusNotice} late />}
       {activeReport === 'late-history' && <HistoryCounts type="late" students={students} schoolName={schoolName} />}
       {activeReport === 'student-detail' && <StudentDetailedReport students={students} schoolName={schoolName} printDocument={openPrintDocument} />}
+      {activeReport === 'student-missing-attendance' && <StudentMissingAttendanceReport students={students} schoolName={schoolName} />}
     </div>
 
     {notice && <div className="notice-box" role="status">{notice}</div>}

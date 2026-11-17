@@ -505,6 +505,7 @@ export const api = {
   lateSummary: (studentIds: string[] = []) => request<{ type: 'late'; rows: CountStudentRow[] }>(`/reports/late-summary${studentIds.length ? `?studentIds=${encodeURIComponent(studentIds.join(','))}` : ''}`),
   studentHistory: (type: 'absence' | 'late', studentId: string) => request<StudentHistory>(`/reports/student-history?type=${type}&studentId=${encodeURIComponent(studentId)}`),
   detailedStudentReport: (studentId: string, from: string, to: string) => request<DetailedStudentReport>(`/reports/student-detail?studentId=${encodeURIComponent(studentId)}&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`),
+  studentMissingAttendance: (studentId: string, from?: string, to?: string) => request<{ student: { id: string; name: string; grade: string; classroom: string }; firstAttendanceDate: string | null; from: string | null; to: string; days: Array<{ date: string; status: 'excused' | 'unexcused' | 'special' | null }> }>(`/reports/student-missing-attendance?${new URLSearchParams({ studentId, ...(from && to ? { from, to } : {}) })}`),
   messages: (type?: MessageLog['type'], limit = 5000) => request<{ messages: MessageLog[] }>(`/messages?${type ? `type=${encodeURIComponent(type)}&` : ''}limit=${limit}`),
   messageRecipientScope: (type: 'late' | 'absence' | 'general' | 'teacher') => request<{ studentIds: string[] }>(`/messages/recipients?type=${encodeURIComponent(type)}`),
   messageTeachers: () => request<{ teachers: MessageTeacher[] }>('/messages/teachers'),

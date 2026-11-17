@@ -417,6 +417,40 @@ export async function handleFeatureRequest(context) {
   const { req, res, url, user, pool, body, json, scoped, todayRiyadh } = context
   const adminOnly = () => user.role === 'admin' || user.role === 'vice_principal' || user.role === 'counselor'
 
+  if (req.method === 'GET' && url.pathname === '/api/reports/student-missing-attendance') {
+    if (!adminOnly()) { json(res, 403, { error: 'forbidden' }); return true }
+    const studentId = String(url.searchParams.get('studentId') || '').trim()
+    const rawFrom = url.searchParams.get('from') || ''
+    const rawTo = url.searchParams.get('to') || ''
+    const from = rawFrom ? validDate(rawFrom) : null
+    const to = rawTo ? validDate(rawTo) : todayRiyadh()
+    if (!studentId || (rawFrom && !from) || !to || to > todayRiyadh() || (from && from > to) || (rawFrom && !rawTo) || (!rawFrom && rawTo)) {
+      json(res, 400, { error: 'invalid_report_range' }); return true
+    }
+    const report = await scoped(user.school_id, async client => {
+      const params = [user.school_id, studentId]
+      const scope = gradeScope(params, await studentWellbeingGrades(client, user), 's.grade')
+      const student = (await client.query(`SELECT s.id,s.name,s.grade,s.classroom FROM students s WHERE s.school_id=$1 AND s.id=$2 AND s.active=true${scope}`, params)).rows[0]
+      if (!student) return null
+      const result = await client.query(`WITH school_days AS (
+          SELECT DISTINCT attendance_date FROM attendance_logs
+          WHERE school_id=$1 AND status IN ('present','late') AND attendance_date <= $4::date
+            AND ($3::date IS NULL OR attendance_date >= $3::date)
+        )
+        SELECT d.attendance_date::text AS date, a.status
+        FROM school_days d
+        LEFT JOIN absence_records a ON a.school_id=$1 AND a.student_id=$2 AND a.absence_date=d.attendance_date
+        WHERE NOT EXISTS (SELECT 1 FROM attendance_logs mine WHERE mine.school_id=$1 AND mine.student_id=$2
+          AND mine.attendance_date=d.attendance_date AND mine.status IN ('present','late'))
+        ORDER BY d.attendance_date`, [user.school_id, studentId, from, to])
+      const first = (await client.query(`SELECT min(attendance_date)::text AS date FROM attendance_logs
+        WHERE school_id=$1 AND status IN ('present','late') AND attendance_date <= $2::date`, [user.school_id, todayRiyadh()])).rows[0]?.date || null
+      return { student, firstAttendanceDate: first, from: from || first, to, days: result.rows }
+    })
+    if (!report) { json(res, 404, { error: 'student_not_found' }); return true }
+    json(res, 200, report); return true
+  }
+
   // Create the first follow-up case automatically when a student reaches
   // three recorded absence days. The third absence date is used as the case
   // date, and the unique key keeps refreshes and concurrent requests safe.
