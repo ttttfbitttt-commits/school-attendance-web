@@ -47,3 +47,27 @@ dialog > .assistant{position:sticky;top:0;left:auto;right:auto;bottom:auto;width
 @media(max-width:1050px){.mascotFrame.guideTraveling{position:relative;left:auto!important;top:auto!important;width:42px;height:42px;box-shadow:none}.assistant:has(.guideTraveling){overflow:hidden}#guideSpeechBubble{display:none}}
 .teacherImportExample{margin:18px 0 22px;border:1px solid var(--line);border-radius:12px;padding:12px;background:#f8fbf9}.teacherImportExample img{display:block;width:100%;height:auto;border-radius:6px}.teacherImportExample figcaption{margin-top:8px;color:#718b80;font-size:11px}
 .resetAllData{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;margin-top:16px;background:#b93838;color:#fff;border:1px solid #e06b6b;padding:12px 8px;font-size:12px;flex-shrink:0}.resetAllData:hover{background:#a32929}.resetAllData svg{width:18px;height:18px;flex-shrink:0}@media(max-width:750px){.resetAllData span{display:none}.resetAllData{padding:12px 4px}}@media(max-height:800px){aside{overflow-y:auto}.local{padding-top:16px}}
+
+/* Give timetable workflows room to work at desktop and mobile sizes. */
+:is(#standbyDialog,#absenceDialog,#editor,#scheduleDialog,#teacherScheduleDialog,#printCenter,#preview) {
+  width:calc(100vw - 24px)!important;max-width:calc(100vw - 24px)!important;
+  height:calc(100vh - 24px)!important;max-height:calc(100vh - 24px)!important;
+  height:calc(100dvh - 24px)!important;max-height:calc(100dvh - 24px)!important;
+  margin:auto;overflow:auto;
+}
+.assistant .assistantDialogToggle{display:block;align-self:flex-start;margin:7px;padding:9px 14px;background:#e1f3ed;color:#075b4c;border:1px solid #8fcab9;font-size:13px;font-weight:bold}
+.assistant.dialog-collapsed > :not(.assistantDialogToggle){display:none!important}
+body > .assistant.dialog-collapsed{top:auto;bottom:16px;left:16px;width:auto;height:auto;max-width:calc(100vw - 32px);border:0;background:transparent;box-shadow:none;overflow:visible}
+body > .assistant.dialog-collapsed .assistantDialogToggle{margin:0;box-shadow:0 5px 18px #1233}
+body:has(> .assistant.dialog-collapsed) main{margin-left:0}
+dialog > .assistant{position:relative;top:auto;left:auto;right:auto;bottom:auto;width:100%;max-width:100%;height:auto;min-height:0;max-height:none;flex:none;margin:0 0 12px;overflow:hidden}
+dialog > .assistant .assistantDialogToggle{display:block;align-self:flex-start;margin:7px;padding:9px 14px;background:#e1f3ed;color:#075b4c;border:1px solid #8fcab9;font-size:13px;font-weight:bold}
+dialog > .assistant.dialog-collapsed{width:max-content;max-width:100%;border:0;background:transparent;box-shadow:none;overflow:visible}
+dialog > .assistant.dialog-collapsed .assistantDialogToggle{margin:0}
+dialog > .assistant:not(.dialog-collapsed) #messages{max-height:180px;flex:none}
+body:has(.assistant.dialog-collapsed) #guideSpeechBubble{display:none!important}
+dialog :is(button[id*="close" i],button[id*="dismiss" i],button[aria-label^="إغلاق"]){background:#175b70;color:#fff;border:1px solid #10475a;font-weight:bold;min-height:42px;padding:10px 17px}
+dialog :is(button[id*="close" i],button[id*="dismiss" i],button[aria-label^="إغلاق"])::before{content:'×';display:inline-block;font-size:19px;line-height:1;margin-inline-end:7px;vertical-align:middle}
+dialog :is(button[id*="close" i],button[id*="dismiss" i],button[aria-label^="إغلاق"]):focus-visible,.assistantDialogToggle:focus-visible{outline:3px solid #e6a231;outline-offset:3px}
+@media(max-width:1250px){body:has(> .assistant.dialog-collapsed) main{padding-bottom:85px}}
+@media(max-width:750px){:is(#standbyDialog,#absenceDialog,#editor,#scheduleDialog,#teacherScheduleDialog,#printCenter,#preview){width:100vw!important;max-width:100vw!important;height:100dvh!important;max-height:100dvh!important;border-radius:0;padding:14px}#editor{padding:0}dialog > .assistant:not(.dialog-collapsed) #chat{flex-wrap:wrap}dialog > .assistant:not(.dialog-collapsed) #command{min-width:100%}}
