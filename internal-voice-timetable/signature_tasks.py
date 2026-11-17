@@ -45,12 +45,16 @@ def prepare_tasks(project: dict, record_id: str, sender_phone: str, phones: dict
                 task.pop("whatsappOpenedAt", None)
                 task.pop("whatsappConfirmedAt", None)
             task["phone"] = phone
+        if task.get("status") != "signed" and not task.get("token"):
+            task["token"] = secrets.token_urlsafe(32)
         entry["signatureTaskId"]=task["id"]
-        result.append({**public_task(project,task),"link":f"{base_url.rstrip('/')}/signature.html?token={task['token']}"})
+        token = task.get("token") if task.get("status") != "signed" else None
+        result.append({**public_task(project,task),"link":f"{base_url.rstrip('/')}/signature.html?token={token}" if token else ""})
     return project,result
 
 def find_task(project: dict, token: str):
-    task=next((item for item in project.get("signatureTasks",[]) if secrets.compare_digest(str(item.get("token","")),str(token or ""))),None)
+    if not token: return None
+    task=next((item for item in project.get("signatureTasks",[]) if item.get("token") and secrets.compare_digest(str(item["token"]),str(token))),None)
     if not task:return None
     record=next((item for item in project.get("absenceRecords",[]) if item.get("id")==task.get("recordId")),None)
     entry=next((item for item in (record or {}).get("entries",[]) if item.get("signatureTaskId")==task.get("id")),None)
