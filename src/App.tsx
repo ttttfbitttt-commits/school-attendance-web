@@ -2628,7 +2628,7 @@ function AttendanceApp({ onLogout, account }: { onLogout: () => void; account: A
           generalEducationAdministration={schoolSettings.generalEducationAdministration}
         />}
 
-        {activeNav === 'teachers' && <TeacherAdminCenter schoolName={schoolSettings.schoolName} />}
+        {activeNav === 'teachers' && <TeacherAdminCenter schoolName={schoolSettings.schoolName} gradeAliases={gradeAliases} />}
 
         {activeNav === 'administrators' && <AdministratorAdminCenter schoolName={schoolSettings.schoolName} />}
 
