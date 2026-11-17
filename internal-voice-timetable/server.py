@@ -636,7 +636,7 @@ class Handler(SimpleHTTPRequestHandler):
                         return self.reply({'errors':['تغيرت البيانات. حدّث الصفحة ثم أعد تجهيز التكليفات.']},409)
                     project=copy.deepcopy(current)
                     try:
-                        project,tasks=prepare_tasks(project,body.get('recordId',''),body.get('senderPhone',''),body.get('phones',{}),os.environ.get('SOUNDTABLE_PUBLIC_URL','http://127.0.0.1:8767'))
+                        project,tasks=prepare_tasks(project,body.get('recordId',''),body.get('senderPhone',''),body.get('phones',{}),os.environ.get('SOUNDTABLE_PUBLIC_URL','http://127.0.0.1:8767').rstrip('/') + ('/voice-table' if EMBEDDED_MODE else ''))
                     except ValueError as error:
                         return self.reply({'errors':[str(error)]},422)
                     project['revision']=current.get('revision',0)+1; write(project)
