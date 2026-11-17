@@ -1,6 +1,7 @@
 import { type FormEvent, useEffect, useMemo, useState } from 'react'
 import { KeyRound, Phone, Power, RefreshCw, ShieldCheck, Trash2, UserPlus, UsersRound, X } from 'lucide-react'
 import { api, type CounselorGradeOption, type StudentCounselor } from './api'
+import { StaffSpreadsheetImport } from './StaffSpreadsheetImport'
 
 const emptyForm = { name: '', identityNumber: '', phone: '', grades: [] as string[] }
 
@@ -123,7 +124,7 @@ export function CounselorAdminCenter() {
   return <section className="teacher-admin counselor-admin" dir="rtl">
     <header className="teacher-admin-head"><div><span>إدارة المدرسة / بوابة الموجّه الطلابي</span><h2>الموجّهون الطلابيون</h2><p>أضف الموجّه برقم هويته وجواله، ثم فعّل حسابه المستقل. يغيّر الموجّه كلمة المرور عند أول دخول.</p></div><UsersRound size={31} /></header>
     <div className="student-account-summary counselor-summary"><article><UsersRound size={19} /><span>الموجّهون</span><b>{counselors.length}</b></article><article><ShieldCheck size={19} /><span>حسابات مفعلة</span><b>{activeAccounts}</b></article><article><KeyRound size={19} /><span>بانتظار التفعيل</span><b>{pendingAccounts}</b></article></div>
-    <section className="teacher-admin-card counselor-admin-tools"><div><strong>إضافة موجّه طلابي</strong><p>كلمة المرور المؤقتة الموحدة عند تفعيل الحساب هي <b dir="ltr">{defaultPassword}</b>.</p></div><div><button type="button" className="outline-button" onClick={() => void load()} disabled={busy !== ''}><RefreshCw size={16} /> تحديث</button><button type="button" className="primary-button" onClick={() => { setError(''); setShowCreate(true) }} disabled={busy !== ''}><UserPlus size={17} /> إضافة موجّه طلابي</button></div></section>
+    <section className="teacher-admin-card counselor-admin-tools"><div><strong>إضافة موجّه طلابي</strong><p>كلمة المرور المؤقتة الموحدة عند تفعيل الحساب هي <b dir="ltr">{defaultPassword}</b>.</p></div><div><button type="button" className="outline-button" onClick={() => void load()} disabled={busy !== ''}><RefreshCw size={16} /> تحديث</button><StaffSpreadsheetImport role="counselor" grades={gradeOptions.map(option => ({ grade: option.grade, owner: option.counselorId }))} existingIdentities={counselors.map(item => item.identityNumber)} onImported={load} /><button type="button" className="primary-button" onClick={() => { setError(''); setShowCreate(true) }} disabled={busy !== ''}><UserPlus size={17} /> إضافة موجّه طلابي</button></div></section>
     {notice && <p className="student-portal-notice success" role="status">{notice}</p>}{error && <p className="student-portal-notice error" role="alert">{error}</p>}
     <input className="student-account-search" value={search} onChange={event => setSearch(event.target.value)} placeholder="ابحث بالاسم أو رقم الهوية أو الجوال" />
     <div className="teacher-account-list counselor-account-list">{visible.map(counselor => <article key={counselor.counselorId}>
