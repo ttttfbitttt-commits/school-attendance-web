@@ -458,6 +458,12 @@ async function classroomMapping(client, schoolId, classroomId) {
     .filter(row => row.key === wanted)
   if (candidates.length !== 1) return null
   const candidate = candidates[0]
+  await client.query('SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))', ['teacher_classroom_student_maps', schoolId])
+  const claimed = await client.query(`SELECT 1 FROM teacher_classroom_student_maps m
+    JOIN lesson_classrooms c ON c.id=m.classroom_id AND c.school_id=m.school_id AND c.active=true
+    WHERE m.school_id=$1 AND m.classroom_id<>$2 AND m.grade_value=$3 AND m.classroom_value=$4 LIMIT 1`,
+  [schoolId, classroomId, candidate.grade, candidate.classroom])
+  if (claimed.rowCount) return null
   await client.query(`INSERT INTO teacher_classroom_student_maps(school_id,classroom_id,grade_value,classroom_value,mapping_source)
     VALUES($1,$2,$3,$4,'automatic') ON CONFLICT(school_id,classroom_id) DO NOTHING`, [schoolId, classroomId, candidate.grade, candidate.classroom])
   return { grade: candidate.grade, classroom: candidate.classroom, mappingSource: 'automatic' }
@@ -1520,15 +1526,22 @@ export async function handleTeacherPortalRequest(context) {
     const classroom = clean(input.classroom, 160)
     if (!validId(classroomId) || !grade || !classroom) { json(res, 400, { error: 'invalid_classroom_mapping' }); return true }
     const result = await scoped(user.school_id, async client => {
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1), hashtext($2))', ['teacher_classroom_student_maps', user.school_id])
       const exists = await client.query('SELECT 1 FROM lesson_classrooms WHERE school_id=$1 AND id=$2 AND active=true', [user.school_id, classroomId])
       const students = await client.query('SELECT COUNT(*)::int AS count FROM students WHERE school_id=$1 AND active=true AND grade=$2 AND classroom=$3', [user.school_id, grade, classroom])
-      if (!exists.rowCount || !students.rows[0].count) return false
+      if (!exists.rowCount || !students.rows[0].count) return 'missing'
+      const claimed = await client.query(`SELECT 1 FROM teacher_classroom_student_maps m
+        JOIN lesson_classrooms c ON c.id=m.classroom_id AND c.school_id=m.school_id AND c.active=true
+        WHERE m.school_id=$1 AND m.classroom_id<>$2 AND m.grade_value=$3 AND m.classroom_value=$4 LIMIT 1`,
+      [user.school_id, classroomId, grade, classroom])
+      if (claimed.rowCount) return 'claimed'
       await client.query(`INSERT INTO teacher_classroom_student_maps(school_id,classroom_id,grade_value,classroom_value,mapping_source,updated_by,updated_at)
         VALUES($1,$2,$3,$4,'manual',$5,now()) ON CONFLICT(school_id,classroom_id) DO UPDATE SET grade_value=EXCLUDED.grade_value,
           classroom_value=EXCLUDED.classroom_value,mapping_source='manual',updated_by=EXCLUDED.updated_by,updated_at=now()`, [user.school_id, classroomId, grade, classroom, user.user_id])
-      return true
+      return 'saved'
     })
-    if (!result) { json(res, 404, { error: 'classroom_or_students_not_found' }); return true }
+    if (result === 'missing') { json(res, 404, { error: 'classroom_or_students_not_found' }); return true }
+    if (result === 'claimed') { json(res, 409, { error: 'classroom_already_mapped' }); return true }
     json(res, 200, { ok: true })
     return true
   }

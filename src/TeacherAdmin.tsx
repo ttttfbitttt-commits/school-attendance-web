@@ -13,6 +13,14 @@ const escapeHtml = (value: unknown) => String(value ?? '').replace(/[&<>'"]/g, c
 const periodLabel = (period: number) => `الحصة ${['', 'الأولى', 'الثانية', 'الثالثة', 'الرابعة', 'الخامسة', 'السادسة', 'السابعة', 'الثامنة', 'التاسعة', 'العاشرة'][period] || period}`
 const attendanceStatusLabel = (status: TeacherLessonReport['records'][number]['status']) => status === 'present' ? 'حاضر' : status === 'late' ? 'تأخر عن الحصة' : status === 'excused' ? 'مستأذن' : 'غائب'
 type AccountPanel = 'accounts' | 'credentials' | 'mappings' | null
+const mappingKey = (grade: string, classroom: string) => JSON.stringify([grade, classroom])
+const gradeRank = (value: string) => {
+  const normalized = value.replace(/[أإآ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه')
+  const names = ['اول', 'ثاني', 'ثالث', 'رابع', 'خامس', 'سادس']
+  const index = names.findIndex(name => new RegExp(`(^|\\s)(ال)?${name}(\\s|$)`).test(normalized))
+  return index < 0 ? 99 : index
+}
+const compareClassNames = (left: string, right: string) => gradeRank(left) - gradeRank(right) || left.localeCompare(right, 'ar', { numeric: true, sensitivity: 'base' })
 
 function reportsHtml(reports: TeacherLessonReport[]) {
   return reports.map(report => `<section class="page"><div class="heading"><strong>المعلم:</strong> ${escapeHtml(report.teacherName)}<br/>
@@ -58,6 +66,14 @@ export function TeacherAdminCenter({ schoolName }: { schoolName: string }) {
   const allFilteredTeachers = useMemo(() => (overview?.teachers || []).filter(teacher => `${teacher.name} ${teacher.identityNumber}`.includes(search.trim())), [overview, search])
   const teachers = useMemo(() => allFilteredTeachers.slice(0, 30), [allFilteredTeachers])
   const classroomMappings = overview?.classroomMappings || []
+  const sortedMappings = useMemo(() => [...classroomMappings].sort((a, b) => compareClassNames(a.classroom, b.classroom)), [classroomMappings])
+  const sortedOptions = useMemo(() => [...options].sort((a, b) => compareClassNames(a.grade, b.grade) || a.classroom.localeCompare(b.classroom, 'ar', { numeric: true, sensitivity: 'base' })), [options])
+  const savedKey = (mapping: typeof classroomMappings[number]) => mapping.grade && mapping.classroomValue ? mappingKey(mapping.grade, mapping.classroomValue) : ''
+  const availableOptions = (mapping: typeof classroomMappings[number]) => {
+    const own = savedKey(mapping)
+    const claimed = new Set(classroomMappings.filter(other => other.classroomId !== mapping.classroomId).flatMap(other => [savedKey(other), mappingChoice[other.classroomId] || '']).filter(Boolean))
+    return sortedOptions.filter(option => { const key = mappingKey(option.grade, option.classroom); return key === own || !claimed.has(key) })
+  }
   const unresolvedMappings = useMemo(() => classroomMappings.filter(mapping => !mapping.grade || !mapping.classroomValue), [classroomMappings])
 
   const toggle = (teacherId: string) => setSelected(current => current.includes(teacherId) ? current.filter(id => id !== teacherId) : [...current, teacherId])
@@ -109,15 +125,16 @@ export function TeacherAdminCenter({ schoolName }: { schoolName: string }) {
   }
   const saveMapping = async (classroomId: string) => {
     const choice = mappingChoice[classroomId]
-    const option = options.find(value => `${value.grade}|||${value.classroom}` === choice)
+    const mapping = classroomMappings.find(value => value.classroomId === classroomId)
+    const option = mapping && availableOptions(mapping).find(value => mappingKey(value.grade, value.classroom) === choice)
     if (!option) { setError('اختر صفًا وفصلًا من بيانات الطلاب أولًا.'); return }
     setBusy(`map-${classroomId}`)
     try {
       await api.saveTeacherClassroomMapping({ classroomId, grade: option.grade, classroom: option.classroom })
-      setMappingChoice(current => ({ ...current, [classroomId]: `${option.grade}|||${option.classroom}` }))
+      setMappingChoice(current => ({ ...current, [classroomId]: mappingKey(option.grade, option.classroom) }))
       setNotice(`تم ربط الفصل بمجموعة: ${option.grade} — الفصل ${option.classroom}.`)
       await load()
-    } catch { setError('تعذر حفظ ربط الفصل.') } finally { setBusy('') }
+    } catch { setError('تعذر حفظ الربط. ربما رُبط الفصل من جهاز آخر؛ حدّث البيانات واختر فصلًا متاحًا.'); await load() } finally { setBusy('') }
   }
   const loadReports = async () => {
     setBusy('reports'); setError('')
@@ -174,7 +191,7 @@ export function TeacherAdminCenter({ schoolName }: { schoolName: string }) {
 
           {accountPanel === 'credentials' && <section className="teacher-credentials"><div><ShieldCheck size={22} /><div><h3>بيانات دخول المعلمين</h3><p>تُحفظ كلمات المرور المؤقتة مشفّرة حتى يغيّرها المعلم، لتبقى متاحة للعرض والطباعة من هذه الشاشة.</p></div></div>{busy === 'credentials' ? <p className="teacher-empty">جارٍ تحميل بيانات الدخول…</p> : credentials.length ? <><div className="teacher-export-actions"><button className="outline-button" onClick={() => openPrintDocument('بيانات الدخول المؤقتة للمعلمين', credentialsHtml(credentials), schoolName)}><Printer size={17} /> PDF</button><button className="outline-button" onClick={exportCredentials}><FileDown size={17} /> تصدير إلى Excel</button></div><div className="teacher-credential-table-wrap"><table className="teacher-credential-table"><thead><tr><th>الاسم</th><th>رقم الهوية</th><th>كلمة المرور</th></tr></thead><tbody>{credentials.slice(0, showAllCredentials ? credentials.length : 12).map(credential => <tr key={credential.teacherId}><td>{credential.name}</td><td>{credential.identityNumber}</td><td>{credential.temporaryPassword}</td></tr>)}</tbody></table></div>{credentials.length > 12 && <button className="outline-button teacher-show-more" onClick={() => setShowAllCredentials(current => !current)}>{showAllCredentials ? 'عرض مختصر' : `عرض جميع البيانات (${credentials.length})`}</button>}</> : <p className="teacher-empty">لا توجد كلمات مرور قابلة للطباعة للحسابات الحالية. كلمات المرور التي أُنشئت قبل إضافة الحفظ المشفّر لا يمكن استعادتها من بصمتها الأمنية؛ حدّد الحسابات ثم اختر «إعادة إصدار المحددين» لإنتاج كلمات مرور جديدة تحفظ وتظهر هنا.</p>}</section>}
 
-      {accountPanel === 'mappings' && <section className="teacher-admin-card teacher-mapping-card">{classroomMappings.length ? <><div className="teacher-section-head"><div><span>مطابقة الفصول</span><h3>مطابقة طلاب الفصول</h3></div></div><p className="teacher-help">اختر مجموعة الطلاب المناسبة لكل فصل ليظهر للمعلم طلاب فصله فقط. بعد الحفظ يظهر اسم الصف والفصل المرتبطين داخل الصف نفسه.</p><div className="teacher-mapping-list">{classroomMappings.map(mapping => <article key={mapping.classroomId}><div className="teacher-mapping-name"><strong>{mapping.classroom}</strong>{mapping.grade && mapping.classroomValue && <span>مرتبط بـ: {mapping.grade} — الفصل {mapping.classroomValue}</span>}</div><select value={mappingChoice[mapping.classroomId] ?? (mapping.grade && mapping.classroomValue ? `${mapping.grade}|||${mapping.classroomValue}` : '')} onChange={event => setMappingChoice(current => ({ ...current, [mapping.classroomId]: event.target.value }))}><option value="">اختر الصف والفصل</option>{options.map(option => <option key={`${option.grade}-${option.classroom}`} value={`${option.grade}|||${option.classroom}`}>{option.grade} — الفصل {option.classroom} ({option.count} طالب)</option>)}</select><button className="primary-button" onClick={() => void saveMapping(mapping.classroomId)} disabled={busy === `map-${mapping.classroomId}`}>{mapping.grade && mapping.classroomValue ? 'تحديث الربط' : 'حفظ الربط'}</button></article>)}</div></> : <p className="teacher-empty">لا توجد فصول مستوردة لربطها ببيانات الطلاب.</p>}</section>}
+      {accountPanel === 'mappings' && <section className="teacher-admin-card teacher-mapping-card">{classroomMappings.length ? <><div className="teacher-section-head"><div><span>مطابقة الفصول</span><h3>مطابقة طلاب الفصول</h3></div></div><p className="teacher-help">اختر مجموعة الطلاب المناسبة لكل فصل ليظهر للمعلم طلاب فصله فقط. لا تظهر المجموعات المرتبطة بفصل آخر. يمكنك تغيير الربط ثم حفظه.</p><div className="teacher-mapping-list">{sortedMappings.map(mapping => <article key={mapping.classroomId}><div className="teacher-mapping-name"><strong>{mapping.classroom}</strong>{mapping.grade && mapping.classroomValue && <span>مرتبط بـ: {mapping.grade} — الفصل {mapping.classroomValue}</span>}</div><select value={mappingChoice[mapping.classroomId] ?? savedKey(mapping)} onChange={event => setMappingChoice(current => ({ ...current, [mapping.classroomId]: event.target.value }))}><option value="">اختر الصف والفصل</option>{availableOptions(mapping).map(option => <option key={mappingKey(option.grade, option.classroom)} value={mappingKey(option.grade, option.classroom)}>{option.grade} — الفصل {option.classroom} ({option.count} طالب)</option>)}</select><button className="primary-button" onClick={() => void saveMapping(mapping.classroomId)} disabled={busy === `map-${mapping.classroomId}`}>{mapping.grade && mapping.classroomValue ? 'تحديث الربط' : 'حفظ الربط'}</button></article>)}</div></> : <p className="teacher-empty">لا توجد فصول مستوردة لربطها ببيانات الطلاب.</p>}</section>}
     </>}
 
     {tab === 'reports' && <section className="teacher-admin-card">
