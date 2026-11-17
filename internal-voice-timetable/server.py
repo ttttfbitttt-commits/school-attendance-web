@@ -14,6 +14,7 @@ from hasr_bridge import sync_coverages, reconcile_today
 import auth as sound_auth
 from engine import import_workbook, import_smarttable_project, validate, solve, swap_options
 from standby import generate as generate_standby, signature as standby_signature
+from standby_excel_import import parse_waiting_workbook, preview_waiting_import, apply_waiting_import
 from schedules import sync_schedule
 from absence import distribute as distribute_absence, official_html as absence_html, cancel_absence as cancel_absence_record, reconcile_missing_emergency_assignments, extreme_candidates, assign_extreme_candidate
 from signature_tasks import prepare_tasks, find_task as find_signature_task, public_task as public_signature_task, submit_signature, normalize_phone, mark_whatsapp_action
@@ -471,6 +472,32 @@ class Handler(SimpleHTTPRequestHandler):
                     except ValueError as error: return self.reply({'errors':[str(error)]},422)
                     project['revision']=current.get('revision',0)+1; write(project)
                 return self.reply({'project':project})
+            if path in ['/api/standby-excel-preview','/api/standby-excel-import']:
+                temporary=None
+                try:
+                    temporary=uploaded_xlsx(body.get('file',''))
+                    parsed=parse_waiting_workbook(temporary)
+                    with lock:
+                        current=read()
+                        if body.get('revision')!=current.get('revision'):
+                            return self.reply({'errors':['تغيّر الجدول. حدّث الصفحة وأعد المعاينة.']},409)
+                        submitted=body.get('schedule',{})
+                        if standby_signature(submitted)!=standby_signature(current) or submitted.get('days')!=current.get('days'):
+                            return self.reply({'errors':['احفظ تغييرات الجدول الدراسي أولًا، ثم أعد معاينة ملف الانتظار.']},409)
+                        preview=preview_waiting_import(current,parsed,body.get('teachers'))
+                        if path=='/api/standby-excel-preview':
+                            return self.reply({'summary':{key:preview[key] for key in ('sheet','entries','matches','unmatched','issues')}})
+                        project=apply_waiting_import(current,preview)
+                        sync_schedule(project)
+                        project['revision']=current.get('revision',0)+1
+                        write(project)
+                    return self.reply({'project':project,'count':preview['entries']})
+                except ValueError as error:
+                    return self.reply({'errors':[str(error)]},422)
+                except Exception:
+                    return self.reply({'errors':['تعذرت قراءة جدول الانتظار. اختر ملف Excel الصحيح وأعد المحاولة.']},422)
+                finally:
+                    if temporary: temporary.unlink(missing_ok=True)
             if path in ['/api/asc-preview','/api/asc-import']:
                 try:
                     raw=base64.b64decode(str(body.get('file','')),validate=True)
